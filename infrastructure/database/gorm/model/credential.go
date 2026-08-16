@@ -41,7 +41,7 @@ type Credential struct {
 	RejecterUserId       *string              `gorm:"type:char(26);column:rejecter_user_id"`
 	RevokerUserId        *string              `gorm:"type:char(26);column:revoker_user_id"`
 	RejectionReason      *string              `gorm:"type:text;column:rejection_reason"`
-	IssuedAt             time.Time            `gorm:"column:issued_at;not null;default:CURRENT_TIMESTAMP"`
+	IssuedAt             time.Time            `gorm:"column:issued_at;not null"`
 	ExpiresAt            *time.Time           `gorm:"column:expires_at;index"`
 	ApprovedAt           *time.Time           `gorm:"column:approved_at"`
 	RejectedAt           *time.Time           `gorm:"column:rejected_at"`

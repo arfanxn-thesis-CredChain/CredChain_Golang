@@ -1072,6 +1072,20 @@ func TestReExtractCompensate_Success(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCredentialIssuedAtToChain(t *testing.T) {
+	assert.Equal(t, uint64(0), credentialIssuedAtToChain(time.Time{}), "zero issued_at writes 0 on chain")
+
+	ts := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	assert.Equal(t, uint64(ts.Unix()), credentialIssuedAtToChain(ts))
+}
+
+func TestCredentialExpiresAtToChain(t *testing.T) {
+	assert.Equal(t, uint64(0), credentialExpiresAtToChain(nil), "NULL DB expiry writes 0 on chain")
+
+	ts := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	assert.Equal(t, uint64(ts.Unix()), credentialExpiresAtToChain(&ts))
+}
+
 func TestSyncBlockchainRevoke_EmptyInput(t *testing.T) {
 	svc := &credentialService{logger: zap.NewNop()}
 	err := svc.syncBlockchainRevoke(context.Background(), domain.Wallet{}, []string{})

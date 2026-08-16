@@ -92,7 +92,7 @@ CREATE TABLE credentials (
     rejecter_user_id CHAR(26),
     revoker_user_id CHAR(26),
     rejection_reason TEXT,
-    issued_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    issued_at TIMESTAMP WITH TIME ZONE NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE,
     approved_at TIMESTAMP WITH TIME ZONE,
     rejected_at TIMESTAMP WITH TIME ZONE,

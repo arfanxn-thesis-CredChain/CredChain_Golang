@@ -2,6 +2,7 @@ package chain
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"strings"
@@ -70,6 +71,11 @@ type CredentialIssuance struct {
 	HolderAddress string
 	Hash          string
 	URI           string
+	// IssuedAt is the issue date in seconds since epoch (mirrors DB issued_at).
+	IssuedAt uint64
+	// ExpiresAt is the expiry timestamp in seconds since epoch; 0 means no
+	// expiry. It mirrors the credential's DB expires_at (NULL -> 0).
+	ExpiresAt uint64
 }
 
 // registryWaitMinedFunc matches bind.WaitMined for test injection in registry_service.
@@ -123,9 +129,11 @@ func (s *registryService) IssueCredentials(ctx context.Context, signer domain.Wa
 	issuances := make([]contracts.CredentialRegistryCredentialIssuance, len(credentials))
 	for i, c := range credentials {
 		issuances[i] = contracts.CredentialRegistryCredentialIssuance{
-			Holder: mustHexToAddress(c.HolderAddress),
-			Hash:   c.Hash,
-			Uri:    c.URI,
+			Holder:    mustHexToAddress(c.HolderAddress),
+			Hash:      c.Hash,
+			Uri:       c.URI,
+			IssuedAt:  c.IssuedAt,
+			ExpiresAt: c.ExpiresAt,
 		}
 	}
 
@@ -151,6 +159,12 @@ func (s *registryService) IssueCredentials(ctx context.Context, signer domain.Wa
 		packed = append(packed, iss.Holder.Bytes()...)
 		packed = append(packed, []byte(iss.Hash)...)
 		packed = append(packed, []byte(iss.Uri)...)
+		var issuedAt [8]byte
+		binary.BigEndian.PutUint64(issuedAt[:], iss.IssuedAt)
+		packed = append(packed, issuedAt[:]...)
+		var expiresAt [8]byte
+		binary.BigEndian.PutUint64(expiresAt[:], iss.ExpiresAt)
+		packed = append(packed, expiresAt[:]...)
 	}
 
 	digest := crypto.Keccak256(packed)

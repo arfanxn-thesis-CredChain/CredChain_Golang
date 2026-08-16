@@ -233,6 +233,7 @@ func (s *credentialService) issuePrepareCredentials(
 ) ([]domain.Credential, error) {
 	authUser := httpContext.MustGetUser(ctx)
 
+	issuedAt := time.Now()
 	creds := make([]domain.Credential, len(items))
 	for i, it := range items {
 		ext := strings.ToLower(filepath.Ext(it.Filename))
@@ -260,6 +261,7 @@ func (s *credentialService) issuePrepareCredentials(
 			FileHash:      hash,
 			FileURI:       &filename,
 			ExtractStatus: domain.ExtractStatusPending,
+			IssuedAt:      issuedAt,
 		}
 	}
 	return creds, nil
@@ -273,6 +275,26 @@ func (s *credentialService) issueCleanupOrphanFiles(creds []domain.Credential) {
 		}
 	}
 	s.cleanupOrphanFiles(paths)
+}
+
+// credentialIssuedAtToChain converts the credential's issue date to the
+// on-chain seconds value. The issue flow stamps IssuedAt explicitly, so the
+// same value reaches the database and the chain.
+func credentialIssuedAtToChain(issuedAt time.Time) uint64 {
+	if issuedAt.IsZero() {
+		return 0
+	}
+	return uint64(issuedAt.Unix())
+}
+
+// credentialExpiresAtToChain maps the credential's DB expiry to the on-chain
+// seconds value. NULL in the database and 0 on chain both mean no expiry
+// (FINAL: no sentinel value).
+func credentialExpiresAtToChain(expiresAt *time.Time) uint64 {
+	if expiresAt == nil {
+		return 0
+	}
+	return uint64(expiresAt.Unix())
 }
 
 // issueCommit runs the UoW transaction: Store credentials, mint on-chain,
@@ -312,6 +334,8 @@ func (s *credentialService) issueCommit(
 				HolderAddress: holderByID[c.HolderUserID].WalletAddress,
 				Hash:          c.FileHash,
 				URI:           c.ID,
+				IssuedAt:      credentialIssuedAtToChain(c.IssuedAt),
+				ExpiresAt:     credentialExpiresAtToChain(c.ExpiresAt),
 			}
 		}
 		tokenIds, err := s.syncBlockchainIssue(ctx, authWallet, issuances)
