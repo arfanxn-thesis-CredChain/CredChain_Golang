@@ -14,24 +14,41 @@ import (
 // ExtractStatus is the credential_extract_status Postgres ENUM stored as
 // TEXT in SQLite.
 //
+// The partial unique index on file_hash mirrors the migration:
+// WHERE revoked_at IS NULL AND rejected_at IS NULL.
+// The composite unique index (issuer_organization_id, number) mirrors
+// uq_credentials_issuer_org_number.
+//
 // HolderUser / IssuerUser / RevokerUser are GORM relationship fields.
 // They are populated by Preload in the repository when the query's Includes
 // contains the corresponding key.
 type Credential struct {
-	Id            string               `gorm:"primaryKey;type:char(26);column:id"`
-	HolderUserId  string               `gorm:"type:char(26);column:holder_user_id;index"`
-	IssuerUserId  string               `gorm:"type:char(26);column:issuer_user_id;index"`
-	RevokerUserId *string              `gorm:"type:char(26);column:revoker_user_id"`
-	Name          string               `gorm:"type:varchar(256);column:name;not null"`
-	Meta          map[string]any       `gorm:"type:jsonb;serializer:json;column:meta"`
-	TokenID       *string              `gorm:"type:varchar(256);column:token_id;uniqueIndex"`
-	FileHash      string               `gorm:"type:char(66);column:file_hash;index:idx_credentials_file_hash_active,unique,where:revoked_at IS NULL"`
-	FileURI       *string              `gorm:"type:text;column:file_uri"`
-	ExtractStatus domain.ExtractStatus `gorm:"type:credential_extract_status;column:extract_status;not null;default:pending"`
-	ExtractError  *string              `gorm:"type:text;column:extract_error"`
-	ExtractedAt   *time.Time           `gorm:"column:extracted_at"`
-	IssuedAt      time.Time            `gorm:"column:issued_at;not null;default:CURRENT_TIMESTAMP"`
-	RevokedAt     *time.Time           `gorm:"column:revoked_at"`
+	Id                   string               `gorm:"primaryKey;type:char(26);column:id"`
+	HolderUserId         string               `gorm:"type:char(26);column:holder_user_id;index;not null"`
+	SubmitterUserId      string               `gorm:"type:char(26);column:submitter_user_id;not null"`
+	IssuerUserId         string               `gorm:"type:char(26);column:issuer_user_id;index;not null"`
+	IssuerOrganizationId string               `gorm:"type:char(26);column:issuer_organization_id;not null;uniqueIndex:uq_credentials_issuer_org_number"`
+	TypeId               string               `gorm:"type:char(26);column:type_id;index;not null"`
+	Number               *string              `gorm:"type:varchar(256);column:number;uniqueIndex:uq_credentials_issuer_org_number"`
+	Name                 string               `gorm:"type:varchar(256);column:name;not null"`
+	Meta                 map[string]any       `gorm:"type:jsonb;serializer:json;column:meta"`
+	TokenID              *string              `gorm:"type:varchar(256);column:token_id;uniqueIndex"`
+	FileHash             string               `gorm:"type:char(66);column:file_hash;index:idx_credentials_file_hash_active,unique,where:revoked_at IS NULL AND rejected_at IS NULL"`
+	FileURI              *string              `gorm:"type:text;column:file_uri"`
+	ExtractStatus        domain.ExtractStatus `gorm:"type:credential_extract_status;column:extract_status;not null;default:pending"`
+	ExtractError         *string              `gorm:"type:text;column:extract_error"`
+	ApproverUserId       *string              `gorm:"type:char(26);column:approver_user_id"`
+	RejecterUserId       *string              `gorm:"type:char(26);column:rejecter_user_id"`
+	RevokerUserId        *string              `gorm:"type:char(26);column:revoker_user_id"`
+	RejectionReason      *string              `gorm:"type:text;column:rejection_reason"`
+	IssuedAt             time.Time            `gorm:"column:issued_at;not null;default:CURRENT_TIMESTAMP"`
+	ExpiresAt            *time.Time           `gorm:"column:expires_at;index"`
+	ApprovedAt           *time.Time           `gorm:"column:approved_at"`
+	RejectedAt           *time.Time           `gorm:"column:rejected_at"`
+	RevokedAt            *time.Time           `gorm:"column:revoked_at;index"`
+	ExtractedAt          *time.Time           `gorm:"column:extracted_at"`
+	CreatedAt            time.Time            `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt            *time.Time           `gorm:"autoUpdateTime;column:updated_at"`
 
 	// GORM relations — populated by db.Preload("HolderUser") etc. from the
 	// repository layer when the caller requests includes of "holder",
@@ -49,26 +66,37 @@ func (Credential) TableName() string { return "credentials" }
 // corresponding domain.User pointers.
 func (m Credential) ToDomain() domain.Credential {
 	c := domain.Credential{
-		ID:            m.Id,
-		HolderUserID:  m.HolderUserId,
-		IssuerUserID:  m.IssuerUserId,
-		RevokerUserID: m.RevokerUserId,
-		Name:          m.Name,
-		Meta:          m.Meta,
-		TokenID:       m.TokenID,
-		FileHash:      m.FileHash,
-		FileURI:       m.FileURI,
-		ExtractStatus: m.ExtractStatus,
-		ExtractError:  m.ExtractError,
-		ExtractedAt:   m.ExtractedAt,
-		IssuedAt:      m.IssuedAt,
-		RevokedAt:     m.RevokedAt,
+		ID:                   m.Id,
+		HolderUserID:         m.HolderUserId,
+		SubmitterUserID:      m.SubmitterUserId,
+		IssuerUserID:         m.IssuerUserId,
+		IssuerOrganizationID: m.IssuerOrganizationId,
+		TypeID:               m.TypeId,
+		Number:               m.Number,
+		Name:                 m.Name,
+		Meta:                 m.Meta,
+		TokenID:              m.TokenID,
+		FileHash:             m.FileHash,
+		FileURI:              m.FileURI,
+		ExtractStatus:        m.ExtractStatus,
+		ExtractError:         m.ExtractError,
+		ApproverUserID:       m.ApproverUserId,
+		RejecterUserID:       m.RejecterUserId,
+		RevokerUserID:        m.RevokerUserId,
+		RejectionReason:      m.RejectionReason,
+		IssuedAt:             m.IssuedAt,
+		ExpiresAt:            m.ExpiresAt,
+		ApprovedAt:           m.ApprovedAt,
+		RejectedAt:           m.RejectedAt,
+		RevokedAt:            m.RevokedAt,
+		ExtractedAt:          m.ExtractedAt,
+		CreatedAt:            m.CreatedAt,
+		UpdatedAt:            m.UpdatedAt,
 	}
 	// Guard on the preloaded row's own PK, not the foreign key: the *User
 	// association fields are value types, so an un-preloaded relation is a
 	// zero User{} (empty Id). Keying off the FK would fabricate an empty
-	// user whenever the FK is set but the row wasn't preloaded (e.g. verify
-	// doesn't preload revoker) — surfacing a phantom blank avatar in the UI.
+	// user whenever the FK is set but the row wasn't preloaded.
 	if m.HolderUser.Id != "" {
 		u := m.HolderUser.ToDomain()
 		c.Holder = &u
@@ -92,19 +120,31 @@ func FromDomainCredential(c domain.Credential) Credential {
 		status = domain.ExtractStatusPending
 	}
 	return Credential{
-		Id:            c.ID,
-		HolderUserId:  c.HolderUserID,
-		IssuerUserId:  c.IssuerUserID,
-		RevokerUserId: c.RevokerUserID,
-		Name:          c.Name,
-		Meta:          c.Meta,
-		TokenID:       c.TokenID,
-		FileHash:      c.FileHash,
-		FileURI:       c.FileURI,
-		ExtractStatus: status,
-		ExtractError:  c.ExtractError,
-		ExtractedAt:   c.ExtractedAt,
-		IssuedAt:      c.IssuedAt,
-		RevokedAt:     c.RevokedAt,
+		Id:                   c.ID,
+		HolderUserId:         c.HolderUserID,
+		SubmitterUserId:      c.SubmitterUserID,
+		IssuerUserId:         c.IssuerUserID,
+		IssuerOrganizationId: c.IssuerOrganizationID,
+		TypeId:               c.TypeID,
+		Number:               c.Number,
+		Name:                 c.Name,
+		Meta:                 c.Meta,
+		TokenID:              c.TokenID,
+		FileHash:             c.FileHash,
+		FileURI:              c.FileURI,
+		ExtractStatus:        status,
+		ExtractError:         c.ExtractError,
+		ApproverUserId:       c.ApproverUserID,
+		RejecterUserId:       c.RejecterUserID,
+		RevokerUserId:        c.RevokerUserID,
+		RejectionReason:      c.RejectionReason,
+		IssuedAt:             c.IssuedAt,
+		ExpiresAt:            c.ExpiresAt,
+		ApprovedAt:           c.ApprovedAt,
+		RejectedAt:           c.RejectedAt,
+		RevokedAt:            c.RevokedAt,
+		ExtractedAt:          c.ExtractedAt,
+		CreatedAt:            c.CreatedAt,
+		UpdatedAt:            c.UpdatedAt,
 	}
 }

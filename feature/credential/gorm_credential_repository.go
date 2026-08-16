@@ -357,6 +357,66 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return nil, false
 	})
+	addCol("number", func(c domain.Credential) (interface{}, bool) {
+		if c.Number == nil {
+			return nil, false
+		}
+		return *c.Number, true
+	})
+	addCol("submitter_user_id", func(c domain.Credential) (interface{}, bool) {
+		if c.SubmitterUserID == "" {
+			return nil, false
+		}
+		return c.SubmitterUserID, true
+	})
+	addCol("issuer_organization_id", func(c domain.Credential) (interface{}, bool) {
+		if c.IssuerOrganizationID == "" {
+			return nil, false
+		}
+		return c.IssuerOrganizationID, true
+	})
+	addCol("type_id", func(c domain.Credential) (interface{}, bool) {
+		if c.TypeID == "" {
+			return nil, false
+		}
+		return c.TypeID, true
+	})
+	addCol("expires_at", func(c domain.Credential) (interface{}, bool) {
+		if c.ExpiresAt == nil {
+			return nil, false
+		}
+		return *c.ExpiresAt, true
+	})
+	addCol("approver_user_id", func(c domain.Credential) (interface{}, bool) {
+		if c.ApproverUserID == nil {
+			return nil, false
+		}
+		return *c.ApproverUserID, true
+	})
+	addCol("approved_at", func(c domain.Credential) (interface{}, bool) {
+		if c.ApprovedAt == nil {
+			return nil, false
+		}
+		return *c.ApprovedAt, true
+	})
+	addCol("rejecter_user_id", func(c domain.Credential) (interface{}, bool) {
+		if c.RejecterUserID == nil {
+			return nil, false
+		}
+		return *c.RejecterUserID, true
+	})
+	addCol("rejected_at", func(c domain.Credential) (interface{}, bool) {
+		if c.RejectedAt == nil {
+			return nil, false
+		}
+		return *c.RejectedAt, true
+	})
+	addCol("rejection_reason", func(c domain.Credential) (interface{}, bool) {
+		if c.RejectionReason == nil {
+			return nil, false
+		}
+		return *c.RejectionReason, true
+	})
 	addCol("meta", func(c domain.Credential) (interface{}, bool) {
 		if c.Meta == nil {
 			return nil, false
@@ -418,7 +478,7 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 	for i, c := range items {
 		ids[i] = c.ID
 	}
-	sql, finalArgs := gormhelpers.BuildBatchUpdateSQL("credentials", "id", clauses, allArgs, ids)
+	sql, finalArgs := gormhelpers.BuildBatchUpdateSQL("credentials", "id", clauses, allArgs, ids, "updated_at = CURRENT_TIMESTAMP")
 	return r.db.WithContext(ctx).Exec(sql, finalArgs...).Error
 }
 

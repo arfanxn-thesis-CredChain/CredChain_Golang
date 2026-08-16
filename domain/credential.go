@@ -35,20 +35,32 @@ const (
 // They are populated by the repository when the caller's query includes
 // "holder", "issuer", or "revoker" in its Includes slice.
 type Credential struct {
-	ID            string         `db:"id"              json:"id"`
-	HolderUserID  string         `db:"holder_user_id"  json:"holder_user_id"`
-	IssuerUserID  string         `db:"issuer_user_id"  json:"issuer_user_id"`
-	RevokerUserID *string        `db:"revoker_user_id" json:"revoker_user_id"`
-	Name          string         `db:"name"            json:"name"`
-	Meta          map[string]any `db:"meta"            json:"meta"`
-	TokenID       *string        `db:"token_id"        json:"token_id"`
-	FileHash      string         `db:"file_hash"       json:"file_hash"`
-	FileURI       *string        `db:"file_uri"        json:"file_uri"`
-	ExtractStatus ExtractStatus  `db:"extract_status"  json:"extract_status"`
-	ExtractError  *string        `db:"extract_error"   json:"extract_error"`
-	ExtractedAt   *time.Time     `db:"extracted_at"    json:"extracted_at"`
-	IssuedAt      time.Time      `db:"issued_at"       json:"issued_at"`
-	RevokedAt     *time.Time     `db:"revoked_at"      json:"revoked_at"`
+	ID                   string         `db:"id"              json:"id"`
+	HolderUserID         string         `db:"holder_user_id"  json:"holder_user_id"`
+	SubmitterUserID      string         `db:"submitter_user_id"       json:"submitter_user_id"`
+	IssuerUserID         string         `db:"issuer_user_id"  json:"issuer_user_id"`
+	IssuerOrganizationID string         `db:"issuer_organization_id" json:"issuer_organization_id"`
+	TypeID               string         `db:"type_id"                json:"type_id"`
+	Number               *string        `db:"number"                 json:"number"`
+	RevokerUserID        *string        `db:"revoker_user_id" json:"revoker_user_id"`
+	Name                 string         `db:"name"            json:"name"`
+	Meta                 map[string]any `db:"meta"            json:"meta"`
+	TokenID              *string        `db:"token_id"        json:"token_id"`
+	FileHash             string         `db:"file_hash"       json:"file_hash"`
+	FileURI              *string        `db:"file_uri"        json:"file_uri"`
+	ExtractStatus        ExtractStatus  `db:"extract_status"  json:"extract_status"`
+	ExtractError         *string        `db:"extract_error"   json:"extract_error"`
+	ExtractedAt          *time.Time     `db:"extracted_at"    json:"extracted_at"`
+	IssuedAt             time.Time      `db:"issued_at"       json:"issued_at"`
+	RevokedAt            *time.Time     `db:"revoked_at"      json:"revoked_at"`
+	ExpiresAt            *time.Time     `db:"expires_at"        json:"expires_at"`
+	ApproverUserID       *string        `db:"approver_user_id"  json:"approver_user_id"`
+	ApprovedAt           *time.Time     `db:"approved_at"       json:"approved_at"`
+	RejecterUserID       *string        `db:"rejecter_user_id"  json:"rejecter_user_id"`
+	RejectedAt           *time.Time     `db:"rejected_at"       json:"rejected_at"`
+	RejectionReason      *string        `db:"rejection_reason"  json:"rejection_reason"`
+	CreatedAt            time.Time      `db:"created_at"        json:"created_at"`
+	UpdatedAt            *time.Time     `db:"updated_at"        json:"updated_at"`
 
 	// Preloaded relations (populated by repository when query.Includes contains
 	// "holder", "issuer", or "revoker"). json:"-" so they never leak through
