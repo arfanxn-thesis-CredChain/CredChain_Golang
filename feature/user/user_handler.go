@@ -18,7 +18,6 @@ type UserHandler interface {
 	Find(c *gin.Context)
 	Store(c *gin.Context)
 	Update(c *gin.Context)
-	UpdateSelfProfile(c *gin.Context)
 	UpdateSelfEmail(c *gin.Context)
 	UpdateRole(c *gin.Context)
 	Delete(c *gin.Context)
@@ -118,27 +117,6 @@ func (h *userHandler) Store(c *gin.Context) {
 		users[i] = response.FromDomainUser(u)
 	}
 	responder.Send(c, domain.CodeUserStoreSuccess, users)
-}
-
-func (h *userHandler) UpdateSelfProfile(c *gin.Context) {
-	authUser := httpContext.MustGetUser(c.Request.Context())
-	var req UserUpdateSelfProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
-		return
-	}
-	if err := req.Validate(); err != nil {
-		responder.SendValidationError(c, err)
-		return
-	}
-	user, err := h.userSvc.UpdateProfile(c.Request.Context(), authUser.Id, req.PhoneNumber)
-	if err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
-		return
-	}
-	responder.Send(c, domain.CodeUserProfileSuccess, response.FromDomainUser(*user))
 }
 
 func (h *userHandler) UpdateSelfEmail(c *gin.Context) {

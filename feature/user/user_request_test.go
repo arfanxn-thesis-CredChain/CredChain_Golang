@@ -32,7 +32,6 @@ func TestUserStoreInput_Validate(t *testing.T) {
 				Email:       "jane@example.com",
 				Role:        domain.RoleIssuer,
 				Number:      lo.ToPtr("12345"),
-				PhoneNumber: lo.ToPtr("+62812345678"),
 				BirthDate:   lo.ToPtr("1990-01-01"),
 				Meta:        map[string]any{"key": "value"},
 			},
@@ -84,17 +83,15 @@ func TestUserStoreInput_Validate(t *testing.T) {
 func TestUserStoreInput_ToDomain(t *testing.T) {
 	t.Run("All fields set", func(t *testing.T) {
 		number := "12345"
-		phone := "+62812345678"
 		birthDate := "1990-01-01"
 		meta := map[string]any{"key": "value"}
 		input := UserStoreInput{
-			Name:        "John Doe",
-			Email:       "john@example.com",
-			Role:        domain.RoleHolder,
-			Number:      &number,
-			PhoneNumber: &phone,
-			BirthDate:   &birthDate,
-			Meta:        meta,
+			Name:      "John Doe",
+			Email:     "john@example.com",
+			Role:      domain.RoleHolder,
+			Number:    &number,
+			BirthDate: &birthDate,
+			Meta:      meta,
 		}
 
 		got := input.ToDomain()
@@ -104,7 +101,6 @@ func TestUserStoreInput_ToDomain(t *testing.T) {
 		assert.Equal(t, "john@example.com", got.Email)
 		assert.Equal(t, domain.RoleHolder, got.Role)
 		assert.Equal(t, &number, got.Number)
-		assert.Equal(t, &phone, got.PhoneNumber)
 		assert.NotNil(t, got.BirthDate)
 		assert.Equal(t, time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), *got.BirthDate)
 		assert.Equal(t, meta, got.Meta)
@@ -124,7 +120,6 @@ func TestUserStoreInput_ToDomain(t *testing.T) {
 		assert.Equal(t, "john@example.com", got.Email)
 		assert.Equal(t, domain.RoleHolder, got.Role)
 		assert.Nil(t, got.Number)
-		assert.Nil(t, got.PhoneNumber)
 		assert.Nil(t, got.BirthDate)
 		assert.Nil(t, got.Meta)
 	})
@@ -284,59 +279,10 @@ func TestUserStoreInput_NameAtMax(t *testing.T) {
 	assert.NoError(t, in.Validate())
 }
 
-func TestUserStoreInput_PhoneOverMax(t *testing.T) {
-	over := "+1" + strings.Repeat("9", 18)
-	in := UserStoreInput{Name: "n", Email: "ok@x.com", Role: domain.RoleHolder, PhoneNumber: &over}
-	assert.Error(t, in.Validate())
-}
-
-func TestUserStoreInput_PhoneNotE164(t *testing.T) {
-	bad := "abc-123"
-	in := UserStoreInput{Name: "n", Email: "ok@x.com", Role: domain.RoleHolder, PhoneNumber: &bad}
-	assert.Error(t, in.Validate())
-}
-
-func TestUserStoreInput_PhoneBareCountryCode(t *testing.T) {
-	bad := "+62"
-	in := UserStoreInput{Name: "n", Email: "ok@x.com", Role: domain.RoleHolder, PhoneNumber: &bad}
-	assert.Error(t, in.Validate(), "+62 (bare country code) must be rejected by strict E.164")
-}
-
-func TestUserStoreInput_PhoneValidE164(t *testing.T) {
-	ok := "+6281234567890"
-	in := UserStoreInput{Name: "n", Email: "ok@x.com", Role: domain.RoleHolder, PhoneNumber: &ok}
-	assert.NoError(t, in.Validate())
-}
-
 func TestUserStoreInput_EmailOverMax(t *testing.T) {
 	longLocal := strings.Repeat("a", 250)
 	in := UserStoreInput{Name: "n", Email: longLocal + "@x.com", Role: domain.RoleHolder}
 	assert.Error(t, in.Validate())
-}
-
-func TestUserUpdateSelfProfileRequest_Validate(t *testing.T) {
-	tests := []struct {
-		name    string
-		req     UserUpdateSelfProfileRequest
-		wantErr bool
-	}{
-		{"nil phone", UserUpdateSelfProfileRequest{PhoneNumber: nil}, false},
-		{"empty phone", UserUpdateSelfProfileRequest{PhoneNumber: lo.ToPtr("")}, false},
-		{"valid E.164", UserUpdateSelfProfileRequest{PhoneNumber: lo.ToPtr("+628123456789")}, false},
-		{"too long", UserUpdateSelfProfileRequest{PhoneNumber: lo.ToPtr("+62812345678901234567890")}, true},
-		{"non-E.164", UserUpdateSelfProfileRequest{PhoneNumber: lo.ToPtr("0812345")}, true},
-		{"bare country code", UserUpdateSelfProfileRequest{PhoneNumber: lo.ToPtr("+62")}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.req.Validate()
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
 }
 
 func TestUserUpdateSelfEmailRequest_EmailOverMax(t *testing.T) {
@@ -364,12 +310,6 @@ func TestUserUpdateInput_Validate_Valid(t *testing.T) {
 	n := "Alice"
 	in := UserUpdateInput{Id: "u1", Name: &n}
 	assert.NoError(t, in.Validate())
-}
-
-func TestUserUpdateInput_Validate_PhoneInvalid(t *testing.T) {
-	bad := "not-a-phone"
-	in := UserUpdateInput{Id: "u1", PhoneNumber: &bad}
-	assert.Error(t, in.Validate())
 }
 
 func TestUserUpdateRequest_Validate_Empty(t *testing.T) {

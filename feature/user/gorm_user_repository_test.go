@@ -220,20 +220,6 @@ func TestGormUserRepository_Get_SearchCaseInsensitive(t *testing.T) {
 	assert.Len(t, users, 1, "search must be case-insensitive")
 }
 
-func TestGormUserRepository_Get_SearchByPhoneNumber(t *testing.T) {
-	repo := newRepo(t)
-	_, _ = repo.Store(context.Background(),
-		fixtures.NewDomainUser(fixtures.WithPhoneNumber("+6281234567890"), fixtures.WithEmail("phone@x.com")),
-		fixtures.NewDomainUser(fixtures.WithEmail("other@x.com")),
-	)
-	q := &domainQuery.Query{Page: 1, Limit: 10, Search: "+6281234567890"}
-	users, total, err := repo.Get(context.Background(), q)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, total)
-	assert.Len(t, users, 1)
-	assert.Equal(t, "phone@x.com", users[0].Email)
-}
-
 func TestGormUserRepository_Get_SearchByNumber(t *testing.T) {
 	repo := newRepo(t)
 	num := "2209123456"
@@ -440,12 +426,12 @@ func TestGormUserRepository_Update_BatchCASE_MixedColumns(t *testing.T) {
 
 	name1 := "Alice"
 	num2 := "99999"
-	phone3 := "+6281234567890"
+	num3 := "88888"
 
 	updated, err := repo.Update(context.Background(),
 		domain.User{Id: "bc1", Name: &name1},
 		domain.User{Id: "bc2", Number: &num2},
-		domain.User{Id: "bc3", PhoneNumber: &phone3},
+		domain.User{Id: "bc3", Number: &num3},
 	)
 	assert.NoError(t, err)
 	assert.Len(t, updated, 3)
@@ -461,7 +447,7 @@ func TestGormUserRepository_Update_BatchCASE_MixedColumns(t *testing.T) {
 	assert.Equal(t, "99999", *byID["bc2"].Number)
 	assert.Equal(t, "bc2@x.com", byID["bc2"].Email)
 
-	assert.Equal(t, "+6281234567890", *byID["bc3"].PhoneNumber)
+	assert.Equal(t, "88888", *byID["bc3"].Number)
 	assert.Equal(t, "bc3@x.com", byID["bc3"].Email)
 
 	assert.Nil(t, byID["bc1"].Number)

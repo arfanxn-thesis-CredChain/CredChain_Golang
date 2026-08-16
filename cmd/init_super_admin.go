@@ -28,7 +28,6 @@ import (
 var (
 	initSuperAdminName      string
 	initSuperAdminNumber    string
-	initSuperAdminPhone     string
 	initSuperAdminEmail     string
 	initSuperAdminPrivKey   string
 	initSuperAdminBirthDate string
@@ -41,7 +40,6 @@ func init() {
 
 	initSuperAdminCmd.Flags().StringVar(&initSuperAdminName, "name", "", "Super admin name (optional)")
 	initSuperAdminCmd.Flags().StringVar(&initSuperAdminNumber, "number", "", "Super admin number/ID (optional)")
-	initSuperAdminCmd.Flags().StringVar(&initSuperAdminPhone, "phone", "", "Super admin phone number (optional)")
 	initSuperAdminCmd.Flags().StringVar(&initSuperAdminEmail, "email", "", "Super admin email (required)")
 	initSuperAdminCmd.Flags().StringVar(&initSuperAdminPrivKey, "private-key", "", "Super admin wallet private key (required)")
 	initSuperAdminCmd.Flags().StringVar(&initSuperAdminBirthDate, "birth-date", "", "Super admin birth date in ISO 8601 format (YYYY-MM-DD, optional)")
@@ -134,7 +132,6 @@ func initSuperAdminEncryptKey(privKey, encryptionKey string) (string, error) {
 //   - encryptedKey: Encrypted wallet private key for storage (required)
 //   - name: User name (optional, may be nil)
 //   - number: User number/ID like employee or student number (optional, may be nil)
-//   - phoneNumber: User phone number (optional, may be nil)
 //   - birthDate: User birth date in ISO 8601 format (optional, may be nil)
 //   - gender: User gender (optional, may be nil)
 //   - meta: User metadata as JSON object (optional, may be nil)
@@ -147,7 +144,6 @@ func initSuperAdminBuildUser(
 	encryptedKey string,
 	name *string,
 	number *string,
-	phoneNumber *string,
 	birthDate *time.Time,
 	gender *domain.Gender,
 	meta map[string]any,
@@ -155,7 +151,6 @@ func initSuperAdminBuildUser(
 	return domain.User{
 		Name:                      name,
 		Number:                    number,
-		PhoneNumber:               phoneNumber,
 		Email:                     email,
 		BirthDate:                 birthDate,
 		Gender:                    gender,
@@ -266,7 +261,6 @@ func initSuperAdmin(cfg *config.Config, userRepo domain.UserRepository, authorit
 	meta := initSuperAdminGetMeta(cfg, initSuperAdminMeta)
 	name := initSuperAdminGetString(cfg.InitialSuperAdminName, initSuperAdminName)
 	number := initSuperAdminGetString(cfg.InitialSuperAdminNumber, initSuperAdminNumber)
-	phone := initSuperAdminGetString(cfg.InitialSuperAdminPhoneNumber, initSuperAdminPhone)
 
 	email, privKey, err := initSuperAdminValidateConfig(cfg, initSuperAdminEmail, initSuperAdminPrivKey)
 	if err != nil {
@@ -306,7 +300,7 @@ func initSuperAdmin(cfg *config.Config, userRepo domain.UserRepository, authorit
 		return err
 	}
 
-	adminUser := initSuperAdminBuildUser(email, walletAddress, encryptedKey, name, number, phone, birthDate, gender, meta)
+	adminUser := initSuperAdminBuildUser(email, walletAddress, encryptedKey, name, number, birthDate, gender, meta)
 
 	_, err = userRepo.Store(context.Background(), adminUser)
 	if err != nil {
@@ -318,7 +312,6 @@ func initSuperAdmin(cfg *config.Config, userRepo domain.UserRepository, authorit
 		zap.String("walletAddress", adminUser.WalletAddress),
 		zap.String("name", getStringValue(adminUser.Name)),
 		zap.String("number", getStringValue(adminUser.Number)),
-		zap.String("phoneNumber", getStringValue(adminUser.PhoneNumber)),
 		zap.Time("birthDate", getTimeValue(adminUser.BirthDate)),
 		zap.Any("gender", adminUser.Gender),
 		zap.Any("meta", adminUser.Meta),
@@ -341,7 +334,6 @@ Pre-Initialization Checks:
 Environment Variables:
   INITIAL_SUPER_ADMIN_NAME         Super admin name (optional)
   INITIAL_SUPER_ADMIN_NUMBER       Super admin number/ID like employee or student number (optional)
-  INITIAL_SUPER_ADMIN_PHONE_NUMBER Super admin phone number in international format (optional)
   INITIAL_SUPER_ADMIN_EMAIL        Super admin email address (required)
   INITIAL_SUPER_ADMIN_PRIVATE_KEY  Super admin wallet private key, 64-char hex with 0x prefix (required)
   INITIAL_SUPER_ADMIN_BIRTH_DATE   Super admin birth date in ISO 8601 format YYYY-MM-DD (optional)
@@ -351,7 +343,6 @@ Environment Variables:
 CLI Flags (take priority over env vars):
   --name          Super admin name (optional)
   --number        Super admin number/ID (optional)
-  --phone         Super admin phone number (optional)
   --email         Super admin email (required)
   --private-key   Super admin wallet private key (required)
   --birth-date    Super admin birth date (YYYY-MM-DD, optional)
@@ -371,7 +362,6 @@ Examples:
     --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
     --name "Admin Name" \
     --number 1234 \
-    --phone 628123456789 \
     --birth-date 2000-01-01 \
     --meta '{"department":"engineering"}'
 

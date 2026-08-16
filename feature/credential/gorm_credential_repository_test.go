@@ -787,9 +787,9 @@ func TestGormCredentialGet_SortByHolderFields(t *testing.T) {
 	ctx := context.Background()
 
 	for _, u := range []model.User{
-		{Id: "h-alpha", Email: "alpha@test.com", Name: strPtr("Alpha Holder"), Number: strPtr("N001"), PhoneNumber: strPtr("+111"), Role: "holder", WalletAddress: "0xa", EncryptedWalletPrivateKey: "ska"},
-		{Id: "h-beta", Email: "beta@test.com", Name: strPtr("Beta Holder"), Number: strPtr("N002"), PhoneNumber: strPtr("+222"), Role: "holder", WalletAddress: "0xb", EncryptedWalletPrivateKey: "skb"},
-		{Id: "h-gamma", Email: "gamma@test.com", Name: strPtr("Gamma Holder"), Number: strPtr("N003"), PhoneNumber: strPtr("+333"), Role: "holder", WalletAddress: "0xc", EncryptedWalletPrivateKey: "skc"},
+		{Id: "h-alpha", Email: "alpha@test.com", Name: strPtr("Alpha Holder"), Number: strPtr("N001"), Role: "holder", WalletAddress: "0xa", EncryptedWalletPrivateKey: "ska"},
+		{Id: "h-beta", Email: "beta@test.com", Name: strPtr("Beta Holder"), Number: strPtr("N002"), Role: "holder", WalletAddress: "0xb", EncryptedWalletPrivateKey: "skb"},
+		{Id: "h-gamma", Email: "gamma@test.com", Name: strPtr("Gamma Holder"), Number: strPtr("N003"), Role: "holder", WalletAddress: "0xc", EncryptedWalletPrivateKey: "skc"},
 	} {
 		require.NoError(t, repo.db.Create(&u).Error)
 	}

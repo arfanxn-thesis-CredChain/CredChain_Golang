@@ -36,7 +36,6 @@ var allowedFilterColumns = map[string]bool{
 	"email":        true,
 	"role":         true,
 	"number":       true,
-	"phone_number": true,
 	"birth_date":   true,
 	"gender":       true,
 	"created_at":   true,
@@ -66,8 +65,8 @@ func (r *gormUserRepository) Get(ctx context.Context, query *domainQuery.Query) 
 	if query != nil {
 		if query.HasSearch() {
 			db = db.Where(
-				"LOWER(name) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) OR LOWER(phone_number) LIKE LOWER(?) OR LOWER(number) LIKE LOWER(?) OR LOWER(wallet_address) LIKE LOWER(?)",
-				"%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%",
+				"LOWER(name) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) OR LOWER(number) LIKE LOWER(?) OR LOWER(wallet_address) LIKE LOWER(?)",
+				"%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%", "%"+query.Search+"%",
 			)
 		}
 
@@ -207,12 +206,6 @@ func (r *gormUserRepository) updateBatchCase(ctx context.Context, users []domain
 	addCol("number", func(u domain.User) (interface{}, bool) {
 		if u.Number != nil {
 			return *u.Number, true
-		}
-		return nil, false
-	})
-	addCol("phone_number", func(u domain.User) (interface{}, bool) {
-		if u.PhoneNumber != nil {
-			return *u.PhoneNumber, true
 		}
 		return nil, false
 	})

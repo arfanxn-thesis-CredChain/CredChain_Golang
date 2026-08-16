@@ -145,35 +145,6 @@ func TestUserService_Find_PropagatesError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestUserService_UpdateProfile(t *testing.T) {
-	repo := &mocks.MockUserRepository{}
-	updated := fixtures.NewDomainUser(fixtures.WithID("u1"))
-	repo.On("Update", mock.Anything, mock.Anything).Return([]domain.User{updated}, nil)
-
-	svc := NewUserService(UserServiceParams{
-		UserRepo: repo, UoW: nil, Config: mkSvcCfg(),
-		Logger: zap.NewNop(), Policy: nil,
-	})
-	phone := "+1234567890"
-	got, err := svc.UpdateProfile(context.Background(), "u1", &phone)
-	assert.NoError(t, err)
-	assert.Equal(t, "u1", got.Id)
-}
-
-func TestUserService_UpdateProfile_PhoneOnly(t *testing.T) {
-	repo := &mocks.MockUserRepository{}
-	updated := fixtures.NewDomainUser(fixtures.WithID("u1"))
-	repo.On("Update", mock.Anything, mock.Anything).Return([]domain.User{updated}, nil)
-
-	svc := NewUserService(UserServiceParams{
-		UserRepo: repo, UoW: nil, Config: mkSvcCfg(),
-		Logger: zap.NewNop(), Policy: nil,
-	})
-	phone := "+1234567890"
-	got, err := svc.UpdateProfile(context.Background(), "u1", &phone)
-	assert.NoError(t, err)
-	assert.Equal(t, "u1", got.Id)
-}
 
 func TestUserService_UpdateEmail(t *testing.T) {
 	oauthClient := &mocks.MockGoogleOAuthClient{}

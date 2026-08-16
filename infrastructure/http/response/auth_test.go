@@ -16,7 +16,6 @@ func TestNewAuth(t *testing.T) {
 		ID:            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Name:          &name,
 		Number:        nil,
-		PhoneNumber:   nil,
 		Email:         "alice@example.com",
 		BirthDate:     nil,
 		Meta:          nil,

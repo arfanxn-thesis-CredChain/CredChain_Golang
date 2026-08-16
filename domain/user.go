@@ -101,7 +101,6 @@ type User struct {
 	Id                        string         `json:"id"`
 	Name                      *string        `json:"name"`
 	Number                    *string        `json:"number"`
-	PhoneNumber               *string        `json:"phone_number"`
 	Email                     string         `json:"email"`
 	BirthDate                 *time.Time     `json:"birth_date"`
 	Gender                    *Gender        `json:"gender"`

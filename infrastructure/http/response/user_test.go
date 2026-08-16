@@ -11,7 +11,6 @@ import (
 func TestFromDomainUser_AllFieldsSet(t *testing.T) {
 	name := "Alice"
 	number := "12345"
-	phone := "+62812345678"
 	bd := time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2025, 5, 1, 12, 0, 0, 0, time.UTC)
 	meta := map[string]any{"key": "value"}
@@ -20,7 +19,6 @@ func TestFromDomainUser_AllFieldsSet(t *testing.T) {
 		Id:                        "user-1",
 		Name:                      &name,
 		Number:                    &number,
-		PhoneNumber:               &phone,
 		Email:                     "alice@example.com",
 		BirthDate:                 &bd,
 		Meta:                      meta,
@@ -36,7 +34,6 @@ func TestFromDomainUser_AllFieldsSet(t *testing.T) {
 	assert.Equal(t, "user-1", got.ID)
 	assert.Equal(t, &name, got.Name)
 	assert.Equal(t, &number, got.Number)
-	assert.Equal(t, &phone, got.PhoneNumber)
 	assert.Equal(t, "alice@example.com", got.Email)
 	assert.Equal(t, &bd, got.BirthDate)
 	assert.Equal(t, meta, got.Meta)
@@ -51,7 +48,6 @@ func TestFromDomainUser_NilOptionalFields(t *testing.T) {
 		Id:                        "user-2",
 		Name:                      nil,
 		Number:                    nil,
-		PhoneNumber:               nil,
 		Email:                     "bob@example.com",
 		BirthDate:                 nil,
 		Meta:                      nil,
@@ -67,7 +63,6 @@ func TestFromDomainUser_NilOptionalFields(t *testing.T) {
 	assert.Equal(t, "user-2", got.ID)
 	assert.Nil(t, got.Name)
 	assert.Nil(t, got.Number)
-	assert.Nil(t, got.PhoneNumber)
 	assert.Equal(t, "bob@example.com", got.Email)
 	assert.Nil(t, got.BirthDate)
 	assert.Nil(t, got.Meta)
@@ -79,7 +74,6 @@ func TestFromDomainUser_NilOptionalFields(t *testing.T) {
 func TestToDomain_AllFieldsSet(t *testing.T) {
 	name := "Alice"
 	number := "12345"
-	phone := "+62812345678"
 	bd := time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2025, 5, 1, 12, 0, 0, 0, time.UTC)
 	meta := map[string]any{"key": "value"}
@@ -88,7 +82,6 @@ func TestToDomain_AllFieldsSet(t *testing.T) {
 		ID:            "user-1",
 		Name:          &name,
 		Number:        &number,
-		PhoneNumber:   &phone,
 		Email:         "alice@example.com",
 		BirthDate:     &bd,
 		Meta:          meta,
@@ -103,7 +96,6 @@ func TestToDomain_AllFieldsSet(t *testing.T) {
 	assert.Equal(t, "user-1", got.Id)
 	assert.Equal(t, &name, got.Name)
 	assert.Equal(t, &number, got.Number)
-	assert.Equal(t, &phone, got.PhoneNumber)
 	assert.Equal(t, "alice@example.com", got.Email)
 	assert.Equal(t, &bd, got.BirthDate)
 	assert.Equal(t, meta, got.Meta)
@@ -118,7 +110,6 @@ func TestToDomain_NilOptionalFields(t *testing.T) {
 		ID:            "user-2",
 		Name:          nil,
 		Number:        nil,
-		PhoneNumber:   nil,
 		Email:         "bob@example.com",
 		BirthDate:     nil,
 		Meta:          nil,
@@ -133,7 +124,6 @@ func TestToDomain_NilOptionalFields(t *testing.T) {
 	assert.Equal(t, "user-2", got.Id)
 	assert.Nil(t, got.Name)
 	assert.Nil(t, got.Number)
-	assert.Nil(t, got.PhoneNumber)
 	assert.Equal(t, "bob@example.com", got.Email)
 	assert.Nil(t, got.BirthDate)
 	assert.Nil(t, got.Meta)

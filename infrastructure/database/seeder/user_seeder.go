@@ -47,7 +47,7 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 	createdAt0 := baseTime.Add(time.Duration(rng.Int63n(365)) * 24 * time.Hour)
 	users[0] = s.seedBuildUser(seedBuildUserParams{
 		index: 1, name: "Muhammad Arfan", email: "arfan2173@gmail.com",
-		phoneNumber: lo.ToPtr("+6289506089254"), birthDate: seedMustParseDate("2003-07-21"),
+		birthDate: seedMustParseDate("2003-07-21"),
 		gender:    seedGenderPtr(domain.GenderMale),
 		meta:      map[string]any{"key": "A1B2C3D4"},
 		role:      domain.RoleSuperAdmin,
@@ -69,7 +69,7 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 	createdAt2 := baseTime.Add(time.Duration(rng.Int63n(365)) * 24 * time.Hour)
 	users[2] = s.seedBuildUser(seedBuildUserParams{
 		index: 3, name: "Edy Susilo", email: "edysusilo17580@gmail.com",
-		phoneNumber: lo.ToPtr("+6285228296172"), birthDate: seedMustParseDate("1980-05-17"),
+		birthDate: seedMustParseDate("1980-05-17"),
 		gender:    seedGenderPtr(domain.GenderMale),
 		meta:      map[string]any{"key": "E5F6G7H8"},
 		role:      domain.RoleIssuer,
@@ -81,7 +81,7 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 	createdAt3 := baseTime.Add(time.Duration(rng.Int63n(365)) * 24 * time.Hour)
 	users[3] = s.seedBuildUser(seedBuildUserParams{
 		index: 4, name: "Liesbeth Stifanny", email: "liesbethsh19@gmail.com",
-		phoneNumber: lo.ToPtr("+6289676624902"), birthDate: seedMustParseDate("2003-09-19"),
+		birthDate: seedMustParseDate("2003-09-19"),
 		gender:    seedGenderPtr(domain.GenderFemale),
 		role:      domain.RoleHolder,
 		number:    seedGenerateNIM(&nimSeq),
@@ -107,7 +107,6 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 		role := seedRandomUserRole(rng)
 		name := seedRandomIndonesianName(rng)
 		email := seedNameToEmail(name, idx)
-		phone := SanitizePhone(seedRandomIndonesianPhone(rng))
 		birthDate := seedRandomBirthDate(rng)
 		gender := seedRandomGender(rng)
 
@@ -144,7 +143,6 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 			index:       walletIdx,
 			name:        name,
 			email:       email,
-			phoneNumber: &phone,
 			birthDate:   &birthDate,
 			gender:      &gender,
 			meta:        meta,
@@ -163,7 +161,6 @@ type seedBuildUserParams struct {
 	index       uint32
 	name        string
 	email       string
-	phoneNumber *string
 	birthDate   *time.Time
 	gender      *domain.Gender
 	meta        map[string]any
@@ -189,7 +186,7 @@ func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {
 	}
 	return domain.User{
 		Name: lo.ToPtr(p.name), Number: lo.ToPtr(p.number),
-		PhoneNumber: p.phoneNumber, Email: p.email,
+		Email:  p.email,
 		Gender: p.gender, BirthDate: p.birthDate,
 		Meta: p.meta, Role: p.role,
 		WalletAddress: address, EncryptedWalletPrivateKey: encryptedKey,
@@ -294,17 +291,6 @@ func seedToLower(s string) string {
 		}
 	}
 	return string(b)
-}
-
-var seedIndoPhonePrefixes = []string{"812", "813", "821", "822", "823", "851", "852", "853", "856", "857", "858", "878", "895", "896", "897", "898", "899"}
-
-func seedRandomIndonesianPhone(rng *rand.Rand) string {
-	prefix := seedIndoPhonePrefixes[rng.Intn(len(seedIndoPhonePrefixes))]
-	suffix := make([]byte, 8)
-	for i := range suffix {
-		suffix[i] = byte('0' + rng.Intn(10))
-	}
-	return "0" + prefix + string(suffix)
 }
 
 func seedRandomBirthDate(rng *rand.Rand) time.Time {

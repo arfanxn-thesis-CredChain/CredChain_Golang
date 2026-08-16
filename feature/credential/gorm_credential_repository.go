@@ -55,7 +55,6 @@ var allowedSortColumns = map[string]bool{
 	"holder_name":   true,
 	"holder_email":  true,
 	"holder_number": true,
-	"holder_phone":  true,
 }
 
 // ── Preload helper ────────────────────────────────────────────────────────
@@ -119,8 +118,6 @@ func mapSortColumn(col string) string {
 		return "holder.email"
 	case "holder_number":
 		return "holder.number"
-	case "holder_phone":
-		return "holder.phone_number"
 	default:
 		return col
 	}

@@ -1,7 +1,6 @@
 package user
 
 import (
-	"regexp"
 	"time"
 
 	"CredChain_Golang/domain"
@@ -9,21 +8,14 @@ import (
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
-// strictE164Rule validates E.164 phone numbers strictly:
-// + sign, non-zero leading digit, total 7-15 digits.
-// Rejects bare country codes like "+62" that the looser is.E164 accepts.
-var strictE164Rule = validation.Match(regexp.MustCompile(`^\+[1-9]\d{6,14}$`)).
-	ErrorObject(validation.NewError("validation_is_e164_number", "must be a valid E.164 phone number"))
-
 type UserStoreInput struct {
-	Name        string         `json:"name"`
-	Email       string         `json:"email"`
-	Role        domain.Role    `json:"role"`
-	Number      *string        `json:"number"`
-	PhoneNumber *string        `json:"phone_number"`
-	BirthDate   *string        `json:"birth_date"`
-	Gender      *string        `json:"gender"`
-	Meta        map[string]any `json:"meta"`
+	Name      string         `json:"name"`
+	Email     string         `json:"email"`
+	Role      domain.Role    `json:"role"`
+	Number    *string        `json:"number"`
+	BirthDate *string        `json:"birth_date"`
+	Gender    *string        `json:"gender"`
+	Meta      map[string]any `json:"meta"`
 }
 
 func (n UserStoreInput) Validate() error {
@@ -32,7 +24,6 @@ func (n UserStoreInput) Validate() error {
 		validation.Field(&n.Email, validation.Required, is.Email, validation.Length(1, 256)),
 		validation.Field(&n.Role, validation.Required, validation.In(domain.RoleAdmin, domain.RoleIssuer, domain.RoleHolder)),
 		validation.Field(&n.Number, validation.Length(0, 256)),
-		validation.Field(&n.PhoneNumber, validation.Length(0, 18), strictE164Rule),
 		validation.Field(&n.BirthDate, validation.Date("2006-01-02")),
 		validation.Field(&n.Gender, validation.In("male", "female")),
 	)
@@ -55,7 +46,6 @@ func (n UserStoreInput) ToDomain() domain.User {
 		Email:       n.Email,
 		Role:        n.Role,
 		Number:      n.Number,
-		PhoneNumber: n.PhoneNumber,
 		BirthDate:   birthDate,
 		Gender:      gender,
 		Meta:        n.Meta,
@@ -84,16 +74,6 @@ func (r UserStoreRequest) ToDomain() []domain.User {
 		users[i] = u.ToDomain()
 	}
 	return users
-}
-
-type UserUpdateSelfProfileRequest struct {
-	PhoneNumber *string `json:"phone_number"`
-}
-
-func (r UserUpdateSelfProfileRequest) Validate() error {
-	return validation.ValidateStruct(&r,
-		validation.Field(&r.PhoneNumber, validation.Length(0, 18), strictE164Rule),
-	)
 }
 
 type UserUpdateSelfEmailRequest struct {
@@ -140,7 +120,6 @@ type UserUpdateInput struct {
 	Id          string         `json:"id"`
 	Name        *string        `json:"name"`
 	Number      *string        `json:"number"`
-	PhoneNumber *string        `json:"phone_number"`
 	BirthDate   *string        `json:"birth_date"`
 	Gender      *string        `json:"gender"`
 	Meta        map[string]any `json:"meta"`
@@ -153,7 +132,6 @@ func (n UserUpdateInput) Validate() error {
 		validation.Field(&n.Id, validation.Required),
 		validation.Field(&n.Name, validation.Length(0, 256)),
 		validation.Field(&n.Number, validation.Length(0, 256)),
-		validation.Field(&n.PhoneNumber, validation.Length(0, 18), strictE164Rule),
 		validation.Field(&n.BirthDate, validation.Date("2006-01-02")),
 		validation.Field(&n.Gender, validation.In("male", "female")),
 		validation.Field(&n.Email, is.Email, validation.Length(1, 256)),
@@ -177,7 +155,6 @@ func (n UserUpdateInput) ToDomain() domain.User {
 		Id:          n.Id,
 		Name:        n.Name,
 		Number:      n.Number,
-		PhoneNumber: n.PhoneNumber,
 		BirthDate:   birthDate,
 		Gender:      gender,
 		Meta:        n.Meta,

@@ -18,7 +18,6 @@ type Config struct {
 	InitialSuperAdminPrivKey           *string
 	InitialSuperAdminName              *string
 	InitialSuperAdminNumber            *string
-	InitialSuperAdminPhoneNumber       *string
 	InitialSuperAdminBirthDate         *time.Time
 	InitialSuperAdminGender            *string
 	InitialSuperAdminMeta              map[string]any
@@ -143,7 +142,6 @@ func NewConfig(envPath string) (*Config, error) {
 		InitialSuperAdminPrivKey:           getEnv("INITIAL_SUPER_ADMIN_PRIVATE_KEY", nil),
 		InitialSuperAdminName:              getEnv("INITIAL_SUPER_ADMIN_NAME", nil),
 		InitialSuperAdminNumber:            getEnv("INITIAL_SUPER_ADMIN_NUMBER", nil),
-		InitialSuperAdminPhoneNumber:       getEnv("INITIAL_SUPER_ADMIN_PHONE_NUMBER", nil),
 		InitialSuperAdminBirthDate:         getTimeEnv("INITIAL_SUPER_ADMIN_BIRTH_DATE", nil),
 		InitialSuperAdminGender:            getEnv("INITIAL_SUPER_ADMIN_GENDER", nil),
 		InitialSuperAdminMeta:              getJSONEnv("INITIAL_SUPER_ADMIN_META", nil),

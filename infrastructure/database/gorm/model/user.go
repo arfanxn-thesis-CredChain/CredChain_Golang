@@ -11,7 +11,6 @@ type User struct {
 	Id                        string         `gorm:"primaryKey;type:varchar(255);column:id" json:"id"`
 	Name                      *string        `gorm:"type:varchar(255);column:name" json:"name"`
 	Number                    *string        `gorm:"type:varchar(50);column:number" json:"number"`
-	PhoneNumber               *string        `gorm:"type:varchar(50);column:phone_number" json:"phone_number"`
 	Email                     string         `gorm:"type:varchar(255);uniqueIndex;column:email" json:"email"`
 	Gender                    *string        `gorm:"type:gender;column:gender" json:"gender"`
 	BirthDate                 *time.Time     `gorm:"column:birth_date" json:"birth_date"`
@@ -39,7 +38,6 @@ func (m *User) ToDomain() domain.User {
 		Id:                        m.Id,
 		Name:                      m.Name,
 		Number:                    m.Number,
-		PhoneNumber:               m.PhoneNumber,
 		Email:                     m.Email,
 		Gender:                    gender,
 		BirthDate:                 m.BirthDate,
@@ -67,7 +65,6 @@ func FromDomainUser(u domain.User) User {
 		Id:                        u.Id,
 		Name:                      u.Name,
 		Number:                    u.Number,
-		PhoneNumber:               u.PhoneNumber,
 		Email:                     u.Email,
 		Gender:                    gender,
 		BirthDate:                 u.BirthDate,

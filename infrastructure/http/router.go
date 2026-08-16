@@ -95,7 +95,6 @@ func RegisterRoutes(p RouteParams) {
 			{
 				users.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.UserHandler.Paginate)
 				users.GET("/self", p.UserHandler.Self)
-				users.PUT("/self/profile", p.UserHandler.UpdateSelfProfile)
 				users.PUT("/self/email", p.UserHandler.UpdateSelfEmail)
 				users.GET("/self/credentials", p.CredentialHandler.SelfPaginate)
 				users.GET("/self/credentials/:id", p.CredentialHandler.SelfFind)
