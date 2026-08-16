@@ -1,0 +1,146 @@
+package credential
+
+import (
+	"context"
+	"sort"
+
+	"CredChain_Golang/domain"
+	domainQuery "CredChain_Golang/domain/query"
+	gormhelpers "CredChain_Golang/infrastructure/database/gorm"
+	"CredChain_Golang/infrastructure/database/gorm/model"
+
+	"github.com/oklog/ulid/v2"
+	"gorm.io/gorm"
+)
+
+type gormCredentialTypeRepository struct {
+	db *gorm.DB
+}
+
+func NewGormCredentialTypeRepository(db *gorm.DB) domain.CredentialTypeRepository {
+	return &gormCredentialTypeRepository{db: db}
+}
+
+func (r *gormCredentialTypeRepository) Store(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
+	if len(types) == 0 {
+		return []domain.CredentialType{}, nil
+	}
+	for i := range types {
+		if types[i].Id == "" {
+			types[i].Id = ulid.Make().String()
+		}
+	}
+	rows := make([]model.CredentialType, len(types))
+	for i, t := range types {
+		rows[i] = model.FromDomainCredentialType(t)
+	}
+	if err := r.db.WithContext(ctx).Create(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CredentialType, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+func (r *gormCredentialTypeRepository) Find(ctx context.Context, id string) (*domain.CredentialType, error) {
+	var m model.CredentialType
+	if err := r.db.WithContext(ctx).First(&m, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	d := m.ToDomain()
+	return &d, nil
+}
+
+func (r *gormCredentialTypeRepository) FindByIds(ctx context.Context, ids ...string) ([]domain.CredentialType, error) {
+	if len(ids) == 0 {
+		return []domain.CredentialType{}, nil
+	}
+	var rows []model.CredentialType
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CredentialType, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+func (r *gormCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error) {
+	db := r.db.WithContext(ctx).Model(&model.CredentialType{})
+	db = gormhelpers.ApplySorts(db, query, nil, "name ASC", nil, "id ASC")
+	db = gormhelpers.ApplyPagination(db, query)
+	var rows []model.CredentialType
+	if err := db.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CredentialType, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+func (r *gormCredentialTypeRepository) Update(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
+	if len(types) == 0 {
+		return []domain.CredentialType{}, nil
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i].Id < types[j].Id })
+
+	var clauses []string
+	var allArgs [][]interface{}
+	addCol := func(col string, getValue func(domain.CredentialType) (interface{}, bool)) {
+		var pairs []interface{}
+		for _, t := range types {
+			if v, ok := getValue(t); ok {
+				pairs = append(pairs, t.Id, v)
+			}
+		}
+		if clause, args := gormhelpers.BuildCaseColumnSQL("id", col, pairs); clause != "" {
+			clauses = append(clauses, clause)
+			allArgs = append(allArgs, args)
+		}
+	}
+	addCol("name", func(t domain.CredentialType) (interface{}, bool) {
+		if t.Name != "" {
+			return t.Name, true
+		}
+		return nil, false
+	})
+	// Active is a bool without a pointer; callers toggling it include the
+	// field explicitly, so always emit the CASE branch for update calls.
+	addCol("active", func(t domain.CredentialType) (interface{}, bool) {
+		return t.Active, true
+	})
+	if len(clauses) == 0 {
+		return []domain.CredentialType{}, nil
+	}
+	ids := make([]interface{}, len(types))
+	for i, t := range types {
+		ids[i] = t.Id
+	}
+	sql, finalArgs := gormhelpers.BuildBatchUpdateSQL("credential_types", "id", clauses, allArgs, ids, "updated_at = CURRENT_TIMESTAMP")
+	if err := r.db.WithContext(ctx).Exec(sql, finalArgs...).Error; err != nil {
+		return nil, err
+	}
+	idStrs := make([]string, len(types))
+	for i, t := range types {
+		idStrs[i] = t.Id
+	}
+	return r.FindByIds(ctx, idStrs...)
+}
+
+// Delete hard-deletes rows by ID (batch). Rows referenced by credentials are
+// protected by the FK constraint; reference pre-checks belong to the service
+// layer (step 3). Unconsumed plumbing in this step.
+func (r *gormCredentialTypeRepository) Delete(ctx context.Context, ids ...string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).Delete(&model.CredentialType{}, "id IN ?", ids)
+	return result.RowsAffected, result.Error
+}
+
+var _ domain.CredentialTypeRepository = (*gormCredentialTypeRepository)(nil)
