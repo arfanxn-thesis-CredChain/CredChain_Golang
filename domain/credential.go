@@ -130,10 +130,10 @@ type CredentialRepository interface {
 	// query is non-nil it may carry Includes for preloading relations.
 	FindByHolderId(ctx context.Context, holderID string, query *domainQuery.Query) ([]Credential, error)
 
-	// FindByFileHashes retrieves credentials whose file_hash matches any of
-	// the given hashes. Used during issue to detect duplicate uploads. When
-	// query is non-nil it may carry Includes for preloading relations.
-	// approved_at IS NOT NULL is enforced; sole consumer is the public verify path.
+	// FindByFileHashes retrieves approved credentials whose file_hash matches
+	// any of the given hashes. approved_at IS NOT NULL is enforced; sole
+	// consumer is the public verify path. When query is non-nil it may carry
+	// Includes for preloading relations.
 	FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]Credential, error)
 
 	// Store batch-inserts credentials. Generates ULIDs for any missing IDs.

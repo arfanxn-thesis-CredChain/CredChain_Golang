@@ -291,8 +291,9 @@ func (r *gormCredentialRepository) FindByHolderId(ctx context.Context, holderID 
 	return out, nil
 }
 
-// FindByFileHashes retrieves credentials whose file_hash matches any of the
-// supplied hashes. Used during issue to detect duplicate uploads.
+// FindByFileHashes retrieves approved credentials whose file_hash matches any
+// of the supplied hashes. Verification path only: rows with approved_at IS
+// NULL are invisible.
 func (r *gormCredentialRepository) FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]domain.Credential, error) {
 	if len(hashes) == 0 {
 		return []domain.Credential{}, nil
