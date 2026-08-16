@@ -21,6 +21,17 @@ const (
 	ExtractStatusFailed    ExtractStatus = "failed"
 )
 
+// CredentialStatus is the workflow status of a credential, derived purely
+// from timestamps (see Credential.Status). It is NOT a database column.
+type CredentialStatus string
+
+const (
+	CredentialStatusPending  CredentialStatus = "pending"
+	CredentialStatusApproved CredentialStatus = "approved"
+	CredentialStatusRejected CredentialStatus = "rejected"
+	CredentialStatusRevoked  CredentialStatus = "revoked"
+)
+
 // Credential represents a row in the credentials table.
 //
 // FileHash is the keccak256 of the raw file bytes, used by the on-chain
@@ -68,6 +79,28 @@ type Credential struct {
 	Holder  *User `gorm:"-" json:"-"`
 	Issuer  *User `gorm:"-" json:"-"`
 	Revoker *User `gorm:"-" json:"-"`
+}
+
+// Status derives the workflow status from timestamps only:
+//
+//	revoked  when RevokedAt is set
+//	rejected when RejectedAt is set (and not revoked)
+//	approved when ApprovedAt is set (and neither revoked nor rejected)
+//	pending  otherwise
+//
+// Expiry is deliberately NOT part of this derivation — expiry is evaluated
+// only on the verification path in a later step.
+func (c *Credential) Status() CredentialStatus {
+	if c.RevokedAt != nil {
+		return CredentialStatusRevoked
+	}
+	if c.RejectedAt != nil {
+		return CredentialStatusRejected
+	}
+	if c.ApprovedAt != nil {
+		return CredentialStatusApproved
+	}
+	return CredentialStatusPending
 }
 
 // CredentialRepository defines the database contract for the credential domain.
