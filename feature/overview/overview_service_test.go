@@ -69,6 +69,13 @@ func (m *mockCredRepo) FindByFileHashes(ctx context.Context, hashes []string, q 
 func (m *mockCredRepo) FindByHolderId(ctx context.Context, holderID string, q *domainQuery.Query) ([]domain.Credential, error) {
 	return nil, nil
 }
+func (m *mockCredRepo) CountByTypeIds(ctx context.Context, typeIds ...string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockCredRepo) CountByIssuerOrganizationIds(ctx context.Context, organizationIds ...string) (int64, error) {
+	return 0, nil
+}
 
 type mockUserRepo struct{ mock.Mock }
 
@@ -100,6 +107,9 @@ func (m *mockUserRepo) Delete(ctx context.Context, ids ...string) (int64, error)
 func (m *mockUserRepo) Restore(ctx context.Context, ids ...string) (int64, error) { return 0, nil }
 func (m *mockUserRepo) UpdateRole(ctx context.Context, users ...domain.User) ([]domain.User, int64, error) {
 	return nil, 0, nil
+}
+func (m *mockUserRepo) CountByUnitIds(ctx context.Context, unitIds ...string) (int64, error) {
+	return 0, nil
 }
 
 func setupTestService(t *testing.T, user *domain.User) (*overviewService, *mockOverviewRepo, *mockCredRepo, *mockUserRepo, *gin.Context) {

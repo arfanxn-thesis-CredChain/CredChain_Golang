@@ -23,4 +23,8 @@ type CompetencyCredentialRepository interface {
 
 	// FindByCompetencyId lists all join rows for one competency.
 	FindByCompetencyId(ctx context.Context, competencyId string) ([]CompetencyCredential, error)
+
+	// CountByCompetencyIds counts join rows referencing any of the given
+	// competency ids. Pure read primitive for the step-3 deletion guard.
+	CountByCompetencyIds(ctx context.Context, competencyIds ...string) (int64, error)
 }

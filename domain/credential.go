@@ -144,4 +144,13 @@ type CredentialRepository interface {
 	// Only non-nil / non-zero fields are touched; unspecified columns fall
 	// through to ELSE column (preserving existing value).
 	Update(ctx context.Context, credentials ...Credential) ([]Credential, error)
+
+	// CountByTypeIds counts credentials referencing any of the given
+	// credential_type ids. Pure read primitive for the step-3 deletion guard.
+	CountByTypeIds(ctx context.Context, typeIds ...string) (int64, error)
+
+	// CountByIssuerOrganizationIds counts credentials referencing any of the
+	// given issuer_organization ids. Pure read primitive for the step-3
+	// deletion guard.
+	CountByIssuerOrganizationIds(ctx context.Context, organizationIds ...string) (int64, error)
 }

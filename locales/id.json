@@ -143,5 +143,9 @@
     "success_overview": "Overview fetched successfully.",
     "error_overview_internal": "Failed to fetch overview data.",
     "success_meta": "Data meta berhasil diambil.",
-    "error_meta_internal": "Gagal mengambil data meta."
+    "error_meta_internal": "Gagal mengambil data meta.",
+    "error_credential_type_delete_in_use": "Tipe kredensial ini masih dirujuk oleh kredensial dan tidak dapat dihapus.",
+    "error_issuer_organization_delete_in_use": "Organisasi penerbit ini masih dirujuk oleh kredensial dan tidak dapat dihapus.",
+    "error_competency_delete_in_use": "Kompetensi ini masih terhubung dengan kredensial dan tidak dapat dihapus.",
+    "error_user_unit_delete_in_use": "Unit ini masih dirujuk oleh pengguna atau unit anak dan tidak dapat dihapus."
 }

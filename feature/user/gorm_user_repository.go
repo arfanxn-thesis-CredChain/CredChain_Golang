@@ -392,3 +392,16 @@ func (r *gormUserRepository) Restore(ctx context.Context, ids ...string) (int64,
 		Update("deleted_at", nil)
 	return result.RowsAffected, result.Error
 }
+
+// CountByUnitIds counts users (including trashed — mirrors the Postgres FK,
+// which counts soft-deleted rows too) referencing any of the given unit ids.
+func (r *gormUserRepository) CountByUnitIds(ctx context.Context, unitIds ...string) (int64, error) {
+	if len(unitIds) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Unscoped().Model(&model.User{}).Where("unit_id IN ?", unitIds).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}

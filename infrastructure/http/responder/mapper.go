@@ -139,6 +139,12 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialFileDownloadForbidden:        "error_credential_file_download_forbidden",
 	domain.CodeCredentialFileDownloadDecryptionFailed: "error_credential_file_download_decryption_failed",
 	domain.CodeCredentialFileDownloadNoFile:           "error_credential_file_download_no_file",
+
+	// Lookup-table deletion guards
+	domain.CodeCredentialTypeDeleteInUse:               "error_credential_type_delete_in_use",
+	domain.CodeCredentialIssuerOrganizationDeleteInUse: "error_issuer_organization_delete_in_use",
+	domain.CodeCompetencyDeleteInUse:                   "error_competency_delete_in_use",
+	domain.CodeUserUnitDeleteInUse:                     "error_user_unit_delete_in_use",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -264,6 +270,12 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialFileDownloadForbidden:        http.StatusForbidden,
 	domain.CodeCredentialFileDownloadDecryptionFailed: http.StatusInternalServerError,
 	domain.CodeCredentialFileDownloadNoFile:           http.StatusNotFound,
+
+	// Lookup-table deletion guards (all 409 Conflict)
+	domain.CodeCredentialTypeDeleteInUse:               http.StatusConflict,
+	domain.CodeCredentialIssuerOrganizationDeleteInUse: http.StatusConflict,
+	domain.CodeCompetencyDeleteInUse:                   http.StatusConflict,
+	domain.CodeUserUnitDeleteInUse:                     http.StatusConflict,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

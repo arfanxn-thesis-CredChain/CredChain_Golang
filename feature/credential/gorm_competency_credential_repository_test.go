@@ -45,3 +45,23 @@ func TestGormCompetencyCredentialRepository_LinkFindDelete(t *testing.T) {
 	assert.Len(t, byCred, 1)
 	assert.Equal(t, "comp-2", byCred[0].CompetencyId)
 }
+
+func TestGormCompetencyCredentialRepository_CountByCompetencyIds(t *testing.T) {
+	repo := openCompetencyCredentialRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-1"},
+		domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-2"},
+		domain.CompetencyCredential{CompetencyId: "comp-2", CredentialId: "cred-1"},
+	)
+	require.NoError(t, err)
+
+	count, err := repo.CountByCompetencyIds(ctx, "comp-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	none, err := repo.CountByCompetencyIds(ctx, "missing")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), none)
+}

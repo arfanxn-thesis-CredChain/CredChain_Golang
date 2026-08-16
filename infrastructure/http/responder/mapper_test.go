@@ -131,6 +131,10 @@ var allDomainCodes = []int{
 	domain.CodeCredentialFileDownloadForbidden,
 	domain.CodeCredentialFileDownloadDecryptionFailed,
 	domain.CodeCredentialFileDownloadNoFile,
+	domain.CodeCredentialTypeDeleteInUse,
+	domain.CodeCredentialIssuerOrganizationDeleteInUse,
+	domain.CodeCompetencyDeleteInUse,
+	domain.CodeUserUnitDeleteInUse,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

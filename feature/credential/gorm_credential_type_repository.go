@@ -2,6 +2,7 @@ package credential
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	"CredChain_Golang/domain"
@@ -9,6 +10,7 @@ import (
 	gormhelpers "CredChain_Golang/infrastructure/database/gorm"
 	"CredChain_Golang/infrastructure/database/gorm/model"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
@@ -132,15 +134,25 @@ func (r *gormCredentialTypeRepository) Update(ctx context.Context, types ...doma
 	return r.FindByIds(ctx, idStrs...)
 }
 
-// Delete hard-deletes rows by ID (batch). Rows referenced by credentials are
-// protected by the FK constraint; reference pre-checks belong to the service
-// layer (step 3). Unconsumed plumbing in this step.
+// Delete hard-deletes rows by ID (batch). Referenced rows are rejected by the
+// database FK (23503) — translated to CodeCredentialTypeDeleteInUse. The
+// reference pre-check belongs to the step-3 service; this method is a pure
+// primitive. Setting active = false via Update is the intended everyday
+// deactivation path; hard deletion is the exception.
 func (r *gormCredentialTypeRepository) Delete(ctx context.Context, ids ...string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
 	result := r.db.WithContext(ctx).Delete(&model.CredentialType{}, "id IN ?", ids)
-	return result.RowsAffected, result.Error
+	if err := result.Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return 0, domain.NewError(domain.CodeCredentialTypeDeleteInUse,
+				domain.WithMetadata("ids", ids), domain.WithError(err))
+		}
+		return 0, err
+	}
+	return result.RowsAffected, nil
 }
 
 var _ domain.CredentialTypeRepository = (*gormCredentialTypeRepository)(nil)

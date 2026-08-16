@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	"CredChain_Golang/domain"
@@ -9,6 +10,7 @@ import (
 	gormhelpers "CredChain_Golang/infrastructure/database/gorm"
 	"CredChain_Golang/infrastructure/database/gorm/model"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
@@ -156,6 +158,37 @@ SELECT id, parent_id, name, created_at, updated_at FROM descendants`
 		out[i] = m.ToDomain()
 	}
 	return out, nil
+}
+
+// Delete hard-deletes rows by ID (batch). Referenced rows are rejected by the
+// database FK (23503) — translated to CodeUserUnitDeleteInUse. The reference
+// pre-check belongs to the step-3 service; this method is a pure primitive.
+func (r *gormUserUnitRepository) Delete(ctx context.Context, ids ...string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).Delete(&model.UserUnit{}, "id IN ?", ids)
+	if err := result.Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return 0, domain.NewError(domain.CodeUserUnitDeleteInUse,
+				domain.WithMetadata("ids", ids), domain.WithError(err))
+		}
+		return 0, err
+	}
+	return result.RowsAffected, nil
+}
+
+// CountByParentIds counts units whose parent_id is any of the given ids.
+func (r *gormUserUnitRepository) CountByParentIds(ctx context.Context, parentIds ...string) (int64, error) {
+	if len(parentIds) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.UserUnit{}).Where("parent_id IN ?", parentIds).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 var _ domain.UserUnitRepository = (*gormUserUnitRepository)(nil)

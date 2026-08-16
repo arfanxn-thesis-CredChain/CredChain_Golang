@@ -67,3 +67,27 @@ func TestGormUserUnitRepository_FindWithDescendants(t *testing.T) {
 	assert.False(t, ids["root"], "ancestor NOT included")
 	assert.False(t, ids["other"], "unrelated branch NOT included")
 }
+
+func TestGormUserUnitRepository_CountByParentIdsAndDelete(t *testing.T) {
+	repo := openUnitRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.UserUnit{Id: "root", Name: "Root"},
+		domain.UserUnit{Id: "child1", ParentId: strPtrUnit("root"), Name: "Child 1"},
+		domain.UserUnit{Id: "child2", ParentId: strPtrUnit("root"), Name: "Child 2"},
+	)
+	require.NoError(t, err)
+
+	count, err := repo.CountByParentIds(ctx, "root")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	deleted, err := repo.Delete(ctx, "child1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted)
+
+	countAfter, err := repo.CountByParentIds(ctx, "root")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), countAfter)
+}

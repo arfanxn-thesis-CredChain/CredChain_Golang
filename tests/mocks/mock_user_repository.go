@@ -87,4 +87,9 @@ func (m *MockUserRepository) UpdateRole(ctx context.Context, users ...domain.Use
 	return nil, int64(args.Int(1)), args.Error(2)
 }
 
+func (m *MockUserRepository) CountByUnitIds(ctx context.Context, unitIds ...string) (int64, error) {
+	args := m.Called(ctx, unitIds)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 var _ domain.UserRepository = (*MockUserRepository)(nil)

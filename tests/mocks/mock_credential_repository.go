@@ -85,4 +85,14 @@ func (m *MockCredentialRepository) Update(ctx context.Context, credentials ...do
 	return nil, args.Error(1)
 }
 
+func (m *MockCredentialRepository) CountByTypeIds(ctx context.Context, typeIds ...string) (int64, error) {
+	args := m.Called(ctx, typeIds)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockCredentialRepository) CountByIssuerOrganizationIds(ctx context.Context, organizationIds ...string) (int64, error) {
+	args := m.Called(ctx, organizationIds)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 var _ domain.CredentialRepository = (*MockCredentialRepository)(nil)

@@ -28,6 +28,25 @@ func TestGormUserRepository_Store_AutoGeneratesULID(t *testing.T) {
 	assert.NotEmpty(t, stored[0].Id)
 }
 
+func TestGormUserRepository_CountByUnitIds(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		fixtures.NewDomainUser(fixtures.WithID("u1"), fixtures.WithEmail("u1@x.com"), fixtures.WithUnitID("unit-a")),
+		fixtures.NewDomainUser(fixtures.WithID("u2"), fixtures.WithEmail("u2@x.com"), fixtures.WithUnitID("unit-b")),
+	)
+	require.NoError(t, err)
+
+	count, err := repo.CountByUnitIds(ctx, "unit-a", "unit-b")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	single, err := repo.CountByUnitIds(ctx, "unit-a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), single)
+}
+
 func TestGormUserRepository_Store_PreservesProvidedID(t *testing.T) {
 	repo := newRepo(t)
 	u := fixtures.NewDomainUser(fixtures.WithID("custom-id"), fixtures.WithEmail("custom@x.com"))

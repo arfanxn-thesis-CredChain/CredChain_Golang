@@ -519,6 +519,33 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 	return r.db.WithContext(ctx).Exec(sql, finalArgs...).Error
 }
 
+// ── Count primitives (deletion guards) ─────────────────────────────────────
+
+// CountByTypeIds counts credentials referencing any of the given type ids.
+func (r *gormCredentialRepository) CountByTypeIds(ctx context.Context, typeIds ...string) (int64, error) {
+	if len(typeIds) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.Credential{}).Where("type_id IN ?", typeIds).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountByIssuerOrganizationIds counts credentials referencing any of the
+// given issuer organization ids.
+func (r *gormCredentialRepository) CountByIssuerOrganizationIds(ctx context.Context, organizationIds ...string) (int64, error) {
+	if len(organizationIds) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.Credential{}).Where("issuer_organization_id IN ?", organizationIds).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ── Compile-time interface check ──────────────────────────────────────────
 
 var _ domain.CredentialRepository = (*gormCredentialRepository)(nil)

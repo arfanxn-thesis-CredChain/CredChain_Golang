@@ -71,4 +71,17 @@ func (r *gormCompetencyCredentialRepository) FindByCompetencyId(ctx context.Cont
 	return out, nil
 }
 
+// CountByCompetencyIds counts join rows referencing any of the given
+// competency ids.
+func (r *gormCompetencyCredentialRepository) CountByCompetencyIds(ctx context.Context, competencyIds ...string) (int64, error) {
+	if len(competencyIds) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.CompetencyCredential{}).Where("competency_id IN ?", competencyIds).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 var _ domain.CompetencyCredentialRepository = (*gormCompetencyCredentialRepository)(nil)

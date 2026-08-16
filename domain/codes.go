@@ -94,6 +94,8 @@ const (
 	CodeUserRestoreNotTrashedForbidden          = 300944
 	CodeUserRestoreBlockchainSyncFailed         = 300945
 
+	CodeUserUnitDeleteInUse = 300650
+
 	// ── Credential (40) ──────────────────────────────────────────────────────
 	CodeCredentialFetchSuccess    = 400100
 	CodeCredentialFetchNotFound   = 400140
@@ -150,4 +152,14 @@ const (
 	CodeCredentialFileDownloadForbidden        = 400641
 	CodeCredentialFileDownloadDecryptionFailed = 400642
 	CodeCredentialFileDownloadNoFile           = 400643
+
+	// Lookup-table deletion guards: rows referenced by credentials (or, for
+	// units, by users/child units) cannot be hard-deleted. For credential
+	// types, active = false is the intended everyday path; hard deletion is
+	// the exception. The reference pre-check lives in the step-3 services;
+	// these codes are returned by the services and by the repo-level 23503
+	// translation backstop.
+	CodeCredentialTypeDeleteInUse               = 400741
+	CodeCredentialIssuerOrganizationDeleteInUse = 400742
+	CodeCompetencyDeleteInUse                   = 400743
 )

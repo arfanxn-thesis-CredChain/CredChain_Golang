@@ -143,5 +143,9 @@
     "success_overview": "Overview fetched successfully.",
     "error_overview_internal": "Failed to fetch overview data.",
     "success_meta": "Meta fetched successfully.",
-    "error_meta_internal": "Failed to fetch meta data."
+    "error_meta_internal": "Failed to fetch meta data.",
+    "error_credential_type_delete_in_use": "This credential type is still referenced by credentials and cannot be deleted.",
+    "error_issuer_organization_delete_in_use": "This issuer organization is still referenced by credentials and cannot be deleted.",
+    "error_competency_delete_in_use": "This competency is still linked to credentials and cannot be deleted.",
+    "error_user_unit_delete_in_use": "This unit is still referenced by users or child units and cannot be deleted."
 }

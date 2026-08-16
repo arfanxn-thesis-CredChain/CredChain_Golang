@@ -140,6 +140,10 @@ type UserRepository interface {
 
 	// Specialized operations
 	UpdateRole(ctx context.Context, users ...User) ([]User, int64, error)
+
+	// CountByUnitIds counts users (including trashed) referencing any of the
+	// given unit ids. Pure read primitive for the step-3 deletion guard.
+	CountByUnitIds(ctx context.Context, unitIds ...string) (int64, error)
 }
 
 // UserTokenType defines the type of user token

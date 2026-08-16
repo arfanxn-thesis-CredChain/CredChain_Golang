@@ -25,6 +25,34 @@ func strPtr(s string) *string { return &s }
 
 func timePtr(t time.Time) *time.Time { return &t }
 
+func TestGormCredentialRepository_CountByTypeAndOrganizationIds(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-a", TypeID: "type-a", Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-a", TypeID: "type-b", Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-b", TypeID: "type-b", Name: "C", FileHash: "0x3"},
+	)
+	require.NoError(t, err)
+
+	typeCount, err := repo.CountByTypeIds(ctx, "type-a", "type-b")
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), typeCount)
+
+	typeCountSingle, err := repo.CountByTypeIds(ctx, "type-a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), typeCountSingle)
+
+	orgCount, err := repo.CountByIssuerOrganizationIds(ctx, "org-a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), orgCount)
+
+	none, err := repo.CountByTypeIds(ctx, "missing")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), none)
+}
+
 func TestGormCredentialVerificationPathExcludesPending(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
