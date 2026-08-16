@@ -31,30 +31,34 @@ func NewGormUserRepository(db *gorm.DB) domain.UserRepository {
 // deleted_at is intentionally included to enable trashed-user pagination
 // via filters/sorts on the deleted_at column.
 var allowedFilterColumns = map[string]bool{
-	"id":           true,
-	"name":         true,
-	"email":        true,
-	"role":         true,
-	"number":       true,
-	"birth_date":   true,
-	"gender":       true,
-	"created_at":   true,
-	"updated_at":   true,
-	"deleted_at":   true,
+	"id":          true,
+	"name":        true,
+	"email":       true,
+	"role":        true,
+	"number":      true,
+	"unit_id":     true,
+	"joined_year": true,
+	"birth_date":  true,
+	"gender":      true,
+	"created_at":  true,
+	"updated_at":  true,
+	"deleted_at":  true,
 }
 
 // allowedSortColumns whitelists user columns clients may sort on.
 // deleted_at is intentionally included to enable sorting trashed users
 // by their deletion timestamp.
 var allowedSortColumns = map[string]bool{
-	"id":         true,
-	"name":       true,
-	"email":      true,
-	"role":       true,
-	"gender":     true,
-	"created_at": true,
-	"updated_at": true,
-	"deleted_at": true,
+	"id":          true,
+	"name":        true,
+	"email":       true,
+	"role":        true,
+	"gender":      true,
+	"unit_id":     true,
+	"joined_year": true,
+	"created_at":  true,
+	"updated_at":  true,
+	"deleted_at":  true,
 }
 
 // Get retrieves users with pagination, search, filters, and sorts (batch operation)
@@ -206,6 +210,18 @@ func (r *gormUserRepository) updateBatchCase(ctx context.Context, users []domain
 	addCol("number", func(u domain.User) (interface{}, bool) {
 		if u.Number != nil {
 			return *u.Number, true
+		}
+		return nil, false
+	})
+	addCol("unit_id", func(u domain.User) (interface{}, bool) {
+		if u.UnitID != nil {
+			return *u.UnitID, true
+		}
+		return nil, false
+	})
+	addCol("joined_year", func(u domain.User) (interface{}, bool) {
+		if u.JoinedYear != nil {
+			return *u.JoinedYear, true
 		}
 		return nil, false
 	})

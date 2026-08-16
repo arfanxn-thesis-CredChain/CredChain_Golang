@@ -2,6 +2,8 @@ package response
 
 import (
 	"CredChain_Golang/domain"
+	"CredChain_Golang/tests/fixtures"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -152,4 +154,20 @@ func TestUser_ToDomain_PreservesDeletedAt(t *testing.T) {
 	d := r.ToDomain()
 	assert.NotNil(t, d.DeletedAt)
 	assert.Equal(t, now, *d.DeletedAt)
+}
+
+func TestFromDomainUser_UnitIDJoinedYear_JSONFieldsSet(t *testing.T) {
+	got := FromDomainUser(fixtures.NewDomainUser(fixtures.WithUnitID("u1"), fixtures.WithJoinedYear(2019)))
+
+	assert.NotNil(t, got.UnitID)
+	assert.Equal(t, "u1", *got.UnitID)
+	assert.NotNil(t, got.JoinedYear)
+	assert.Equal(t, 2019, *got.JoinedYear)
+
+	b, err := json.Marshal(got)
+	assert.NoError(t, err)
+	var raw map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(b, &raw))
+	assert.Contains(t, raw, "unit_id")
+	assert.Contains(t, raw, "joined_year")
 }

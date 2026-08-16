@@ -28,12 +28,12 @@ func TestUserStoreInput_Validate(t *testing.T) {
 		{
 			name: "Valid with all optional fields",
 			req: UserStoreInput{
-				Name:        "Jane Doe",
-				Email:       "jane@example.com",
-				Role:        domain.RoleIssuer,
-				Number:      lo.ToPtr("12345"),
-				BirthDate:   lo.ToPtr("1990-01-01"),
-				Meta:        map[string]any{"key": "value"},
+				Name:      "Jane Doe",
+				Email:     "jane@example.com",
+				Role:      domain.RoleIssuer,
+				Number:    lo.ToPtr("12345"),
+				BirthDate: lo.ToPtr("1990-01-01"),
+				Meta:      map[string]any{"key": "value"},
 			},
 			shouldErr: false,
 		},
@@ -67,6 +67,9 @@ func TestUserStoreInput_Validate(t *testing.T) {
 			},
 			shouldErr: false,
 		},
+		{name: "Valid UnitID and JoinedYear", req: UserStoreInput{Name: "Alex", Email: "alex@example.com", Role: domain.RoleHolder, UnitID: lo.ToPtr("unit-1"), JoinedYear: lo.ToPtr(2023)}, shouldErr: false},
+		{name: "UnitID Too Long", req: UserStoreInput{Name: "Alex", Email: "alex@example.com", Role: domain.RoleHolder, UnitID: lo.ToPtr(strings.Repeat("a", 27))}, shouldErr: true},
+		{name: "Gender Other Still Rejected", req: UserStoreInput{Name: "Alex", Email: "alex@example.com", Role: domain.RoleHolder, Gender: lo.ToPtr("other")}, shouldErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

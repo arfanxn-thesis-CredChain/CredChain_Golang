@@ -18,6 +18,8 @@ func WithName(n string) UserOption          { return func(u *domain.User) { u.Na
 func WithMeta(m map[string]any) UserOption  { return func(u *domain.User) { u.Meta = m } }
 func WithWalletAddress(a string) UserOption { return func(u *domain.User) { u.WalletAddress = a } }
 func WithNumber(n string) UserOption        { return func(u *domain.User) { u.Number = &n } }
+func WithUnitID(id string) UserOption       { return func(u *domain.User) { u.UnitID = &id } }
+func WithJoinedYear(y int) UserOption       { return func(u *domain.User) { u.JoinedYear = &y } }
 func WithEncryptedKey(k string) UserOption {
 	return func(u *domain.User) { u.EncryptedWalletPrivateKey = k }
 }

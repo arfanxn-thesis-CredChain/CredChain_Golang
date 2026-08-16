@@ -88,3 +88,19 @@ func TestUser_FromDomain_NilDeletedAt(t *testing.T) {
 	m := FromDomainUser(d)
 	assert.False(t, m.DeletedAt.Valid)
 }
+
+func TestUserModel_UnitID_JoinedYear_RoundTrip(t *testing.T) {
+	unitID := "unit-abc"
+	year := 2023
+	d := domain.User{
+		Id: "u1", Email: "a@x.com", Role: domain.RoleHolder,
+		WalletAddress: "0xaa", UnitID: &unitID, JoinedYear: &year,
+	}
+	m := FromDomainUser(d)
+	assert.Equal(t, unitID, *m.UnitID)
+	assert.Equal(t, year, *m.JoinedYear)
+
+	roundtrip := m.ToDomain()
+	assert.Equal(t, unitID, *roundtrip.UnitID)
+	assert.Equal(t, year, *roundtrip.JoinedYear)
+}

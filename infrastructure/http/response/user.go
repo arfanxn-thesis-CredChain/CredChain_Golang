@@ -11,6 +11,8 @@ type User struct {
 	ID            string         `json:"id"`
 	Name          *string        `json:"name"`
 	Number        *string        `json:"number"`
+	UnitID        *string        `json:"unit_id"`
+	JoinedYear    *int           `json:"joined_year"`
 	Email         string         `json:"email"`
 	BirthDate     *time.Time     `json:"birth_date"`
 	Gender        *domain.Gender `json:"gender"`
@@ -28,6 +30,8 @@ func FromDomainUser(u domain.User) User {
 		ID:            u.Id,
 		Name:          u.Name,
 		Number:        u.Number,
+		UnitID:        u.UnitID,
+		JoinedYear:    u.JoinedYear,
 		Email:         u.Email,
 		BirthDate:     u.BirthDate,
 		Gender:        u.Gender,
@@ -46,6 +50,8 @@ func (u *User) ToDomain() domain.User {
 		Id:            u.ID,
 		Name:          u.Name,
 		Number:        u.Number,
+		UnitID:        u.UnitID,
+		JoinedYear:    u.JoinedYear,
 		Email:         u.Email,
 		BirthDate:     u.BirthDate,
 		Gender:        u.Gender,

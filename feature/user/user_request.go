@@ -9,13 +9,15 @@ import (
 )
 
 type UserStoreInput struct {
-	Name      string         `json:"name"`
-	Email     string         `json:"email"`
-	Role      domain.Role    `json:"role"`
-	Number    *string        `json:"number"`
-	BirthDate *string        `json:"birth_date"`
-	Gender    *string        `json:"gender"`
-	Meta      map[string]any `json:"meta"`
+	Name       string         `json:"name"`
+	Email      string         `json:"email"`
+	Role       domain.Role    `json:"role"`
+	Number     *string        `json:"number"`
+	UnitID     *string        `json:"unit_id"`
+	JoinedYear *int           `json:"joined_year"`
+	BirthDate  *string        `json:"birth_date"`
+	Gender     *string        `json:"gender"`
+	Meta       map[string]any `json:"meta"`
 }
 
 func (n UserStoreInput) Validate() error {
@@ -24,6 +26,7 @@ func (n UserStoreInput) Validate() error {
 		validation.Field(&n.Email, validation.Required, is.Email, validation.Length(1, 256)),
 		validation.Field(&n.Role, validation.Required, validation.In(domain.RoleAdmin, domain.RoleIssuer, domain.RoleHolder)),
 		validation.Field(&n.Number, validation.Length(0, 256)),
+		validation.Field(&n.UnitID, validation.Length(0, 26)),
 		validation.Field(&n.BirthDate, validation.Date("2006-01-02")),
 		validation.Field(&n.Gender, validation.In("male", "female")),
 	)
@@ -42,13 +45,15 @@ func (n UserStoreInput) ToDomain() domain.User {
 		gender = &g
 	}
 	return domain.User{
-		Name:        &n.Name,
-		Email:       n.Email,
-		Role:        n.Role,
-		Number:      n.Number,
-		BirthDate:   birthDate,
-		Gender:      gender,
-		Meta:        n.Meta,
+		Name:       &n.Name,
+		Email:      n.Email,
+		Role:       n.Role,
+		Number:     n.Number,
+		UnitID:     n.UnitID,
+		JoinedYear: n.JoinedYear,
+		BirthDate:  birthDate,
+		Gender:     gender,
+		Meta:       n.Meta,
 	}
 }
 
@@ -117,14 +122,16 @@ func (r UserDeleteRequest) Validate() error {
 }
 
 type UserUpdateInput struct {
-	Id          string         `json:"id"`
-	Name        *string        `json:"name"`
-	Number      *string        `json:"number"`
-	BirthDate   *string        `json:"birth_date"`
-	Gender      *string        `json:"gender"`
-	Meta        map[string]any `json:"meta"`
-	Email       *string        `json:"email"`
-	Role        *domain.Role   `json:"role"`
+	Id         string         `json:"id"`
+	Name       *string        `json:"name"`
+	Number     *string        `json:"number"`
+	UnitID     *string        `json:"unit_id"`
+	JoinedYear *int           `json:"joined_year"`
+	BirthDate  *string        `json:"birth_date"`
+	Gender     *string        `json:"gender"`
+	Meta       map[string]any `json:"meta"`
+	Email      *string        `json:"email"`
+	Role       *domain.Role   `json:"role"`
 }
 
 func (n UserUpdateInput) Validate() error {
@@ -132,6 +139,7 @@ func (n UserUpdateInput) Validate() error {
 		validation.Field(&n.Id, validation.Required),
 		validation.Field(&n.Name, validation.Length(0, 256)),
 		validation.Field(&n.Number, validation.Length(0, 256)),
+		validation.Field(&n.UnitID, validation.Length(0, 26)),
 		validation.Field(&n.BirthDate, validation.Date("2006-01-02")),
 		validation.Field(&n.Gender, validation.In("male", "female")),
 		validation.Field(&n.Email, is.Email, validation.Length(1, 256)),
@@ -152,12 +160,14 @@ func (n UserUpdateInput) ToDomain() domain.User {
 		gender = &g
 	}
 	u := domain.User{
-		Id:          n.Id,
-		Name:        n.Name,
-		Number:      n.Number,
-		BirthDate:   birthDate,
-		Gender:      gender,
-		Meta:        n.Meta,
+		Id:         n.Id,
+		Name:       n.Name,
+		Number:     n.Number,
+		UnitID:     n.UnitID,
+		JoinedYear: n.JoinedYear,
+		BirthDate:  birthDate,
+		Gender:     gender,
+		Meta:       n.Meta,
 	}
 	if n.Email != nil {
 		u.Email = *n.Email

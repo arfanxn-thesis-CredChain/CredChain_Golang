@@ -101,6 +101,8 @@ type User struct {
 	Id                        string         `json:"id"`
 	Name                      *string        `json:"name"`
 	Number                    *string        `json:"number"`
+	UnitID                    *string        `json:"unit_id"`
+	JoinedYear                *int           `json:"joined_year"`
 	Email                     string         `json:"email"`
 	BirthDate                 *time.Time     `json:"birth_date"`
 	Gender                    *Gender        `json:"gender"`

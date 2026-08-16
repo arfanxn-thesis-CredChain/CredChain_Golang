@@ -11,6 +11,7 @@ import (
 	"CredChain_Golang/tests/fixtures"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newRepo(t *testing.T) domain.UserRepository {
@@ -977,4 +978,30 @@ func TestGormUserRepository_Restore_PreservesRole(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, restored.DeletedAt)
 	assert.Equal(t, domain.RoleAdmin, restored.Role, "role must be preserved after restore")
+}
+
+func TestGormUserGet_FilterAndSortByUnitAndJoinedYear(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		fixtures.NewDomainUser(fixtures.WithID("u1"), fixtures.WithEmail("u1@x.com"), fixtures.WithUnitID("unit-a"), fixtures.WithJoinedYear(2020)),
+		fixtures.NewDomainUser(fixtures.WithID("u2"), fixtures.WithEmail("u2@x.com"), fixtures.WithUnitID("unit-b"), fixtures.WithJoinedYear(2021)),
+	)
+	require.NoError(t, err)
+
+	q := &domainQuery.Query{Filters: []domainQuery.Filter{
+		domainQuery.NewFilter("unit_id", domainQuery.OperatorEqual, "unit-a"),
+	}}
+	got, total, err := repo.Get(ctx, q)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, got, 1)
+	assert.Equal(t, "u1", got[0].Id)
+
+	q2 := &domainQuery.Query{Sorts: []domainQuery.Sort{{Column: "joined_year", Order: domainQuery.SortDesc}}}
+	got2, _, err := repo.Get(ctx, q2)
+	require.NoError(t, err)
+	require.Len(t, got2, 2)
+	assert.Equal(t, "u2", got2[0].Id)
 }
