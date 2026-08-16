@@ -140,17 +140,17 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 		}
 
 		users[idx] = s.seedBuildUser(seedBuildUserParams{
-			index:       walletIdx,
-			name:        name,
-			email:       email,
-			birthDate:   &birthDate,
-			gender:      &gender,
-			meta:        meta,
-			role:        role,
-			number:      number,
-			createdAt:   createdAt,
-			updatedAt:   updatedAt,
-			deletedAt:   deletedAt,
+			index:     walletIdx,
+			name:      name,
+			email:     email,
+			birthDate: &birthDate,
+			gender:    &gender,
+			meta:      meta,
+			role:      role,
+			number:    number,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			deletedAt: deletedAt,
 		})
 	}
 
@@ -158,17 +158,17 @@ func (s *UserSeeder) seedBuildUsers(rng *rand.Rand) []domain.User {
 }
 
 type seedBuildUserParams struct {
-	index       uint32
-	name        string
-	email       string
-	birthDate   *time.Time
-	gender      *domain.Gender
-	meta        map[string]any
-	role        domain.Role
-	number      string
-	createdAt   time.Time
-	updatedAt   *time.Time
-	deletedAt   *time.Time
+	index     uint32
+	name      string
+	email     string
+	birthDate *time.Time
+	gender    *domain.Gender
+	meta      map[string]any
+	role      domain.Role
+	number    string
+	createdAt time.Time
+	updatedAt *time.Time
+	deletedAt *time.Time
 }
 
 func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {

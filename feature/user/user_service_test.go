@@ -145,7 +145,6 @@ func TestUserService_Find_PropagatesError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-
 func TestUserService_UpdateEmail(t *testing.T) {
 	oauthClient := &mocks.MockGoogleOAuthClient{}
 	oauthClient.On("Validate", mock.Anything, "ok-token", mock.Anything).Return(&idtoken.Payload{
