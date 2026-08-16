@@ -45,6 +45,22 @@ func (m *MockCredentialRepository) FindByIds(ctx context.Context, ids []string, 
 	return nil, args.Error(1)
 }
 
+func (m *MockCredentialRepository) FindVerifiableById(ctx context.Context, id string, query *domainQuery.Query) (*domain.Credential, error) {
+	args := m.Called(ctx, id, query)
+	if v := args.Get(0); v != nil {
+		return v.(*domain.Credential), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockCredentialRepository) FindVerifiableByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]domain.Credential, error) {
+	args := m.Called(ctx, ids, query)
+	if v := args.Get(0); v != nil {
+		return v.([]domain.Credential), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockCredentialRepository) FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]domain.Credential, error) {
 	args := m.Called(ctx, hashes, query)
 	if v := args.Get(0); v != nil {

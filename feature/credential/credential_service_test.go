@@ -84,7 +84,7 @@ func TestVerify_CacheHit(t *testing.T) {
 		MatchedCredentialID: &credID,
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
-	m.credRepo.On("Find", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:     credID,
 		Holder: &domain.User{},
 		Issuer: &domain.User{},
@@ -124,7 +124,7 @@ func TestVerify_CacheHit_RevokedCredential(t *testing.T) {
 		MatchedCredentialID: &credID,
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
-	m.credRepo.On("Find", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
 		RevokedAt: &now,
 		Holder:    &domain.User{},
@@ -166,7 +166,7 @@ func TestVerify_CacheHit_RevokedOverridesPartyDisabled(t *testing.T) {
 		MatchedCredentialID: &credID,
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
-	m.credRepo.On("Find", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
 		RevokedAt: &now,
 		Holder:    &holder,
@@ -205,7 +205,7 @@ func TestVerify_CacheHit_NonAuthenticPreserved(t *testing.T) {
 		MatchedCredentialID: &credID,
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
-	m.credRepo.On("Find", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
 		RevokedAt: &now,
 		Holder:    &domain.User{},
@@ -242,7 +242,7 @@ func TestVerify_CacheHit_CredentialNotFound(t *testing.T) {
 		MatchedCredentialID: &credID,
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
-	m.credRepo.On("Find", mock.Anything, credID, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(nil, nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -454,7 +454,7 @@ func TestVerify_FuzzyTampered(t *testing.T) {
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
 		Verdict: "tampered", SimilarityScore: 0.3, SimilarityPercent: "30%",
 	}, nil)
-	m.credRepo.On("Find", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -493,7 +493,7 @@ func TestVerify_FuzzySuspicious(t *testing.T) {
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
 		Verdict: "suspicious", SimilarityScore: 0.5, SimilarityPercent: "50%",
 	}, nil)
-	m.credRepo.On("Find", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -530,7 +530,7 @@ func TestVerify_FuzzyLowSimilarity(t *testing.T) {
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
 		Verdict: "low_similarity", SimilarityScore: 0.4, SimilarityPercent: "40%",
 	}, nil)
-	m.credRepo.On("Find", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -566,7 +566,7 @@ func TestVerify_FuzzyNotSimilar(t *testing.T) {
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
 		Verdict: "not_similar", SimilarityScore: 0.2, SimilarityPercent: "20%",
 	}, nil)
-	m.credRepo.On("Find", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{ID: "cred-1"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -606,7 +606,7 @@ func TestVerify_TieBreakNonRevokedPreferred(t *testing.T) {
 		{CredentialID: "cred-live", IDs: []domain.CredentialExtractedID{{Value: "ID1"}, {Value: "ID2"}}, Embedding: []float64{2.0, 0.0}},
 	}, nil)
 
-	m.credRepo.On("FindByIds", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
+	m.credRepo.On("FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
 		{ID: "cred-revoked", RevokedAt: &now, IssuedAt: earlier},
 		{ID: "cred-live", RevokedAt: nil, IssuedAt: earlier},
 	}, nil)
@@ -618,7 +618,7 @@ func TestVerify_TieBreakNonRevokedPreferred(t *testing.T) {
 			actualEmbedding = args.Get(2).([]float64)
 		})
 
-	m.credRepo.On("Find", mock.Anything, "cred-live", mock.Anything).Return(&domain.Credential{ID: "cred-live"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-live", mock.Anything).Return(&domain.Credential{ID: "cred-live"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -659,7 +659,7 @@ func TestVerify_TieBreakNewestIssuedAt(t *testing.T) {
 		{CredentialID: "cred-new", IDs: []domain.CredentialExtractedID{{Value: "ID1"}, {Value: "ID2"}}, Embedding: []float64{3.0, 0.0}},
 	}, nil)
 
-	m.credRepo.On("FindByIds", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
+	m.credRepo.On("FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
 		{ID: "cred-old", RevokedAt: nil, IssuedAt: earlier},
 		{ID: "cred-new", RevokedAt: nil, IssuedAt: newer},
 	}, nil)
@@ -671,7 +671,7 @@ func TestVerify_TieBreakNewestIssuedAt(t *testing.T) {
 			actualEmbedding = args.Get(2).([]float64)
 		})
 
-	m.credRepo.On("Find", mock.Anything, "cred-new", mock.Anything).Return(&domain.Credential{ID: "cred-new"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-new", mock.Anything).Return(&domain.Credential{ID: "cred-new"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -1430,7 +1430,7 @@ func TestVerify_DoesNotOverrideTampered_WhenHolderDeleted(t *testing.T) {
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
 		Verdict: "tampered", SimilarityScore: 0.3, SimilarityPercent: "30%",
 	}, nil)
-	m.credRepo.On("Find", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{
 		ID:           "cred-1",
 		HolderUserID: "holder-1",
 		IssuerUserID: "issuer-1",
@@ -1475,12 +1475,12 @@ func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
 		{CredentialID: "cred-b", IDs: []domain.CredentialExtractedID{{Value: "ID1"}, {Value: "ID2"}}, Embedding: []float64{2.0, 0.0}},
 	}, nil)
 
-	// FindByIds errors → verifyPickBestMatch should fall back to tied[0] without crashing
-	m.credRepo.On("FindByIds", mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+	// FindVerifiableByIds errors → verifyPickBestMatch should fall back to tied[0] without crashing
+	m.credRepo.On("FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, []float64{1.0, 0.0}).Return(
 		&pyai.VerifyResult{Verdict: "tampered", SimilarityScore: 0.3, SimilarityPercent: "30%"}, nil,
 	)
-	m.credRepo.On("Find", mock.Anything, "cred-a", mock.Anything).Return(&domain.Credential{ID: "cred-a"}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-a", mock.Anything).Return(&domain.Credential{ID: "cred-a"}, nil)
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
@@ -1490,7 +1490,7 @@ func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
 	assert.NotNil(t, cred)
 	assert.Equal(t, "cred-a", cred.ID)
-	m.credRepo.AssertCalled(t, "FindByIds", mock.Anything, mock.Anything, mock.Anything)
+	m.credRepo.AssertCalled(t, "FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything)
 	m.aiClient.AssertCalled(t, "Verify", mock.Anything, mock.Anything, []float64{1.0, 0.0})
 }
 

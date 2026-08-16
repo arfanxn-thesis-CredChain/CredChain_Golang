@@ -216,6 +216,42 @@ func (r *gormCredentialRepository) Find(ctx context.Context, id string, query *d
 	return &d, nil
 }
 
+// FindVerifiableById retrieves a single approved credential by ID.
+// Verification path only: rows with approved_at IS NULL are invisible.
+func (r *gormCredentialRepository) FindVerifiableById(ctx context.Context, id string, query *domainQuery.Query) (*domain.Credential, error) {
+	db := r.db.WithContext(ctx).Model(&model.Credential{}).Where("approved_at IS NOT NULL")
+	if query != nil {
+		db = preloadByIncludes(db, query)
+	}
+	var c model.Credential
+	if err := db.First(&c, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	d := c.ToDomain()
+	return &d, nil
+}
+
+// FindVerifiableByIds retrieves approved credentials by ID list.
+// Verification path only: rows with approved_at IS NULL are invisible.
+func (r *gormCredentialRepository) FindVerifiableByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]domain.Credential, error) {
+	if len(ids) == 0 {
+		return []domain.Credential{}, nil
+	}
+	db := r.db.WithContext(ctx).Where("approved_at IS NOT NULL")
+	if query != nil {
+		db = preloadByIncludes(db, query)
+	}
+	var rows []model.Credential
+	if err := db.Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.Credential, len(rows))
+	for i, c := range rows {
+		out[i] = c.ToDomain()
+	}
+	return out, nil
+}
+
 // ── Batch lookups ─────────────────────────────────────────────────────────
 
 // FindByIds retrieves credentials by ID list (batch lookup).
@@ -266,7 +302,7 @@ func (r *gormCredentialRepository) FindByFileHashes(ctx context.Context, hashes 
 		db = preloadByIncludes(db, query)
 	}
 	var rows []model.Credential
-	if err := db.Where("file_hash IN ?", hashes).Find(&rows).Error; err != nil {
+	if err := db.Where("file_hash IN ?", hashes).Where("approved_at IS NOT NULL").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.Credential, len(rows))

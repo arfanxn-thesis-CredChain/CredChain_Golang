@@ -118,6 +118,14 @@ type CredentialRepository interface {
 	// non-nil it may carry Includes for preloading holder/issuer/revoker relations.
 	FindByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]Credential, error)
 
+	// FindVerifiableById retrieves a single approved credential by ID.
+	// Verification path only: rows with approved_at IS NULL are invisible.
+	FindVerifiableById(ctx context.Context, id string, query *domainQuery.Query) (*Credential, error)
+
+	// FindVerifiableByIds retrieves approved credentials by ID list.
+	// Verification path only: rows with approved_at IS NULL are invisible.
+	FindVerifiableByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]Credential, error)
+
 	// FindByHolderId retrieves all credentials owned by a given holder. When
 	// query is non-nil it may carry Includes for preloading relations.
 	FindByHolderId(ctx context.Context, holderID string, query *domainQuery.Query) ([]Credential, error)
@@ -125,6 +133,7 @@ type CredentialRepository interface {
 	// FindByFileHashes retrieves credentials whose file_hash matches any of
 	// the given hashes. Used during issue to detect duplicate uploads. When
 	// query is non-nil it may carry Includes for preloading relations.
+	// approved_at IS NOT NULL is enforced; sole consumer is the public verify path.
 	FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]Credential, error)
 
 	// Store batch-inserts credentials. Generates ULIDs for any missing IDs.

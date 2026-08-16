@@ -51,6 +51,12 @@ func (m *mockCredRepo) Find(ctx context.Context, id string, q *domainQuery.Query
 func (m *mockCredRepo) FindByIds(ctx context.Context, ids []string, q *domainQuery.Query) ([]domain.Credential, error) {
 	return nil, nil
 }
+func (m *mockCredRepo) FindVerifiableById(ctx context.Context, id string, q *domainQuery.Query) (*domain.Credential, error) {
+	return nil, nil
+}
+func (m *mockCredRepo) FindVerifiableByIds(ctx context.Context, ids []string, q *domainQuery.Query) ([]domain.Credential, error) {
+	return nil, nil
+}
 func (m *mockCredRepo) Store(ctx context.Context, creds ...domain.Credential) ([]domain.Credential, error) {
 	return nil, nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func openCredRepo(t *testing.T) *gormCredentialRepository {
@@ -21,6 +22,33 @@ func openCredRepo(t *testing.T) *gormCredentialRepository {
 }
 
 func strPtr(s string) *string { return &s }
+
+func timePtr(t time.Time) *time.Time { return &t }
+
+func TestGormCredentialVerificationPathExcludesPending(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "approved", HolderUserID: "h1", IssuerUserID: "i1", Name: "Approved", FileHash: "0xapp", ApprovedAt: timePtr(time.Now())},
+		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: "i1", Name: "Pending", FileHash: "0xpen"},
+	)
+	require.NoError(t, err)
+
+	byID, err := repo.FindVerifiableById(ctx, "pending", nil)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.Nil(t, byID)
+
+	byIDs, err := repo.FindVerifiableByIds(ctx, []string{"pending", "approved"}, nil)
+	require.NoError(t, err)
+	require.Len(t, byIDs, 1)
+	assert.Equal(t, "approved", byIDs[0].ID)
+
+	byHash, err := repo.FindByFileHashes(ctx, []string{"0xpen", "0xapp"}, nil)
+	require.NoError(t, err)
+	require.Len(t, byHash, 1)
+	assert.Equal(t, "approved", byHash[0].ID)
+}
 
 func TestGormCredentialStore_FindByIds(t *testing.T) {
 	repo := openCredRepo(t)
@@ -47,7 +75,7 @@ func TestGormCredentialFindByFileHashes(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa", ApprovedAt: timePtr(time.Now())},
 	)
 	require.NoError(t, err)
 

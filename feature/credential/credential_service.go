@@ -498,7 +498,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	if cached != nil {
 		var cred *domain.Credential
 		if cached.MatchedCredentialID != nil {
-			cred, _ = s.repo.Find(ctx, *cached.MatchedCredentialID, verifyQuery)
+			cred, _ = s.repo.FindVerifiableById(ctx, *cached.MatchedCredentialID, verifyQuery)
 		}
 		code := cached.VerdictCode
 		if code == domain.CodeCredentialVerifyAuthentic {
@@ -616,7 +616,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	}
 
 	code := s.verifyVerdictToCode(result.Verdict)
-	cred, _ := s.repo.Find(ctx, best.CredentialID, verifyQuery)
+	cred, _ := s.repo.FindVerifiableById(ctx, best.CredentialID, verifyQuery)
 	if code == domain.CodeCredentialVerifyAuthentic && cred != nil {
 		holderGone := cred.Holder == nil || cred.Holder.DeletedAt != nil
 		issuerGone := cred.Issuer == nil || cred.Issuer.DeletedAt != nil
@@ -633,8 +633,9 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 }
 
 // verifyPickBestMatch selects the best-matching extraction from ranked
-// results. Uses one FindByIds IN-query for tie-breaking (no per-candidate
-// queries). Prefers non-revoked credentials; then prefers newer IssuedAt.
+// results. Uses one FindVerifiableByIds IN-query for tie-breaking (no
+// per-candidate queries). Prefers non-revoked credentials; then prefers
+// newer IssuedAt.
 func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []domain.CredentialExtraction, values []string) domain.CredentialExtraction {
 	maxCount := s.verifyCountIntersection(ranked[0].IDs, values)
 	var tied []domain.CredentialExtraction
@@ -647,9 +648,9 @@ func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []do
 		return tied[0]
 	}
 	ids := lo.Map(tied, func(e domain.CredentialExtraction, _ int) string { return e.CredentialID })
-	creds, err := s.repo.FindByIds(ctx, ids, nil)
+	creds, err := s.repo.FindVerifiableByIds(ctx, ids, nil)
 	if err != nil {
-		s.logger.Warn("verifyPickBestMatch: FindByIds failed, falling back to first candidate",
+		s.logger.Warn("verifyPickBestMatch: FindVerifiableByIds failed, falling back to first candidate",
 			zap.Error(err),
 			zap.Int("candidate_count", len(tied)),
 		)
