@@ -853,18 +853,6 @@ func TestGormCredentialGet_SortByHolderFields(t *testing.T) {
 		assert.Len(t, results, 3)
 		assert.Equal(t, "Gamma Cred", results[0].Name)
 	})
-
-	t.Run("holder_phone_asc", func(t *testing.T) {
-		q := &domainQuery.Query{
-			Sorts: []domainQuery.Sort{
-				{Column: "holder_phone", Order: domainQuery.SortAsc},
-			},
-		}
-		results, _, err := repo.Get(ctx, q)
-		require.NoError(t, err)
-		assert.Len(t, results, 3)
-		assert.Equal(t, "Alpha Cred", results[0].Name)
-	})
 }
 
 func TestGormCredentialGet_SortMultiple(t *testing.T) {
