@@ -32,7 +32,16 @@ func OpenInMemorySQLite(t *testing.T) *gorm.DB {
 		t.Fatalf("gorm.Open: %v", err)
 	}
 
-	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Credential{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.UserUnit{},
+		&model.CredentialType{},
+		&model.CredentialIssuerOrganization{},
+		&model.Competency{},
+		&model.CompetencyCredential{},
+		&model.User{},
+		&model.UserToken{},
+		&model.Credential{},
+	); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 
