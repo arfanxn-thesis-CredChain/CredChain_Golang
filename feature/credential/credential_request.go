@@ -2,6 +2,7 @@ package credential
 
 import (
 	"mime/multipart"
+	"time"
 
 	"CredChain_Golang/domain"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -17,26 +18,59 @@ var allowedMIMETypes = map[string]bool{
 
 const maxFileBytes = 10 * 1024 * 1024 // 10 MB
 
+// parseDatePtr parses a "2006-01-02" string into *time.Time, returning nil for
+// empty/invalid input. Shared by CredentialIssueInput.ToDomain and the Issue
+// handler (which maps inputs straight into service-layer CredentialIssuance).
+func parseDatePtr(s *string) *time.Time {
+	if s == nil || *s == "" {
+		return nil
+	}
+	if t, err := time.Parse("2006-01-02", *s); err == nil {
+		return &t
+	}
+	return nil
+}
+
 // CredentialIssueInput is one item in a batch issue request.
 type CredentialIssueInput struct {
-	HolderUserID string         `form:"holder_user_id"`
-	Name         string         `form:"name"`
-	Meta         map[string]any `form:"meta"`
-	File         *multipart.FileHeader
+	HolderUserID         string         `form:"holder_user_id"`
+	TypeID               string         `form:"type_id"`
+	IssuerOrganizationID string         `form:"issuer_organization_id"`
+	Number               *string        `form:"number"`
+	IssuedAt             *string        `form:"issued_at"`
+	ExpiresAt            *string        `form:"expires_at"`
+	Name                 string         `form:"name"`
+	Meta                 map[string]any `form:"meta"`
+	CompetencyIDs        []string       `form:"-"`
+	File                 *multipart.FileHeader
 }
 
 func (n CredentialIssueInput) Validate() error {
 	return validation.ValidateStruct(&n,
 		validation.Field(&n.HolderUserID, validation.Required),
 		validation.Field(&n.Name, validation.Required, validation.Length(1, 256)),
+		validation.Field(&n.TypeID, validation.Required),
+		validation.Field(&n.IssuerOrganizationID, validation.Required),
+		validation.Field(&n.Number, validation.Length(0, 256)),
+		validation.Field(&n.IssuedAt, validation.Date("2006-01-02")),
+		validation.Field(&n.ExpiresAt, validation.Date("2006-01-02")),
 	)
 }
 
 func (n CredentialIssueInput) ToDomain() domain.Credential {
+	issuedAt := time.Time{}
+	if t := parseDatePtr(n.IssuedAt); t != nil {
+		issuedAt = *t
+	}
 	return domain.Credential{
-		HolderUserID: n.HolderUserID,
-		Name:         n.Name,
-		Meta:         n.Meta,
+		HolderUserID:         n.HolderUserID,
+		IssuerOrganizationID: n.IssuerOrganizationID,
+		TypeID:               n.TypeID,
+		Number:               n.Number,
+		Name:                 n.Name,
+		Meta:                 n.Meta,
+		IssuedAt:             issuedAt,
+		ExpiresAt:            parseDatePtr(n.ExpiresAt),
 	}
 }
 

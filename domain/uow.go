@@ -13,6 +13,7 @@ type UnitOfWork interface {
 	User() UserRepository
 	Credential() CredentialRepository
 	UserToken() UserTokenRepository
+	CompetencyCredential() CompetencyCredentialRepository
 }
 
 // TransactionType defines types of multi-repository transactions

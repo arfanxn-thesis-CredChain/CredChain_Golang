@@ -66,6 +66,175 @@ func (m *localMockEnqueuer) EnqueueExtract(ctx context.Context, args jobs.Creden
 	return m.Called(ctx, args).Error(0)
 }
 
+// ── Inline repo mocks for the issue endpoint (B2) ──────────────────────────
+
+type mockCredentialTypeRepository struct{ mock.Mock }
+
+func (m *mockCredentialTypeRepository) Store(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, types)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) Find(ctx context.Context, id string) (*domain.CredentialType, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) FindByIds(ctx context.Context, ids ...string) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, query)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) Update(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, types)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) Destroy(ctx context.Context, ids ...string) (int64, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+var _ domain.CredentialTypeRepository = (*mockCredentialTypeRepository)(nil)
+
+type mockCredentialIssuerOrganizationRepository struct{ mock.Mock }
+
+func (m *mockCredentialIssuerOrganizationRepository) Store(ctx context.Context, orgs ...domain.CredentialIssuerOrganization) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, orgs)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) Find(ctx context.Context, id string) (*domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ...string) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, query)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) Update(ctx context.Context, orgs ...domain.CredentialIssuerOrganization) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, orgs)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) Destroy(ctx context.Context, ids ...string) (int64, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+var _ domain.CredentialIssuerOrganizationRepository = (*mockCredentialIssuerOrganizationRepository)(nil)
+
+type mockCompetencyRepository struct{ mock.Mock }
+
+func (m *mockCompetencyRepository) Store(ctx context.Context, competencies ...domain.Competency) ([]domain.Competency, error) {
+	args := m.Called(ctx, competencies)
+	return args.Get(0).([]domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) Find(ctx context.Context, id string) (*domain.Competency, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) FindByIds(ctx context.Context, ids ...string) ([]domain.Competency, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).([]domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, error) {
+	args := m.Called(ctx, query)
+	return args.Get(0).([]domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) Update(ctx context.Context, competencies ...domain.Competency) ([]domain.Competency, error) {
+	args := m.Called(ctx, competencies)
+	return args.Get(0).([]domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) Destroy(ctx context.Context, ids ...string) (int64, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+var _ domain.CompetencyRepository = (*mockCompetencyRepository)(nil)
+
+type mockCompetencyCredentialRepository struct{ mock.Mock }
+
+func (m *mockCompetencyCredentialRepository) Store(ctx context.Context, links ...domain.CompetencyCredential) ([]domain.CompetencyCredential, error) {
+	args := m.Called(ctx, links)
+	return args.Get(0).([]domain.CompetencyCredential), args.Error(1)
+}
+
+func (m *mockCompetencyCredentialRepository) Destroy(ctx context.Context, links ...domain.CompetencyCredential) (int64, error) {
+	args := m.Called(ctx, links)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *mockCompetencyCredentialRepository) FindByCredentialId(ctx context.Context, credentialId string) ([]domain.CompetencyCredential, error) {
+	args := m.Called(ctx, credentialId)
+	return args.Get(0).([]domain.CompetencyCredential), args.Error(1)
+}
+
+func (m *mockCompetencyCredentialRepository) FindByCompetencyId(ctx context.Context, competencyId string) ([]domain.CompetencyCredential, error) {
+	args := m.Called(ctx, competencyId)
+	return args.Get(0).([]domain.CompetencyCredential), args.Error(1)
+}
+
+func (m *mockCompetencyCredentialRepository) CountByCompetencyIds(ctx context.Context, competencyIds ...string) (int64, error) {
+	args := m.Called(ctx, competencyIds)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+var _ domain.CompetencyCredentialRepository = (*mockCompetencyCredentialRepository)(nil)
+
+// captureStoreCredentialRepository embeds MockCredentialRepository and records
+// every cred passed to Store, returning them unchanged (their pre-generated
+// IDs are preserved so competency-link assertions can key off them).
+type captureStoreCredentialRepository struct {
+	*mocks.MockCredentialRepository
+	stored []domain.Credential
+}
+
+func (r *captureStoreCredentialRepository) Store(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error) {
+	r.stored = append(r.stored, credentials...)
+	return credentials, nil
+}
+
+// newIssueRepos returns three mocks preconfigured for a valid issuance:
+// an active type, an existing org, and no competencies in the batch.
+func newIssueRepos() (*mockCredentialTypeRepository, *mockCredentialIssuerOrganizationRepository, *mockCompetencyRepository) {
+	typeRepo := &mockCredentialTypeRepository{}
+	typeRepo.On("Find", mock.Anything, mock.Anything).
+		Return(&domain.CredentialType{Id: "type-1", Active: true}, nil)
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, mock.Anything).
+		Return(&domain.CredentialIssuerOrganization{Id: "org-1"}, nil)
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.Competency{}, nil)
+	return typeRepo, orgRepo, compRepo
+}
+
 func TestVerify_CacheHit(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
@@ -693,16 +862,20 @@ func TestIssue_ValidationErrors(t *testing.T) {
 	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).Return(
 		[]contracts.CredentialRegistryCredentialHashStatus{}, nil,
 	)
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := &credentialService{
 		cfg:             testConfig(),
 		registryService: regSvc,
 		policy:          &credentialPolicy{},
 		userRepo:        userRepo,
 		logger:          zap.NewNop(),
+		typeRepo:        typeRepo,
+		orgRepo:         orgRepo,
+		competencyRepo:  compRepo,
 	}
 	items := []CredentialIssuance{
-		{HolderUserID: "holder-1", Name: "a", Filename: "x.pdf", FileBytes: []byte("x")},
-		{HolderUserID: "holder-2", Name: "b", Filename: "x.pdf", FileBytes: []byte("y")},
+		{HolderUserID: "holder-1", Name: "a", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "x.pdf", FileBytes: []byte("x")},
+		{HolderUserID: "holder-2", Name: "b", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "x.pdf", FileBytes: []byte("y")},
 	}
 	results, err := svc.Issue(ctx, items)
 	assert.Nil(t, results)
@@ -732,6 +905,7 @@ func TestIssue_ChainRollback(t *testing.T) {
 	innerCredRepo.On("Store", mock.Anything, mock.Anything).Return(
 		[]domain.Credential{{ID: "stored-1", FileURI: lo.ToPtr("up/test.pdf")}}, nil)
 	uow.On("Credential").Return(innerCredRepo)
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := &credentialService{
 		uow:             uow,
 		cfg:             testConfig(),
@@ -741,9 +915,12 @@ func TestIssue_ChainRollback(t *testing.T) {
 		userRepo:        userRepo,
 		logger:          zap.NewNop(),
 		enqueuer:        enq,
+		typeRepo:        typeRepo,
+		orgRepo:         orgRepo,
+		competencyRepo:  compRepo,
 	}
 	items := []CredentialIssuance{
-		{HolderUserID: "holder-valid", Name: "doc", Filename: "x.pdf", FileBytes: []byte("test")},
+		{HolderUserID: "holder-valid", Name: "doc", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "x.pdf", FileBytes: []byte("test")},
 	}
 	_, err := svc.Issue(ctx, items)
 	assert.Error(t, err)
@@ -764,16 +941,20 @@ func TestIssue_DuplicateFileHash(t *testing.T) {
 			{Status: 0},
 		}, nil,
 	)
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := &credentialService{
 		cfg:             testConfig(),
 		registryService: regSvc,
 		policy:          &credentialPolicy{},
 		userRepo:        userRepo,
 		logger:          zap.NewNop(),
+		typeRepo:        typeRepo,
+		orgRepo:         orgRepo,
+		competencyRepo:  compRepo,
 	}
 	items := []CredentialIssuance{
-		{HolderUserID: "holder-1", Name: "a", Filename: "x.pdf", FileBytes: []byte("dup")},
-		{HolderUserID: "holder-2", Name: "b", Filename: "x.pdf", FileBytes: []byte("unique")},
+		{HolderUserID: "holder-1", Name: "a", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "x.pdf", FileBytes: []byte("dup")},
+		{HolderUserID: "holder-2", Name: "b", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "x.pdf", FileBytes: []byte("unique")},
 	}
 	results, err := svc.Issue(ctx, items)
 	assert.Nil(t, results)
@@ -1539,14 +1720,18 @@ func TestIssue_GlobalDuplicateHash_Batch(t *testing.T) {
 		Return([]domain.User{holderA, holderB}, nil)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := newTestCredentialService(m)
 	svc.userRepo = userRepo
 	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
 
 	data := []byte("a")
 	items := []CredentialIssuance{
-		{HolderUserID: "hA", Name: "C1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: data},
-		{HolderUserID: "hB", Name: "C2", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: data},
+		{HolderUserID: "hA", Name: "C1", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: data},
+		{HolderUserID: "hB", Name: "C2", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: data},
 	}
 
 	_, err := svc.Issue(ctx, items)
@@ -1575,12 +1760,16 @@ func TestIssue_GlobalDuplicateHash_OnChain(t *testing.T) {
 		Return([]domain.User{holder}, nil)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := newTestCredentialService(m)
 	svc.userRepo = userRepo
 	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
 
 	items := []CredentialIssuance{
-		{HolderUserID: "h", Name: "C", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
 	}
 
 	_, err := svc.Issue(ctx, items)
@@ -1621,15 +1810,19 @@ func TestIssue_RevokedHash_Allowed(t *testing.T) {
 	uow.On("Credential").Return(innerCredRepo)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := newTestCredentialService(m)
 	svc.uow = uow
 	svc.userRepo = userRepo
 	svc.cfg = testConfig()
 	svc.storage = &storage.Storage{Config: &config.Config{StoragePath: lo.ToPtr(t.TempDir())}}
 	svc.enqueuer = enq
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
 
 	items := []CredentialIssuance{
-		{HolderUserID: "h", Name: "C", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("y")},
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("y")},
 	}
 
 	_, err := svc.Issue(ctx, items)
@@ -1649,12 +1842,16 @@ func TestIssue_HolderNotFound(t *testing.T) {
 		Return([]domain.User{}, nil)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	typeRepo, orgRepo, compRepo := newIssueRepos()
 	svc := newTestCredentialService(m)
 	svc.userRepo = userRepo
 	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
 
 	items := []CredentialIssuance{
-		{HolderUserID: "ghost", Name: "C", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("z")},
+		{HolderUserID: "ghost", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("z")},
 	}
 
 	_, err := svc.Issue(ctx, items)
@@ -1662,4 +1859,273 @@ func TestIssue_HolderNotFound(t *testing.T) {
 	verrs, ok := err.(validation.Errors)
 	assert.True(t, ok)
 	assert.Contains(t, verrs, "credentials.0.holder_user_id")
+}
+
+func TestIssue_TypeNotFound(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo := &mockCredentialTypeRepository{}
+	typeRepo.On("Find", mock.Anything, "type-missing").Return((*domain.CredentialType)(nil), gorm.ErrRecordNotFound)
+	_, orgRepo, compRepo := newIssueRepos()
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-missing", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.type_id")
+}
+
+func TestIssue_TypeInactive(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo := &mockCredentialTypeRepository{}
+	typeRepo.On("Find", mock.Anything, "type-1").Return(&domain.CredentialType{Id: "type-1", Active: false}, nil)
+	_, orgRepo, compRepo := newIssueRepos()
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.type_id")
+}
+
+func TestIssue_OrgNotFound(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, _, compRepo := newIssueRepos()
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, "org-missing").Return((*domain.CredentialIssuerOrganization)(nil), gorm.ErrRecordNotFound)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-missing", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.issuer_organization_id")
+}
+
+func TestIssue_NumberDuplicate(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, orgRepo, compRepo := newIssueRepos()
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "existing"}}, 1, nil)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: credRepo}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	number := "N-001"
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Number: &number, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.number")
+}
+
+func TestIssue_CompetencyNotFound(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, orgRepo, _ := newIssueRepos()
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, mock.Anything).
+		Return([]domain.Competency{{Id: "comp-b"}}, nil)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", CompetencyIDs: []string{"comp-a", "comp-b"}, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.competency_ids")
+}
+
+func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(
+		fixtures.WithID("h"),
+		fixtures.WithRole(domain.RoleHolder),
+		fixtures.WithWalletAddress("0x"+"a1b2"),
+	)
+	ctx := ctxWithAuth(&issuer)
+
+	enq := &localMockEnqueuer{}
+	enq.On("EnqueueExtract", mock.Anything, mock.Anything).Return(nil)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).
+		Return([]*big.Int{big.NewInt(1)}, nil)
+
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, orgRepo, _ := newIssueRepos()
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, mock.Anything).
+		Return([]domain.Competency{{Id: "comp-a"}, {Id: "comp-b"}}, nil)
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	captureRepo := &captureStoreCredentialRepository{MockCredentialRepository: &mocks.MockCredentialRepository{}}
+	captureRepo.On("Update", mock.Anything, mock.Anything).Return(
+		[]domain.Credential{{ID: "stored-1", TokenID: lo.ToPtr("1")}}, nil)
+	uow.On("Credential").Return(captureRepo)
+
+	var storedLinks []domain.CompetencyCredential
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	compCredRepo.On("Store", mock.Anything, mock.Anything).
+		Return([]domain.CompetencyCredential{}, nil).
+		Run(func(args mock.Arguments) {
+			storedLinks = append(storedLinks, args.Get(1).([]domain.CompetencyCredential)...)
+		})
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: credRepo}
+	svc := newTestCredentialService(m)
+	svc.uow = uow
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.storage = &storage.Storage{Config: &config.Config{StoragePath: lo.ToPtr(t.TempDir())}}
+	svc.enqueuer = enq
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	number := "N-001"
+	items := []CredentialIssuance{
+		{
+			HolderUserID:         "h",
+			Name:                 "C",
+			TypeID:               "type-1",
+			IssuerOrganizationID: "org-1",
+			Number:               &number,
+			CompetencyIDs:        []string{"comp-a", "comp-b"},
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
+			FileBytes:            []byte("payload"),
+		},
+	}
+
+	created, err := svc.Issue(ctx, items)
+	assert.NoError(t, err)
+	assert.Len(t, created, 1)
+
+	if assert.NotEmpty(t, captureRepo.stored) {
+		c := captureRepo.stored[0]
+		assert.Equal(t, "h", c.HolderUserID)
+		assert.Equal(t, issuer.Id, c.SubmitterUserID)
+		assert.Equal(t, issuer.Id, c.IssuerUserID)
+		assert.Equal(t, c.SubmitterUserID, c.IssuerUserID)
+		assert.Equal(t, "type-1", c.TypeID)
+		assert.Equal(t, "org-1", c.IssuerOrganizationID)
+		assert.Equal(t, "N-001", *c.Number)
+		assert.NotNil(t, c.ApproverUserID)
+		assert.Equal(t, issuer.Id, *c.ApproverUserID)
+		assert.NotNil(t, c.ApprovedAt)
+	}
+	if assert.NotEmpty(t, captureRepo.stored) {
+		credID := captureRepo.stored[0].ID
+		assert.Equal(t, []domain.CompetencyCredential{
+			{CompetencyId: "comp-a", CredentialId: credID},
+			{CompetencyId: "comp-b", CredentialId: credID},
+		}, storedLinks)
+	}
+	compCredRepo.AssertCalled(t, "Store", mock.Anything, mock.Anything)
 }

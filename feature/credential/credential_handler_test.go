@@ -72,6 +72,33 @@ func TestBuildIssueItems(t *testing.T) {
 	assert.Equal(t, "holder-2", items[1].HolderUserID)
 }
 
+func TestBuildIssueItems_ParsesExtendedFields(t *testing.T) {
+	number := "N-001"
+	form := &multipart.Form{
+		Value: map[string][]string{
+			"credentials[0][holder_user_id]":         {"holder-1"},
+			"credentials[0][name]":                   {"Degree"},
+			"credentials[0][type_id]":                {"type-1"},
+			"credentials[0][issuer_organization_id]": {"org-1"},
+			"credentials[0][number]":                 {"N-001"},
+			"credentials[0][issued_at]":              {"2026-08-01"},
+			"credentials[0][expires_at]":             {"2026-09-01"},
+			"credentials[0][competency_ids]":         {"comp-a, comp-b ,,comp-c"},
+		},
+		File: map[string][]*multipart.FileHeader{},
+	}
+	items, err := buildIssueItems(form)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	it := items[0]
+	assert.Equal(t, "type-1", it.TypeID)
+	assert.Equal(t, "org-1", it.IssuerOrganizationID)
+	assert.Equal(t, &number, it.Number)
+	assert.Equal(t, "2026-08-01", *it.IssuedAt)
+	assert.Equal(t, "2026-09-01", *it.ExpiresAt)
+	assert.Equal(t, []string{"comp-a", "comp-b", "comp-c"}, it.CompetencyIDs)
+}
+
 func TestHandler_Paginate_Success(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	c, rr := gintest.NewContext(t,

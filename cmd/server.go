@@ -87,6 +87,7 @@ var serverCmd = &cobra.Command{
 						user.NewGormUserRepository,
 						credential.NewGormCredentialRepository,
 						user.NewGormUserTokenRepository,
+						credential.NewGormCompetencyCredentialRepository,
 					)
 				},
 				user.NewUserPolicy,

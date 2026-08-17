@@ -53,12 +53,18 @@ type CredentialService interface {
 // bytes are already in memory (the handler reads multipart upload bytes
 // before calling the service).
 type CredentialIssuance struct {
-	HolderUserID string
-	Name         string
-	Meta         map[string]any
-	Filename     string
-	MIMEType     string
-	FileBytes    []byte
+	HolderUserID         string
+	TypeID               string
+	IssuerOrganizationID string
+	Number               *string
+	IssuedAt             *time.Time
+	ExpiresAt            *time.Time
+	Name                 string
+	Meta                 map[string]any
+	CompetencyIDs        []string
+	Filename             string
+	MIMEType             string
+	FileBytes            []byte
 }
 
 // ── Implementation struct & constructor ───────────────────────────────────
@@ -74,6 +80,9 @@ type credentialService struct {
 	storage          *storage.Storage
 	policy           CredentialPolicy
 	userRepo         domain.UserRepository
+	typeRepo         domain.CredentialTypeRepository
+	orgRepo          domain.CredentialIssuerOrganizationRepository
+	competencyRepo   domain.CompetencyRepository
 	logger           *zap.Logger
 	enqueuer         jobs.Enqueuer
 }
@@ -90,6 +99,9 @@ type CredentialServiceParams struct {
 	Storage          *storage.Storage
 	Policy           CredentialPolicy
 	UserRepo         domain.UserRepository
+	TypeRepo         domain.CredentialTypeRepository
+	OrgRepo          domain.CredentialIssuerOrganizationRepository
+	CompetencyRepo   domain.CompetencyRepository
 	Logger           *zap.Logger
 	Enqueuer         jobs.Enqueuer
 }
@@ -107,6 +119,9 @@ func NewCredentialService(p CredentialServiceParams) CredentialService {
 		storage:          p.Storage,
 		policy:           p.Policy,
 		userRepo:         p.UserRepo,
+		typeRepo:         p.TypeRepo,
+		orgRepo:          p.OrgRepo,
+		competencyRepo:   p.CompetencyRepo,
 		logger:           p.Logger,
 		enqueuer:         p.Enqueuer,
 	}
@@ -175,8 +190,10 @@ func (s *credentialService) SelfFind(ctx context.Context, id string, query *doma
 // ── Issue ─────────────────────────────────────────────────────────────────
 
 // issueValidate performs batch input-driven validation that belongs at the
-// service layer: holder existence, on-chain duplicate file hash, and in-batch
-// duplicate hash. Returns validation.Errors keyed by "credentials.N.field".
+// service layer: holder existence, on-chain duplicate file hash, in-batch
+// duplicate hash, credential type (exists + active), issuer organization
+// existence, number uniqueness within the org, and competency existence.
+// Returns validation.Errors keyed by "credentials.N.field".
 // Server-side failures (encryption, storage, chain mint) are NOT collected
 // here — those remain *domain.Error from the Issue orchestrator.
 func (s *credentialService) issueValidate(
@@ -200,6 +217,21 @@ func (s *credentialService) issueValidate(
 		}
 	}
 
+	// Competency existence: one FindByIds across the whole batch (NO-N+1).
+	var allCompIDs []string
+	for _, it := range items {
+		allCompIDs = append(allCompIDs, it.CompetencyIDs...)
+	}
+	allCompIDs = lo.Uniq(allCompIDs)
+	existingComp := map[string]bool{}
+	if len(allCompIDs) > 0 {
+		if found, err := s.competencyRepo.FindByIds(ctx, allCompIDs...); err == nil {
+			for _, c := range found {
+				existingComp[c.Id] = true
+			}
+		}
+	}
+
 	seenHash := map[string]bool{}
 	for i, it := range items {
 		prefix := fmt.Sprintf("credentials.%d", i)
@@ -219,23 +251,67 @@ func (s *credentialService) issueValidate(
 			continue
 		}
 		seenHash[hashes[i]] = true
+
+		if t, err := s.typeRepo.Find(ctx, it.TypeID); err != nil || t == nil {
+			verrs[prefix+".type_id"] = validation.NewError(
+				"validation_issue_type_not_found", "credential type not found",
+			)
+		} else if !t.Active {
+			verrs[prefix+".type_id"] = validation.NewError(
+				"validation_issue_type_inactive", "credential type inactive",
+			)
+		}
+
+		if _, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil {
+			verrs[prefix+".issuer_organization_id"] = validation.NewError(
+				"validation_issue_org_not_found", "issuer organization not found",
+			)
+		}
+
+		if it.Number != nil && *it.Number != "" {
+			dupQuery := &domainQuery.Query{
+				Filters: []domainQuery.Filter{
+					domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, it.IssuerOrganizationID),
+					domainQuery.NewFilter("number", domainQuery.OperatorEqual, *it.Number),
+				},
+			}
+			if _, total, err := s.repo.Get(ctx, dupQuery); err == nil && total > 0 {
+				verrs[prefix+".number"] = validation.NewError(
+					"validation_issue_number_duplicate", "number already in use",
+				)
+			}
+		}
+
+		for _, cid := range it.CompetencyIDs {
+			if !existingComp[cid] {
+				verrs[prefix+".competency_ids"] = validation.NewError(
+					"validation_issue_competency_not_found", "competency not found",
+				)
+				break
+			}
+		}
 	}
 
 	return verrs
 }
 
 // issuePrepareCredentials encrypts files, persists them to storage, and builds
-// domain.Credential entities with extract_status=pending. Returns *domain.Error
-// on encryption or storage failure (caller cleans up orphan files).
+// domain.Credential entities with extract_status=pending. Direct issuance is
+// approved at creation: the submitting issuer stamps themselves as approver so
+// the row never sits in pending-review. Returns *domain.Error on encryption or
+// storage failure (caller cleans up orphan files).
 func (s *credentialService) issuePrepareCredentials(
 	ctx context.Context,
 	items []CredentialIssuance,
 ) ([]domain.Credential, error) {
 	authUser := httpContext.MustGetUser(ctx)
 
-	issuedAt := time.Now()
 	creds := make([]domain.Credential, len(items))
 	for i, it := range items {
+		issuedAt := time.Now()
+		if it.IssuedAt != nil {
+			issuedAt = *it.IssuedAt
+		}
 		ext := strings.ToLower(filepath.Ext(it.Filename))
 		if ext == "" {
 			ext = ".bin"
@@ -253,15 +329,22 @@ func (s *credentialService) issuePrepareCredentials(
 		}
 		hash := "0x" + hex.EncodeToString(ethCrypto.Keccak256(it.FileBytes))
 		creds[i] = domain.Credential{
-			ID:            ulid.Make().String(),
-			HolderUserID:  it.HolderUserID,
-			IssuerUserID:  authUser.Id,
-			Name:          it.Name,
-			Meta:          it.Meta,
-			FileHash:      hash,
-			FileURI:       &filename,
-			ExtractStatus: domain.ExtractStatusPending,
-			IssuedAt:      issuedAt,
+			ID:                   ulid.Make().String(),
+			HolderUserID:         it.HolderUserID,
+			SubmitterUserID:      authUser.Id,
+			IssuerUserID:         authUser.Id,
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			TypeID:               it.TypeID,
+			Number:               it.Number,
+			Name:                 it.Name,
+			Meta:                 it.Meta,
+			FileHash:             hash,
+			FileURI:              &filename,
+			ExtractStatus:        domain.ExtractStatusPending,
+			IssuedAt:             issuedAt,
+			ExpiresAt:            it.ExpiresAt,
+			ApproverUserID:       &authUser.Id,
+			ApprovedAt:           &issuedAt,
 		}
 	}
 	return creds, nil
@@ -298,12 +381,15 @@ func credentialExpiresAtToChain(expiresAt *time.Time) uint64 {
 }
 
 // issueCommit runs the UoW transaction: Store credentials, mint on-chain,
-// update token IDs, and enqueue River extraction jobs. Chain failure or
-// enqueue failure rolls back the entire transaction.
+// update token IDs, persist competency links, and enqueue River extraction
+// jobs. Chain failure or enqueue failure rolls back the entire transaction.
+// competencyIDsByCredID maps prepared credential IDs to their requested
+// competency IDs (empty entries are skipped).
 func (s *credentialService) issueCommit(
 	ctx context.Context,
 	authWallet domain.Wallet,
 	creds []domain.Credential,
+	competencyIDsByCredID map[string][]string,
 ) ([]domain.Credential, error) {
 	holderIDs := lo.Map(creds, func(c domain.Credential, _ int) string { return c.HolderUserID })
 	holders, err := s.userRepo.FindByIds(ctx, holderIDs...)
@@ -350,6 +436,19 @@ func (s *credentialService) issueCommit(
 		}
 		if _, err := uow.Credential().Update(ctx, updates...); err != nil {
 			return err
+		}
+		for _, c := range stored {
+			compIDs := competencyIDsByCredID[c.ID]
+			if len(compIDs) == 0 {
+				continue
+			}
+			links := make([]domain.CompetencyCredential, len(compIDs))
+			for j, compID := range compIDs {
+				links[j] = domain.CompetencyCredential{CompetencyId: compID, CredentialId: c.ID}
+			}
+			if _, err := uow.CompetencyCredential().Store(ctx, links...); err != nil {
+				return err
+			}
 		}
 		for _, c := range stored {
 			fileURI := filepath.Join(*s.cfg.CredentialFileStoragePath, *c.FileURI)
@@ -404,8 +503,15 @@ func (s *credentialService) Issue(ctx context.Context, items []CredentialIssuanc
 		return nil, err
 	}
 
+	competencyIDsByCredID := make(map[string][]string, len(creds))
+	for i, c := range creds {
+		if len(items[i].CompetencyIDs) > 0 {
+			competencyIDsByCredID[c.ID] = items[i].CompetencyIDs
+		}
+	}
+
 	authWallet := domain.WalletFromUser(*authUser)
-	committed, err := s.issueCommit(ctx, authWallet, creds)
+	committed, err := s.issueCommit(ctx, authWallet, creds, competencyIDsByCredID)
 	if err != nil {
 		s.issueCleanupOrphanFiles(creds)
 		return nil, err

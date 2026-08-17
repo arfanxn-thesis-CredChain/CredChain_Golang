@@ -32,6 +32,11 @@ func (m *MockUnitOfWork) UserToken() domain.UserTokenRepository {
 	return args.Get(0).(domain.UserTokenRepository)
 }
 
+func (m *MockUnitOfWork) CompetencyCredential() domain.CompetencyCredentialRepository {
+	args := m.Called()
+	return args.Get(0).(domain.CompetencyCredentialRepository)
+}
+
 // RunUnitOfWorkFn configures the mock to invoke the function passed to Execute.
 func RunUnitOfWorkFn(m *MockUnitOfWork, innerUoW domain.UnitOfWork) {
 	m.On("Execute", mock.Anything, mock.AnythingOfType("func(domain.UnitOfWork) error")).
