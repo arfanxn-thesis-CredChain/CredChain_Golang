@@ -235,6 +235,8 @@ func (s *credentialService) issueValidate(
 	// Number uniqueness: one Get per DISTINCT org (bounded by the batch's org
 	// count, never per input item — NO-N+1). Each org query uses a single
 	// number IN (...) so collisions are attributed back to the right items.
+	// The duplicate set is keyed by org+number (composite) so an existing
+	// number in org A never flags an org-B item carrying the same number.
 	numbersByOrg := map[string][]string{}
 	for _, it := range items {
 		if it.Number != nil && *it.Number != "" {
@@ -255,7 +257,7 @@ func (s *credentialService) issueValidate(
 		}
 		for _, r := range rows {
 			if r.Number != nil {
-				duplicateNumbers[*r.Number] = true
+				duplicateNumbers[org+"\x00"+*r.Number] = true
 			}
 		}
 	}
@@ -296,7 +298,7 @@ func (s *credentialService) issueValidate(
 			)
 		}
 
-		if it.Number != nil && *it.Number != "" && duplicateNumbers[*it.Number] {
+		if it.Number != nil && *it.Number != "" && duplicateNumbers[it.IssuerOrganizationID+"\x00"+*it.Number] {
 			verrs[prefix+".number"] = validation.NewError(
 				"validation_issue_number_duplicate", "number already in use",
 			)

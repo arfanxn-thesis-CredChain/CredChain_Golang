@@ -2003,6 +2003,57 @@ func TestIssue_NumberDuplicate(t *testing.T) {
 	credRepo.AssertNumberOfCalls(t, "Get", 1)
 }
 
+func TestIssue_NumberDuplicate_ScopedPerOrg(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, orgRepo, compRepo := newIssueRepos()
+	orgFilter := func(q *domainQuery.Query) string {
+		for _, f := range q.Filters {
+			if f.Column == "issuer_organization_id" {
+				return f.GetValue()
+			}
+		}
+		return ""
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Get", mock.Anything, mock.MatchedBy(func(q *domainQuery.Query) bool {
+		return orgFilter(q) == "org-a"
+	})).Return([]domain.Credential{{ID: "existing-a", Number: lo.ToPtr("N-001")}}, 1, nil)
+	credRepo.On("Get", mock.Anything, mock.MatchedBy(func(q *domainQuery.Query) bool {
+		return orgFilter(q) == "org-b"
+	})).Return([]domain.Credential{}, 0, nil)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: credRepo}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	number := "N-001"
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C1", TypeID: "type-1", IssuerOrganizationID: "org-a", Number: &number, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+		{HolderUserID: "h", Name: "C2", TypeID: "type-1", IssuerOrganizationID: "org-b", Number: &number, Filename: "b.pdf", MIMEType: "application/pdf", FileBytes: []byte("y")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	assert.True(t, ok)
+	assert.Contains(t, verrs, "credentials.0.number", "org-a item with existing N-001 must be flagged")
+	assert.NotContains(t, verrs, "credentials.1.number", "org-b item with same number must NOT be flagged")
+	credRepo.AssertNumberOfCalls(t, "Get", 2)
+}
+
 func TestIssue_CompetencyNotFound(t *testing.T) {
 	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
