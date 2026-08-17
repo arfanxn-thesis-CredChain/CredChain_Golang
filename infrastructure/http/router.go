@@ -50,26 +50,27 @@ func NewGinRouter(p RouterParams) *gin.Engine {
 
 type RouteParams struct {
 	fx.In
-	Lifecycle                  fx.Lifecycle
-	Router                     *gin.Engine
-	Config                     *config.Config
-	I18nMiddleware             middleware.I18nMiddleware
-	AuthHandler                auth.AuthHandler
-	UserHandler                user.UserHandler
-	CredentialHandler          credential.CredentialHandler
-	CredentialTypeHandler      credential.CredentialTypeHandler
-	MetaHandler                meta.MetaHandler
-	OverviewHandler            overview.OverviewHandler
-	Logger                     *zap.Logger
-	AuthMiddleware             gin.HandlerFunc
-	AdminRoleMiddleware        middleware.AdminRoleMiddleware
-	IssuerRoleMiddleware       middleware.IssuerRoleMiddleware
-	SuperAdminRoleMiddleware   middleware.SuperAdminRoleMiddleware
-	LoginRateLimitMiddleware   middleware.LoginRateLimitMiddleware
-	RefreshRateLimitMiddleware middleware.RefreshRateLimitMiddleware
-	LogoutRateLimitMiddleware  middleware.LogoutRateLimitMiddleware
-	ApiRateLimitMiddleware     middleware.ApiRateLimitMiddleware
-	ErrorLoggerMiddleware      middleware.ErrorLoggerMiddleware
+	Lifecycle                           fx.Lifecycle
+	Router                              *gin.Engine
+	Config                              *config.Config
+	I18nMiddleware                      middleware.I18nMiddleware
+	AuthHandler                         auth.AuthHandler
+	UserHandler                         user.UserHandler
+	CredentialHandler                   credential.CredentialHandler
+	CredentialTypeHandler               credential.CredentialTypeHandler
+	CredentialIssuerOrganizationHandler credential.CredentialIssuerOrganizationHandler
+	MetaHandler                         meta.MetaHandler
+	OverviewHandler                     overview.OverviewHandler
+	Logger                              *zap.Logger
+	AuthMiddleware                      gin.HandlerFunc
+	AdminRoleMiddleware                 middleware.AdminRoleMiddleware
+	IssuerRoleMiddleware                middleware.IssuerRoleMiddleware
+	SuperAdminRoleMiddleware            middleware.SuperAdminRoleMiddleware
+	LoginRateLimitMiddleware            middleware.LoginRateLimitMiddleware
+	RefreshRateLimitMiddleware          middleware.RefreshRateLimitMiddleware
+	LogoutRateLimitMiddleware           middleware.LogoutRateLimitMiddleware
+	ApiRateLimitMiddleware              middleware.ApiRateLimitMiddleware
+	ErrorLoggerMiddleware               middleware.ErrorLoggerMiddleware
 }
 
 func RegisterRoutes(p RouteParams) {
@@ -121,6 +122,13 @@ func RegisterRoutes(p RouteParams) {
 				credentialTypes.POST("", p.CredentialTypeHandler.Store)
 				credentialTypes.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Update)
 				credentialTypes.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Destroy)
+			}
+			issuerOrganizations := secure.Group("/issuer-organizations")
+			{
+				issuerOrganizations.GET("", p.CredentialIssuerOrganizationHandler.Paginate)
+				issuerOrganizations.POST("", p.CredentialIssuerOrganizationHandler.Store)
+				issuerOrganizations.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Update)
+				issuerOrganizations.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Destroy)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}
