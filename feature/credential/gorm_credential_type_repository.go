@@ -134,12 +134,12 @@ func (r *gormCredentialTypeRepository) Update(ctx context.Context, types ...doma
 	return r.FindByIds(ctx, idStrs...)
 }
 
-// Delete hard-deletes rows by ID (batch). Referenced rows are rejected by the
-// database FK (23503) — translated to CodeCredentialTypeDeleteInUse. The
+// Destroy hard-deletes rows by ID (batch). Referenced rows are rejected by the
+// database FK (23503) — translated to CodeCredentialTypeDestroyInUse. The
 // reference pre-check belongs to the step-3 service; this method is a pure
 // primitive. Setting active = false via Update is the intended everyday
 // deactivation path; hard deletion is the exception.
-func (r *gormCredentialTypeRepository) Delete(ctx context.Context, ids ...string) (int64, error) {
+func (r *gormCredentialTypeRepository) Destroy(ctx context.Context, ids ...string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -147,7 +147,7 @@ func (r *gormCredentialTypeRepository) Delete(ctx context.Context, ids ...string
 	if err := result.Error; err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return 0, domain.NewError(domain.CodeCredentialTypeDeleteInUse,
+			return 0, domain.NewError(domain.CodeCredentialTypeDestroyInUse,
 				domain.WithMetadata("ids", ids), domain.WithError(err))
 		}
 		return 0, err

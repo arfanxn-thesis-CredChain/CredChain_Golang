@@ -16,7 +16,7 @@ func openCompetencyCredentialRepo(t *testing.T) *gormCompetencyCredentialReposit
 	return &gormCompetencyCredentialRepository{db: db.OpenInMemorySQLite(t)}
 }
 
-func TestGormCompetencyCredentialRepository_LinkFindDelete(t *testing.T) {
+func TestGormCompetencyCredentialRepository_LinkFindDestroy(t *testing.T) {
 	repo := openCompetencyCredentialRepo(t)
 	ctx := context.Background()
 
@@ -36,7 +36,7 @@ func TestGormCompetencyCredentialRepository_LinkFindDelete(t *testing.T) {
 	assert.Len(t, byComp, 1)
 	assert.Equal(t, "cred-1", byComp[0].CredentialId)
 
-	deleted, err := repo.Delete(ctx, domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-1"})
+	deleted, err := repo.Destroy(ctx, domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-1"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
 

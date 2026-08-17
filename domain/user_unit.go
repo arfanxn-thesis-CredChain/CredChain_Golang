@@ -39,10 +39,10 @@ type UserUnitRepository interface {
 	// descendants in the tree (single WITH RECURSIVE query; includes self).
 	FindWithDescendants(ctx context.Context, id string) ([]UserUnit, error)
 
-	// Delete hard-deletes rows by ID (batch). Referenced rows are rejected by
-	// the database FK (translated to CodeUserUnitDeleteInUse); the reference
+	// Destroy hard-deletes rows by ID (batch). Referenced rows are rejected by
+	// the database FK (translated to CodeUserUnitDestroyInUse); the reference
 	// pre-check belongs to the step-3 service.
-	Delete(ctx context.Context, ids ...string) (int64, error)
+	Destroy(ctx context.Context, ids ...string) (int64, error)
 
 	// CountByParentIds counts units whose parent_id is any of the given ids.
 	// Pure read primitive for the step-3 deletion guard.

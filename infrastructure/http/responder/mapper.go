@@ -141,10 +141,42 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialFileDownloadNoFile:           "error_credential_file_download_no_file",
 
 	// Lookup-table deletion guards
-	domain.CodeCredentialTypeDeleteInUse:               "error_credential_type_delete_in_use",
-	domain.CodeCredentialIssuerOrganizationDeleteInUse: "error_issuer_organization_delete_in_use",
-	domain.CodeCompetencyDeleteInUse:                   "error_competency_delete_in_use",
-	domain.CodeUserUnitDeleteInUse:                     "error_user_unit_delete_in_use",
+	domain.CodeCredentialTypeDestroyInUse:               "error_credential_type_destroy_in_use",
+	domain.CodeCredentialIssuerOrganizationDestroyInUse: "error_issuer_organization_destroy_in_use",
+	domain.CodeCompetencyDestroyInUse:                   "error_competency_destroy_in_use",
+	domain.CodeUserUnitDestroyInUse:                     "error_user_unit_destroy_in_use",
+
+	// Credential Type CRUD codes
+	domain.CodeCredentialTypeFetchSuccess:   "success_credential_type_fetch",
+	domain.CodeCredentialTypeStoreSuccess:   "success_credential_type_store",
+	domain.CodeCredentialTypeUpdateSuccess:  "success_credential_type_update",
+	domain.CodeCredentialTypeDestroySuccess: "success_credential_type_destroy",
+	domain.CodeCredentialTypeNotFound:       "error_credential_type_not_found",
+	domain.CodeCredentialTypeNameDuplicate:  "error_credential_type_name_duplicate",
+
+	// Issuer Organization CRUD codes
+	domain.CodeIssuerOrganizationFetchSuccess:   "success_issuer_organization_fetch",
+	domain.CodeIssuerOrganizationStoreSuccess:   "success_issuer_organization_store",
+	domain.CodeIssuerOrganizationUpdateSuccess:  "success_issuer_organization_update",
+	domain.CodeIssuerOrganizationDestroySuccess: "success_issuer_organization_destroy",
+	domain.CodeIssuerOrganizationNotFound:       "error_issuer_organization_not_found",
+	domain.CodeIssuerOrganizationNameDuplicate:  "error_issuer_organization_name_duplicate",
+
+	// Competency CRUD codes
+	domain.CodeCompetencyFetchSuccess:   "success_competency_fetch",
+	domain.CodeCompetencyStoreSuccess:   "success_competency_store",
+	domain.CodeCompetencyUpdateSuccess:  "success_competency_update",
+	domain.CodeCompetencyDestroySuccess: "success_competency_destroy",
+	domain.CodeCompetencyNotFound:       "error_competency_not_found",
+	domain.CodeCompetencyNameDuplicate:  "error_competency_name_duplicate",
+
+	// User Unit CRUD codes
+	domain.CodeUserUnitFetchSuccess:   "success_user_unit_fetch",
+	domain.CodeUserUnitStoreSuccess:   "success_user_unit_store",
+	domain.CodeUserUnitUpdateSuccess:  "success_user_unit_update",
+	domain.CodeUserUnitDestroySuccess: "success_user_unit_destroy",
+	domain.CodeUserUnitNotFound:       "error_user_unit_not_found",
+	domain.CodeUserUnitParentInvalid:  "error_user_unit_parent_invalid",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -272,10 +304,42 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialFileDownloadNoFile:           http.StatusNotFound,
 
 	// Lookup-table deletion guards (all 409 Conflict)
-	domain.CodeCredentialTypeDeleteInUse:               http.StatusConflict,
-	domain.CodeCredentialIssuerOrganizationDeleteInUse: http.StatusConflict,
-	domain.CodeCompetencyDeleteInUse:                   http.StatusConflict,
-	domain.CodeUserUnitDeleteInUse:                     http.StatusConflict,
+	domain.CodeCredentialTypeDestroyInUse:               http.StatusConflict,
+	domain.CodeCredentialIssuerOrganizationDestroyInUse: http.StatusConflict,
+	domain.CodeCompetencyDestroyInUse:                   http.StatusConflict,
+	domain.CodeUserUnitDestroyInUse:                     http.StatusConflict,
+
+	// Credential Type CRUD codes
+	domain.CodeCredentialTypeFetchSuccess:   http.StatusOK,
+	domain.CodeCredentialTypeStoreSuccess:   http.StatusOK,
+	domain.CodeCredentialTypeUpdateSuccess:  http.StatusOK,
+	domain.CodeCredentialTypeDestroySuccess: http.StatusOK,
+	domain.CodeCredentialTypeNotFound:       http.StatusNotFound,
+	domain.CodeCredentialTypeNameDuplicate:  http.StatusConflict,
+
+	// Issuer Organization CRUD codes
+	domain.CodeIssuerOrganizationFetchSuccess:   http.StatusOK,
+	domain.CodeIssuerOrganizationStoreSuccess:   http.StatusOK,
+	domain.CodeIssuerOrganizationUpdateSuccess:  http.StatusOK,
+	domain.CodeIssuerOrganizationDestroySuccess: http.StatusOK,
+	domain.CodeIssuerOrganizationNotFound:       http.StatusNotFound,
+	domain.CodeIssuerOrganizationNameDuplicate:  http.StatusConflict,
+
+	// Competency CRUD codes
+	domain.CodeCompetencyFetchSuccess:   http.StatusOK,
+	domain.CodeCompetencyStoreSuccess:   http.StatusOK,
+	domain.CodeCompetencyUpdateSuccess:  http.StatusOK,
+	domain.CodeCompetencyDestroySuccess: http.StatusOK,
+	domain.CodeCompetencyNotFound:       http.StatusNotFound,
+	domain.CodeCompetencyNameDuplicate:  http.StatusConflict,
+
+	// User Unit CRUD codes
+	domain.CodeUserUnitFetchSuccess:   http.StatusOK,
+	domain.CodeUserUnitStoreSuccess:   http.StatusOK,
+	domain.CodeUserUnitUpdateSuccess:  http.StatusOK,
+	domain.CodeUserUnitDestroySuccess: http.StatusOK,
+	domain.CodeUserUnitNotFound:       http.StatusNotFound,
+	domain.CodeUserUnitParentInvalid:  http.StatusBadRequest,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

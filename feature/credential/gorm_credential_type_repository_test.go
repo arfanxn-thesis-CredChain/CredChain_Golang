@@ -42,7 +42,7 @@ func TestGormCredentialTypeRepository_CRUD(t *testing.T) {
 	assert.Equal(t, "Certificate", updated[0].Name)
 	assert.False(t, updated[0].Active)
 
-	deleted, err := repo.Delete(ctx, "t1")
+	deleted, err := repo.Destroy(ctx, "t1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
 

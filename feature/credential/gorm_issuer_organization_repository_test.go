@@ -40,7 +40,7 @@ func TestGormIssuerOrganizationRepository_CRUD(t *testing.T) {
 	assert.Len(t, updated, 1)
 	assert.Equal(t, "Faculty of Computer Science and Engineering", updated[0].Name)
 
-	deleted, err := repo.Delete(ctx, "o1")
+	deleted, err := repo.Destroy(ctx, "o1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
 

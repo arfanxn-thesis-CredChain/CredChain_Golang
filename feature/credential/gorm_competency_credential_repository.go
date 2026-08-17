@@ -35,7 +35,7 @@ func (r *gormCompetencyCredentialRepository) Store(ctx context.Context, links ..
 	return out, nil
 }
 
-func (r *gormCompetencyCredentialRepository) Delete(ctx context.Context, links ...domain.CompetencyCredential) (int64, error) {
+func (r *gormCompetencyCredentialRepository) Destroy(ctx context.Context, links ...domain.CompetencyCredential) (int64, error) {
 	if len(links) == 0 {
 		return 0, nil
 	}

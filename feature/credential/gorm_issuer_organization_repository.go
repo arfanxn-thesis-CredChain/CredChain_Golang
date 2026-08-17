@@ -129,11 +129,11 @@ func (r *gormIssuerOrganizationRepository) Update(ctx context.Context, orgs ...d
 	return r.FindByIds(ctx, idStrs...)
 }
 
-// Delete hard-deletes rows by ID (batch). Referenced rows are rejected by the
-// database FK (23503) — translated to CodeCredentialIssuerOrganizationDeleteInUse.
+// Destroy hard-deletes rows by ID (batch). Referenced rows are rejected by the
+// database FK (23503) — translated to CodeCredentialIssuerOrganizationDestroyInUse.
 // The reference pre-check belongs to the step-3 service; this method is a pure
 // primitive.
-func (r *gormIssuerOrganizationRepository) Delete(ctx context.Context, ids ...string) (int64, error) {
+func (r *gormIssuerOrganizationRepository) Destroy(ctx context.Context, ids ...string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -141,7 +141,7 @@ func (r *gormIssuerOrganizationRepository) Delete(ctx context.Context, ids ...st
 	if err := result.Error; err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return 0, domain.NewError(domain.CodeCredentialIssuerOrganizationDeleteInUse,
+			return 0, domain.NewError(domain.CodeCredentialIssuerOrganizationDestroyInUse,
 				domain.WithMetadata("ids", ids), domain.WithError(err))
 		}
 		return 0, err

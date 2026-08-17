@@ -15,8 +15,8 @@ type CompetencyCredentialRepository interface {
 	// Store batch-inserts join rows (composite PK: competency_id, credential_id).
 	Store(ctx context.Context, links ...CompetencyCredential) ([]CompetencyCredential, error)
 
-	// Delete removes join rows (composite PK pairs).
-	Delete(ctx context.Context, links ...CompetencyCredential) (int64, error)
+	// Destroy removes join rows (composite PK pairs).
+	Destroy(ctx context.Context, links ...CompetencyCredential) (int64, error)
 
 	// FindByCredentialId lists all join rows for one credential.
 	FindByCredentialId(ctx context.Context, credentialId string) ([]CompetencyCredential, error)

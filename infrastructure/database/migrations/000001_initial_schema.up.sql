@@ -67,6 +67,15 @@ CREATE TABLE competencies (
     updated_at TIMESTAMP WITH TIME ZONE
 );
 
+-- Case-insensitive uniqueness race backstop for the lookup upserts (the
+-- service pre-check is the primary path).
+CREATE UNIQUE INDEX uq_credential_types_lower_name
+    ON credential_types (LOWER(name));
+CREATE UNIQUE INDEX uq_credential_issuer_organizations_lower_name
+    ON credential_issuer_organizations (LOWER(name));
+CREATE UNIQUE INDEX uq_competencies_lower_name
+    ON competencies (LOWER(name));
+
 CREATE TYPE credential_extract_status AS ENUM (
     'pending',
     'succeeded',

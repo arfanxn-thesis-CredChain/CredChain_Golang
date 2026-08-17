@@ -23,8 +23,8 @@ type CompetencyRepository interface {
 	Get(ctx context.Context, query *domainQuery.Query) ([]Competency, error)
 	Update(ctx context.Context, competencies ...Competency) ([]Competency, error)
 
-	// Delete hard-deletes rows by ID (batch). Rows referenced by credentials
+	// Destroy hard-deletes rows by ID (batch). Rows referenced by credentials
 	// are protected by the FK constraint — reference pre-checks belong to the
 	// service layer (step 3).
-	Delete(ctx context.Context, ids ...string) (int64, error)
+	Destroy(ctx context.Context, ids ...string) (int64, error)
 }

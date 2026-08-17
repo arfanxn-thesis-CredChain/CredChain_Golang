@@ -131,10 +131,38 @@ var allDomainCodes = []int{
 	domain.CodeCredentialFileDownloadForbidden,
 	domain.CodeCredentialFileDownloadDecryptionFailed,
 	domain.CodeCredentialFileDownloadNoFile,
-	domain.CodeCredentialTypeDeleteInUse,
-	domain.CodeCredentialIssuerOrganizationDeleteInUse,
-	domain.CodeCompetencyDeleteInUse,
-	domain.CodeUserUnitDeleteInUse,
+	domain.CodeCredentialTypeDestroyInUse,
+	domain.CodeCredentialIssuerOrganizationDestroyInUse,
+	domain.CodeCompetencyDestroyInUse,
+	domain.CodeUserUnitDestroyInUse,
+	// Credential Type CRUD
+	domain.CodeCredentialTypeFetchSuccess,
+	domain.CodeCredentialTypeStoreSuccess,
+	domain.CodeCredentialTypeUpdateSuccess,
+	domain.CodeCredentialTypeDestroySuccess,
+	domain.CodeCredentialTypeNotFound,
+	domain.CodeCredentialTypeNameDuplicate,
+	// Issuer Organization CRUD
+	domain.CodeIssuerOrganizationFetchSuccess,
+	domain.CodeIssuerOrganizationStoreSuccess,
+	domain.CodeIssuerOrganizationUpdateSuccess,
+	domain.CodeIssuerOrganizationDestroySuccess,
+	domain.CodeIssuerOrganizationNotFound,
+	domain.CodeIssuerOrganizationNameDuplicate,
+	// Competency CRUD
+	domain.CodeCompetencyFetchSuccess,
+	domain.CodeCompetencyStoreSuccess,
+	domain.CodeCompetencyUpdateSuccess,
+	domain.CodeCompetencyDestroySuccess,
+	domain.CodeCompetencyNotFound,
+	domain.CodeCompetencyNameDuplicate,
+	// User Unit CRUD
+	domain.CodeUserUnitFetchSuccess,
+	domain.CodeUserUnitStoreSuccess,
+	domain.CodeUserUnitUpdateSuccess,
+	domain.CodeUserUnitDestroySuccess,
+	domain.CodeUserUnitNotFound,
+	domain.CodeUserUnitParentInvalid,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

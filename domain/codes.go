@@ -94,7 +94,7 @@ const (
 	CodeUserRestoreNotTrashedForbidden          = 300944
 	CodeUserRestoreBlockchainSyncFailed         = 300945
 
-	CodeUserUnitDeleteInUse = 300650
+	CodeUserUnitDestroyInUse = 300650
 
 	// ── Credential (40) ──────────────────────────────────────────────────────
 	CodeCredentialFetchSuccess    = 400100
@@ -159,7 +159,39 @@ const (
 	// the exception. The reference pre-check lives in the step-3 services;
 	// these codes are returned by the services and by the repo-level 23503
 	// translation backstop.
-	CodeCredentialTypeDeleteInUse               = 400741
-	CodeCredentialIssuerOrganizationDeleteInUse = 400742
-	CodeCompetencyDeleteInUse                   = 400743
+	CodeCredentialTypeDestroyInUse               = 400741
+	CodeCredentialIssuerOrganizationDestroyInUse = 400742
+	CodeCompetencyDestroyInUse                   = 400743
+
+	// ── Credential Type CRUD (08) ───────────────────────────────────────────
+	CodeCredentialTypeFetchSuccess   = 400800
+	CodeCredentialTypeStoreSuccess   = 400801
+	CodeCredentialTypeUpdateSuccess  = 400802
+	CodeCredentialTypeDestroySuccess = 400803
+	CodeCredentialTypeNotFound       = 400840
+	CodeCredentialTypeNameDuplicate  = 400841
+
+	// ── Issuer Organization CRUD (09) ───────────────────────────────────────
+	CodeIssuerOrganizationFetchSuccess   = 400900
+	CodeIssuerOrganizationStoreSuccess   = 400901
+	CodeIssuerOrganizationUpdateSuccess  = 400902
+	CodeIssuerOrganizationDestroySuccess = 400903
+	CodeIssuerOrganizationNotFound       = 400940
+	CodeIssuerOrganizationNameDuplicate  = 400941
+
+	// ── Competency CRUD (10) ────────────────────────────────────────────────
+	CodeCompetencyFetchSuccess   = 401000
+	CodeCompetencyStoreSuccess   = 401001
+	CodeCompetencyUpdateSuccess  = 401002
+	CodeCompetencyDestroySuccess = 401003
+	CodeCompetencyNotFound       = 401040
+	CodeCompetencyNameDuplicate  = 401041
+
+	// ── User Unit CRUD (30/10) ──────────────────────────────────────────────
+	CodeUserUnitFetchSuccess   = 301000
+	CodeUserUnitStoreSuccess   = 301001
+	CodeUserUnitUpdateSuccess  = 301002
+	CodeUserUnitDestroySuccess = 301003
+	CodeUserUnitNotFound       = 301040
+	CodeUserUnitParentInvalid  = 301041
 )

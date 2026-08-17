@@ -40,7 +40,7 @@ func TestGormCompetencyRepository_CRUD(t *testing.T) {
 	assert.Len(t, updated, 1)
 	assert.Equal(t, "Data Structures and Algorithms", updated[0].Name)
 
-	deleted, err := repo.Delete(ctx, "c1")
+	deleted, err := repo.Destroy(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
 
