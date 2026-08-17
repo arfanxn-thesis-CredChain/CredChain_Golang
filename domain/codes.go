@@ -124,10 +124,10 @@ const (
 	CodeCredentialVerifyCredentialNotFound = 400445
 	CodeCredentialVerifyDocumentUnreadable = 400446
 
-	// Verify verdict outcomes use the success sub-range CC=01-12 (all HTTP 200
+	// Verify verdict outcomes use the success sub-range CC=01-13 (all HTTP 200
 	// except IntegrityWarning=409). These are deliberate verdict codes, NOT
 	// errors — the verify operation succeeded; the verdict is the result data.
-	// Do not reuse CC=01-12 here for unrelated codes.
+	// Do not reuse CC=01-13 here for unrelated codes.
 	CodeCredentialVerifyAuthentic        = 400401
 	CodeCredentialVerifyRevoked          = 400402
 	CodeCredentialVerifyIntegrityWarning = 400403
@@ -140,6 +140,7 @@ const (
 	CodeCredentialVerifyHolderDisabled   = 400410
 	CodeCredentialVerifyIssuerDisabled   = 400411
 	CodeCredentialVerifyPartyDisabled    = 400412
+	CodeCredentialVerifyExpired          = 400413
 
 	// ── Credential Re-Extract (05) ──────────────────────────────────────────
 	CodeCredentialReExtractSuccess     = 400500

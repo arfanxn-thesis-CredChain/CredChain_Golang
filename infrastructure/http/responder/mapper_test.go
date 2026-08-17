@@ -123,6 +123,7 @@ var allDomainCodes = []int{
 	domain.CodeCredentialVerifyHolderDisabled,
 	domain.CodeCredentialVerifyIssuerDisabled,
 	domain.CodeCredentialVerifyPartyDisabled,
+	domain.CodeCredentialVerifyExpired,
 	domain.CodeCredentialReExtractSuccess,
 	domain.CodeCredentialReExtractNotFound,
 	domain.CodeCredentialReExtractNotEligible,

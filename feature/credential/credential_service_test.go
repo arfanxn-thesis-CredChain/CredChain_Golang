@@ -548,6 +548,166 @@ func TestVerify_ExactIntegrityWarning(t *testing.T) {
 	assert.Nil(t, percent)
 }
 
+func TestVerify_ExactExpired(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	past := time.Now().Add(-24 * time.Hour)
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
+		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: nil, ExpiresAt: &past, Holder: &domain.User{}, Issuer: &domain.User{}, TokenID: lo.ToPtr("12345")},
+	}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
+		[]contracts.CredentialRegistryCredential{{
+			Id:        big.NewInt(12345),
+			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
+			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
+			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+			Revoker:   common.Address{},
+			IssuedAt:  big.NewInt(1000),
+			RevokedAt: big.NewInt(0),
+			Uri:       "testUri",
+		}}, nil,
+	)
+	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
+
+	svc := newTestCredentialService(m)
+	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyExpired, code)
+	assert.NotNil(t, cred)
+	assert.Equal(t, "cred-1", cred.ID)
+	assert.Nil(t, score)
+	assert.Nil(t, percent)
+	m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+}
+
+func TestVerify_RevokedBeatsExpired(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	now := time.Now()
+	past := now.Add(-24 * time.Hour)
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
+		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: &now, ExpiresAt: &past, TokenID: lo.ToPtr("12345")},
+	}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
+		[]contracts.CredentialRegistryCredential{{
+			Id:        big.NewInt(12345),
+			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
+			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
+			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+			Revoker:   common.Address{},
+			IssuedAt:  big.NewInt(1000),
+			RevokedAt: big.NewInt(2000),
+			Uri:       "testUri",
+		}}, nil,
+	)
+	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
+
+	svc := newTestCredentialService(m)
+	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
+	assert.NotNil(t, cred)
+	assert.Equal(t, "cred-1", cred.ID)
+	assert.Nil(t, score)
+	assert.Nil(t, percent)
+}
+
+func TestVerify_CacheHit_ExpiredReEvaluated(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	past := time.Now().Add(-24 * time.Hour)
+	credID := "cred-1"
+	cached := &domain.CredentialVerification{
+		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
+		MatchedCredentialID: &credID,
+	}
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+		ID:        credID,
+		ExpiresAt: &past,
+		Holder:    &domain.User{},
+		Issuer:    &domain.User{},
+	}, nil)
+
+	svc := newTestCredentialService(m)
+	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyExpired, code)
+	assert.NotNil(t, cred)
+	assert.Equal(t, credID, cred.ID)
+	m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+	m.aiClient.AssertNotCalled(t, "Verify", mock.Anything, mock.Anything, mock.Anything)
+	m.extRepo.AssertNotCalled(t, "FindRankedByIds", mock.Anything, mock.Anything, mock.Anything)
+	m.regSvc.AssertNotCalled(t, "GetCredentialsByIds", mock.Anything, mock.Anything)
+}
+
+func TestVerify_NoExpiryUnchanged(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	credID := "cred-1"
+	cached := &domain.CredentialVerification{
+		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
+		MatchedCredentialID: &credID,
+	}
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
+		ID:     credID,
+		Holder: &domain.User{},
+		Issuer: &domain.User{},
+	}, nil)
+
+	svc := newTestCredentialService(m)
+	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
+	assert.NotNil(t, cred)
+	assert.Equal(t, credID, cred.ID)
+	m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+	m.regSvc.AssertNotCalled(t, "GetCredentialsByIds", mock.Anything, mock.Anything)
+}
+
 func TestVerify_FuzzyNoIdentifiers(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)

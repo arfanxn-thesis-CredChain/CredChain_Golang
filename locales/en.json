@@ -125,6 +125,7 @@
     "error_credential_verify_ai_service_failed": "The verification service is busy or unavailable right now. Please try again in a moment.",
     "error_credential_verify_document_unreadable": "We couldn't read your document. Please make sure it's a clear PDF or image (PNG, JPG, WEBP, or TIFF) under 10 MB, then try again.",
     "error_credential_verify_credential_not_found": "Credential not found for verification (id={{.credential_id}}).",
+    "error_credential_verify_expired": "This credential has expired.",
     "error_rate_limit_exceeded": "Too many requests. Please try again later.",
     "success_credential_reextract": "Re-extraction enqueued successfully.",
     "error_credential_reextract_not_found": "One or more credentials were not found: {{.credential_ids}}",

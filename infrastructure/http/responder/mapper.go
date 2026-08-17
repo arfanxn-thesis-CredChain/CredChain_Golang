@@ -127,6 +127,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialVerifyHolderDisabled:       "success_credential_verify_holder_disabled",
 	domain.CodeCredentialVerifyIssuerDisabled:       "success_credential_verify_issuer_disabled",
 	domain.CodeCredentialVerifyPartyDisabled:        "success_credential_verify_party_disabled",
+	domain.CodeCredentialVerifyExpired:              "error_credential_verify_expired",
 
 	// Credential Re-Extract codes
 	domain.CodeCredentialReExtractSuccess:     "success_credential_reextract",
@@ -316,6 +317,7 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialVerifyHolderDisabled:       http.StatusOK,
 	domain.CodeCredentialVerifyIssuerDisabled:       http.StatusOK,
 	domain.CodeCredentialVerifyPartyDisabled:        http.StatusOK,
+	domain.CodeCredentialVerifyExpired:              http.StatusOK,
 
 	domain.CodeCredentialReExtractSuccess:     http.StatusOK,
 	domain.CodeCredentialReExtractNotFound:    http.StatusNotFound,

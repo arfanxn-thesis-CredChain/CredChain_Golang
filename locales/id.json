@@ -125,6 +125,7 @@
     "error_credential_verify_ai_service_failed": "Layanan verifikasi sedang sibuk atau tidak tersedia. Silakan coba lagi beberapa saat lagi.",
     "error_credential_verify_document_unreadable": "Kami tidak dapat membaca dokumen Anda. Pastikan berkas berupa PDF atau gambar yang jelas (PNG, JPG, WEBP, atau TIFF), berukuran di bawah 10 MB, lalu coba lagi.",
     "error_credential_verify_credential_not_found": "Kredensial tidak ditemukan untuk verifikasi (id={{.credential_id}}).",
+    "error_credential_verify_expired": "Kredensial ini telah kedaluwarsa.",
     "error_rate_limit_exceeded": "Terlalu banyak permintaan. Silakan coba lagi nanti.",
     "success_credential_reextract": "Ekstraksi ulang berhasil diantrekan.",
     "error_credential_reextract_not_found": "Satu atau lebih kredensial tidak ditemukan: {{.credential_ids}}",

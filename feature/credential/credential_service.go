@@ -1102,14 +1102,17 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 			if cred != nil && cred.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked {
 				code = domain.CodeCredentialVerifyRevoked
 			} else if cred != nil {
-				holderGone := cred.Holder == nil || cred.Holder.DeletedAt != nil
-				issuerGone := cred.Issuer == nil || cred.Issuer.DeletedAt != nil
-				if holderGone && issuerGone {
-					code = domain.CodeCredentialVerifyPartyDisabled
-				} else if holderGone {
-					code = domain.CodeCredentialVerifyHolderDisabled
-				} else if issuerGone {
-					code = domain.CodeCredentialVerifyIssuerDisabled
+				code = s.verifyApplyExpiry(code, cred)
+				if code == domain.CodeCredentialVerifyAuthentic {
+					holderGone := cred.Holder == nil || cred.Holder.DeletedAt != nil
+					issuerGone := cred.Issuer == nil || cred.Issuer.DeletedAt != nil
+					if holderGone && issuerGone {
+						code = domain.CodeCredentialVerifyPartyDisabled
+					} else if holderGone {
+						code = domain.CodeCredentialVerifyHolderDisabled
+					} else if issuerGone {
+						code = domain.CodeCredentialVerifyIssuerDisabled
+					}
 				}
 			} else {
 				code = domain.CodeCredentialVerifyIntegrityWarning
@@ -1159,6 +1162,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 					if bestIsRevoked {
 						code = domain.CodeCredentialVerifyRevoked
 					}
+					code = s.verifyApplyExpiry(code, best)
 					if code == domain.CodeCredentialVerifyAuthentic {
 						holderGone := best.Holder == nil || best.Holder.DeletedAt != nil
 						issuerGone := best.Issuer == nil || best.Issuer.DeletedAt != nil
@@ -1225,8 +1229,20 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 			code = domain.CodeCredentialVerifyIssuerDisabled
 		}
 	}
+	code = s.verifyApplyExpiry(code, cred)
 	s.verifyCacheVerdict(ctx, uploadedHash, code, &best.CredentialID, &result.SimilarityScore, &result.SimilarityPercent)
 	return code, cred, &result.SimilarityScore, &result.SimilarityPercent, nil
+}
+
+// verifyApplyExpiry overrides an authentic verdict with expired when the
+// credential's DB expires_at has passed. Revocation wins: callers apply this
+// AFTER the revoked check. NULL expires_at means no expiry.
+func (s *credentialService) verifyApplyExpiry(code int, cred *domain.Credential) int {
+	if code == domain.CodeCredentialVerifyAuthentic && cred != nil && cred.ExpiresAt != nil &&
+		!time.Now().Before(*cred.ExpiresAt) {
+		return domain.CodeCredentialVerifyExpired
+	}
+	return code
 }
 
 // verifyPickBestMatch selects the best-matching extraction from ranked
