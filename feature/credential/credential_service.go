@@ -51,6 +51,7 @@ type CredentialService interface {
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	DownloadFile(ctx context.Context, id string) (data []byte, filename string, mimeType string, err error)
+	LinkCompetencies(ctx context.Context, credentialID string, competencyIDs []string) error
 }
 
 // CredentialIssuance is the service-layer input for one credential issuance. File
@@ -1461,6 +1462,44 @@ func (s *credentialService) DownloadFile(ctx context.Context, id string) ([]byte
 		mimeType = "application/octet-stream"
 	}
 	return decrypted, *target.FileURI, mimeType, nil
+}
+
+// ── Credential Competency Link ──────────────────────────────────────────────
+
+// LinkCompetencies replaces the credential's competency set atomically.
+func (s *credentialService) LinkCompetencies(ctx context.Context, credentialID string, competencyIDs []string) error {
+	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
+		if _, err := uow.Credential().Find(ctx, credentialID, nil); err != nil {
+			return domain.NewError(domain.CodeCredentialCompetencyLinkCredentialNotFound,
+				domain.WithMetadata("credential_id", credentialID))
+		}
+		if len(competencyIDs) > 0 {
+			found, err := s.competencyRepo.FindByIds(ctx, competencyIDs...)
+			if err != nil {
+				return err
+			}
+			foundSet := lo.SliceToMap(found, func(c domain.Competency) (string, bool) { return c.Id, true })
+			for _, id := range competencyIDs {
+				if !foundSet[id] {
+					return domain.NewError(domain.CodeCredentialCompetencyLinkCompetencyNotFound,
+						domain.WithMetadata("competency_ids", []string{id}))
+				}
+			}
+		}
+		if _, err := uow.CompetencyCredential().DestroyByCredentialId(ctx, credentialID); err != nil {
+			return err
+		}
+		if len(competencyIDs) == 0 {
+			return nil
+		}
+		links := make([]domain.CompetencyCredential, len(competencyIDs))
+		for i, id := range competencyIDs {
+			links[i] = domain.CompetencyCredential{CompetencyId: id, CredentialId: credentialID}
+		}
+		_, err := uow.CompetencyCredential().Store(ctx, links...)
+		return err
+	})
+	return err
 }
 
 // ── Blockchain sync helpers ───────────────────────────────────────────────

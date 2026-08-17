@@ -2,6 +2,7 @@ package credential
 
 import (
 	"bytes"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseItemIndex(t *testing.T) {
@@ -511,4 +513,87 @@ func TestHandler_Verify_ServiceReturnsVerdict(t *testing.T) {
 	h := &credentialHandler{credSvc: svc}
 	h.Verify(c)
 	assert.Equal(t, http.StatusOK, c.Writer.Status())
+}
+
+func TestCredentialHandler_LinkCompetencies_Success(t *testing.T) {
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithMethod(http.MethodPut),
+		gintest.WithPath("/api/credentials/cred-1/competencies"),
+		gintest.WithBody(CredentialLinkCompetenciesRequest{CompetencyIDs: []string{"comp-a", "comp-b"}}),
+		gintest.WithUser(&authUser),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	c.Params = gin.Params{{Key: "id", Value: "cred-1"}}
+
+	svc := &mockCredentialService{}
+	svc.On("LinkCompetencies", mock.Anything, "cred-1", []string{"comp-a", "comp-b"}).Return(nil)
+
+	h := &credentialHandler{credSvc: svc}
+	h.LinkCompetencies(c)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			CredentialID  string   `json:"credential_id"`
+			CompetencyIDs []string `json:"competency_ids"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, domain.CodeCredentialCompetencyLinkSuccess, resp.Code)
+	assert.Equal(t, "cred-1", resp.Data.CredentialID)
+	assert.Equal(t, []string{"comp-a", "comp-b"}, resp.Data.CompetencyIDs)
+	svc.AssertExpectations(t)
+}
+
+func TestCredentialHandler_LinkCompetencies_ValidationError(t *testing.T) {
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ids := make([]string, 101)
+	for i := range ids {
+		ids[i] = "x"
+	}
+	c, rr := gintest.NewContext(t,
+		gintest.WithMethod(http.MethodPut),
+		gintest.WithPath("/api/credentials/cred-1/competencies"),
+		gintest.WithBody(CredentialLinkCompetenciesRequest{CompetencyIDs: ids}),
+		gintest.WithUser(&authUser),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	c.Params = gin.Params{{Key: "id", Value: "cred-1"}}
+
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.LinkCompetencies(c)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	svc.AssertNotCalled(t, "LinkCompetencies", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCredentialHandler_LinkCompetencies_CredentialNotFound(t *testing.T) {
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithMethod(http.MethodPut),
+		gintest.WithPath("/api/credentials/cred-missing/competencies"),
+		gintest.WithBody(CredentialLinkCompetenciesRequest{CompetencyIDs: []string{"comp-a"}}),
+		gintest.WithUser(&authUser),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	c.Params = gin.Params{{Key: "id", Value: "cred-missing"}}
+
+	svc := &mockCredentialService{}
+	svc.On("LinkCompetencies", mock.Anything, "cred-missing", []string{"comp-a"}).
+		Return(domain.NewError(domain.CodeCredentialCompetencyLinkCredentialNotFound,
+			domain.WithMetadata("credential_id", "cred-missing")))
+
+	h := &credentialHandler{credSvc: svc}
+	h.LinkCompetencies(c)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	var resp struct {
+		Code int `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, domain.CodeCredentialCompetencyLinkCredentialNotFound, resp.Code)
+	svc.AssertExpectations(t)
 }

@@ -47,6 +47,11 @@ func (r *gormCompetencyCredentialRepository) Destroy(ctx context.Context, links 
 	return result.RowsAffected, result.Error
 }
 
+func (r *gormCompetencyCredentialRepository) DestroyByCredentialId(ctx context.Context, credentialId string) (int64, error) {
+	result := r.db.WithContext(ctx).Where("credential_id = ?", credentialId).Delete(&model.CompetencyCredential{})
+	return result.RowsAffected, result.Error
+}
+
 func (r *gormCompetencyCredentialRepository) FindByCredentialId(ctx context.Context, credentialId string) ([]domain.CompetencyCredential, error) {
 	var rows []model.CompetencyCredential
 	if err := r.db.WithContext(ctx).Where("credential_id = ?", credentialId).Find(&rows).Error; err != nil {

@@ -42,6 +42,7 @@ type CredentialHandler interface {
 	SelfPaginate(c *gin.Context)
 	SelfFind(c *gin.Context)
 	DownloadFile(c *gin.Context)
+	LinkCompetencies(c *gin.Context)
 }
 
 // ── Implementation & constructor ──────────────────────────────────────────
@@ -561,6 +562,30 @@ func (h *credentialHandler) DownloadFile(c *gin.Context) {
 	c.Header("Content-Type", mimeType)
 	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filepath.Base(filename)))
 	c.Data(200, mimeType, data)
+}
+
+// ── LinkCompetencies ───────────────────────────────────────────────────────
+
+// LinkCompetencies replaces the credential's competency set (JSON body).
+func (h *credentialHandler) LinkCompetencies(c *gin.Context) {
+	id := c.Param("id")
+	var req CredentialLinkCompetenciesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	if err := h.credSvc.LinkCompetencies(c.Request.Context(), id, req.CompetencyIDs); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCredentialCompetencyLinkSuccess,
+		gin.H{"credential_id": id, "competency_ids": req.CompetencyIDs})
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

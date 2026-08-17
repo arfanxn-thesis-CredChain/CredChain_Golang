@@ -180,6 +180,10 @@ var allDomainCodes = []int{
 	domain.CodeCredentialReviewAlreadyRejected,
 	domain.CodeCredentialReviewAlreadyRevoked,
 	domain.CodeCredentialReviewBlockchainSyncFailed,
+	// Credential Competency Link
+	domain.CodeCredentialCompetencyLinkSuccess,
+	domain.CodeCredentialCompetencyLinkCredentialNotFound,
+	domain.CodeCredentialCompetencyLinkCompetencyNotFound,
 	// Credential Update
 	domain.CodeCredentialUpdateSuccess,
 	domain.CodeCredentialUpdateNotFound,

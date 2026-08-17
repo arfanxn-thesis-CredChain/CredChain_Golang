@@ -65,3 +65,28 @@ func TestGormCompetencyCredentialRepository_CountByCompetencyIds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), none)
 }
+
+func TestGormCompetencyCredentialRepository_DestroyByCredentialId(t *testing.T) {
+	repo := openCompetencyCredentialRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-1"},
+		domain.CompetencyCredential{CompetencyId: "comp-2", CredentialId: "cred-1"},
+		domain.CompetencyCredential{CompetencyId: "comp-1", CredentialId: "cred-2"},
+	)
+	require.NoError(t, err)
+
+	deleted, err := repo.DestroyByCredentialId(ctx, "cred-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+
+	byCred1, err := repo.FindByCredentialId(ctx, "cred-1")
+	require.NoError(t, err)
+	assert.Empty(t, byCred1)
+
+	byCred2, err := repo.FindByCredentialId(ctx, "cred-2")
+	require.NoError(t, err)
+	assert.Len(t, byCred2, 1)
+	assert.Equal(t, "comp-1", byCred2[0].CompetencyId)
+}

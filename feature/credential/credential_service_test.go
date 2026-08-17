@@ -196,6 +196,11 @@ func (m *mockCompetencyCredentialRepository) Destroy(ctx context.Context, links 
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *mockCompetencyCredentialRepository) DestroyByCredentialId(ctx context.Context, credentialId string) (int64, error) {
+	args := m.Called(ctx, credentialId)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *mockCompetencyCredentialRepository) FindByCredentialId(ctx context.Context, credentialId string) ([]domain.CompetencyCredential, error) {
 	args := m.Called(ctx, credentialId)
 	return args.Get(0).([]domain.CompetencyCredential), args.Error(1)
@@ -2886,4 +2891,111 @@ func TestCredentialUpdate_NotFound(t *testing.T) {
 	require.ErrorAs(t, err, &domErr)
 	assert.Equal(t, domain.CodeCredentialUpdateNotFound, domErr.Code)
 	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+// ── LinkCompetencies (competency replace-set) ─────────────────────────────
+
+func TestLinkCompetencies_HappyPathReplacesSet(t *testing.T) {
+	ctx := context.Background()
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Find", mock.Anything, "cred-1", (*domainQuery.Query)(nil)).
+		Return(&domain.Credential{ID: "cred-1"}, nil)
+
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, []string{"comp-a", "comp-b"}).
+		Return([]domain.Competency{{Id: "comp-a"}, {Id: "comp-b"}}, nil)
+
+	var storedLinks []domain.CompetencyCredential
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	compCredRepo.On("DestroyByCredentialId", mock.Anything, "cred-1").Return(int64(2), nil)
+	compCredRepo.On("Store", mock.Anything, mock.Anything).
+		Return([]domain.CompetencyCredential{}, nil).
+		Run(func(args mock.Arguments) {
+			storedLinks = append(storedLinks, args.Get(1).([]domain.CompetencyCredential)...)
+		})
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(credRepo)
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	svc := &credentialService{uow: uow, competencyRepo: compRepo}
+	err := svc.LinkCompetencies(ctx, "cred-1", []string{"comp-a", "comp-b"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []domain.CompetencyCredential{
+		{CompetencyId: "comp-a", CredentialId: "cred-1"},
+		{CompetencyId: "comp-b", CredentialId: "cred-1"},
+	}, storedLinks)
+	compCredRepo.AssertCalled(t, "DestroyByCredentialId", mock.Anything, "cred-1")
+}
+
+func TestLinkCompetencies_CredentialNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Find", mock.Anything, "cred-missing", (*domainQuery.Query)(nil)).
+		Return(nil, gorm.ErrRecordNotFound)
+
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(credRepo)
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	svc := &credentialService{uow: uow, competencyRepo: &mockCompetencyRepository{}}
+	err := svc.LinkCompetencies(ctx, "cred-missing", []string{"comp-a"})
+
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialCompetencyLinkCredentialNotFound, domErr.Code)
+	assert.Equal(t, "cred-missing", domErr.Metadata["credential_id"])
+	compCredRepo.AssertNotCalled(t, "DestroyByCredentialId", mock.Anything, mock.Anything)
+}
+
+func TestLinkCompetencies_CompetencyNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Find", mock.Anything, "cred-1", (*domainQuery.Query)(nil)).
+		Return(&domain.Credential{ID: "cred-1"}, nil)
+
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, []string{"comp-a", "comp-x"}).
+		Return([]domain.Competency{{Id: "comp-a"}}, nil)
+
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(credRepo)
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	svc := &credentialService{uow: uow, competencyRepo: compRepo}
+	err := svc.LinkCompetencies(ctx, "cred-1", []string{"comp-a", "comp-x"})
+
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialCompetencyLinkCompetencyNotFound, domErr.Code)
+	assert.Equal(t, []string{"comp-x"}, domErr.Metadata["competency_ids"])
+	compCredRepo.AssertNotCalled(t, "DestroyByCredentialId", mock.Anything, mock.Anything)
+}
+
+func TestLinkCompetencies_EmptySetClearsLinks(t *testing.T) {
+	ctx := context.Background()
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Find", mock.Anything, "cred-1", (*domainQuery.Query)(nil)).
+		Return(&domain.Credential{ID: "cred-1"}, nil)
+
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	compCredRepo.On("DestroyByCredentialId", mock.Anything, "cred-1").Return(int64(2), nil)
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(credRepo)
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	svc := &credentialService{uow: uow, competencyRepo: &mockCompetencyRepository{}}
+	err := svc.LinkCompetencies(ctx, "cred-1", []string{})
+
+	require.NoError(t, err)
+	compCredRepo.AssertCalled(t, "DestroyByCredentialId", mock.Anything, "cred-1")
+	compCredRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
 }

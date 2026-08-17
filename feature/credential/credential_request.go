@@ -253,6 +253,18 @@ func (r CredentialApproveRequest) Validate() error {
 	)
 }
 
+// CredentialLinkCompetenciesRequest is the JSON body for
+// PUT /api/credentials/:id/competencies.
+type CredentialLinkCompetenciesRequest struct {
+	CompetencyIDs []string `json:"competency_ids"`
+}
+
+func (r CredentialLinkCompetenciesRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.CompetencyIDs, validation.Length(0, 100)),
+	)
+}
+
 // CredentialRejectionInput is one per-credential rejection in a batch reject
 // request. The API always carries per-item reasons (the frontend copies one
 // reason across items when the user wants a single batch reason).

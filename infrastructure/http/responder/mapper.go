@@ -198,6 +198,11 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialReviewAlreadyRevoked:       "error_credential_review_already_revoked",
 	domain.CodeCredentialReviewBlockchainSyncFailed: "error_credential_review_blockchain_sync_failed",
 
+	// Credential Competency Link codes
+	domain.CodeCredentialCompetencyLinkSuccess:            "success_credential_competency_link",
+	domain.CodeCredentialCompetencyLinkCredentialNotFound: "error_credential_competency_link_credential_not_found",
+	domain.CodeCredentialCompetencyLinkCompetencyNotFound: "error_credential_competency_link_competency_not_found",
+
 	// Credential Update codes
 	domain.CodeCredentialUpdateSuccess:    "success_credential_update",
 	domain.CodeCredentialUpdateNotFound:   "error_credential_update_not_found",
@@ -385,6 +390,11 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialReviewAlreadyRejected:      http.StatusConflict,
 	domain.CodeCredentialReviewAlreadyRevoked:       http.StatusConflict,
 	domain.CodeCredentialReviewBlockchainSyncFailed: http.StatusInternalServerError,
+
+	// Credential Competency Link codes
+	domain.CodeCredentialCompetencyLinkSuccess:            http.StatusOK,
+	domain.CodeCredentialCompetencyLinkCredentialNotFound: http.StatusNotFound,
+	domain.CodeCredentialCompetencyLinkCompetencyNotFound: http.StatusBadRequest,
 
 	// Credential Update codes
 	domain.CodeCredentialUpdateSuccess:    http.StatusOK,

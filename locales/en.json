@@ -191,6 +191,9 @@
     "error_credential_review_already_rejected": "One or more credentials are already rejected.",
     "error_credential_review_already_revoked": "One or more credentials are already revoked.",
     "error_credential_review_blockchain_sync_failed": "Failed to sync credential review to the blockchain.",
+    "success_credential_competency_link": "Credential competencies linked successfully.",
+    "error_credential_competency_link_credential_not_found": "Credential not found.",
+    "error_credential_competency_link_competency_not_found": "One or more competencies were not found.",
     "success_credential_update": "Credential updated successfully.",
     "error_credential_update_not_found": "Credential not found.",
     "error_credential_update_not_pending": "Only pending credentials can be updated."

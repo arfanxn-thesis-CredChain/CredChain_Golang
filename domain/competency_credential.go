@@ -18,6 +18,9 @@ type CompetencyCredentialRepository interface {
 	// Destroy removes join rows (composite PK pairs).
 	Destroy(ctx context.Context, links ...CompetencyCredential) (int64, error)
 
+	// DestroyByCredentialId removes all join rows for one credential.
+	DestroyByCredentialId(ctx context.Context, credentialId string) (int64, error)
+
 	// FindByCredentialId lists all join rows for one credential.
 	FindByCredentialId(ctx context.Context, credentialId string) ([]CompetencyCredential, error)
 

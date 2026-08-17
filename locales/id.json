@@ -191,6 +191,9 @@
     "error_credential_review_already_rejected": "Satu atau lebih kredensial sudah ditolak.",
     "error_credential_review_already_revoked": "Satu atau lebih kredensial sudah dicabut.",
     "error_credential_review_blockchain_sync_failed": "Gagal menyinkronkan tinjauan kredensial ke blockchain.",
+    "success_credential_competency_link": "Kompetensi kredensial berhasil ditautkan.",
+    "error_credential_competency_link_credential_not_found": "Kredensial tidak ditemukan.",
+    "error_credential_competency_link_competency_not_found": "Satu atau lebih kompetensi tidak ditemukan.",
     "success_credential_update": "Kredensial berhasil diperbarui.",
     "error_credential_update_not_found": "Kredensial tidak ditemukan.",
     "error_credential_update_not_pending": "Hanya kredensial berstatus pending yang dapat diperbarui."

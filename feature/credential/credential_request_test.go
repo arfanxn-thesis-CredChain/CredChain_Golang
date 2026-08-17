@@ -367,3 +367,27 @@ func TestCredentialRejectRequest_Validate(t *testing.T) {
 		assert.Error(t, r.Validate())
 	})
 }
+
+func TestCredentialLinkCompetenciesRequest_Validate(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		assert.NoError(t, CredentialLinkCompetenciesRequest{CompetencyIDs: []string{"comp-1", "comp-2"}}.Validate())
+	})
+	t.Run("empty set allowed", func(t *testing.T) {
+		assert.NoError(t, CredentialLinkCompetenciesRequest{}.Validate())
+		assert.NoError(t, CredentialLinkCompetenciesRequest{CompetencyIDs: []string{}}.Validate())
+	})
+	t.Run("too many", func(t *testing.T) {
+		ids := make([]string, 101)
+		for i := range ids {
+			ids[i] = "x"
+		}
+		assert.Error(t, CredentialLinkCompetenciesRequest{CompetencyIDs: ids}.Validate())
+	})
+	t.Run("100 allowed", func(t *testing.T) {
+		ids := make([]string, 100)
+		for i := range ids {
+			ids[i] = "x"
+		}
+		assert.NoError(t, CredentialLinkCompetenciesRequest{CompetencyIDs: ids}.Validate())
+	})
+}

@@ -114,6 +114,7 @@ func RegisterRoutes(p RouteParams) {
 			{
 				creds.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Paginate)
 				creds.GET("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Find)
+				creds.PUT("/:id/competencies", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.LinkCompetencies)
 				creds.POST("/batch/issue", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Issue)
 				creds.POST("/batch/submit", p.CredentialHandler.Submit)
 				creds.POST("/batch/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Approve)

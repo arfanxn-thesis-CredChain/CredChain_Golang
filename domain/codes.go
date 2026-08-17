@@ -215,6 +215,11 @@ const (
 	CodeCredentialReviewAlreadyRevoked       = 401243
 	CodeCredentialReviewBlockchainSyncFailed = 401244
 
+	// ── Credential Competency Link (13) ─────────────────────────────────────
+	CodeCredentialCompetencyLinkSuccess            = 401300
+	CodeCredentialCompetencyLinkCredentialNotFound = 401340
+	CodeCredentialCompetencyLinkCompetencyNotFound = 401341
+
 	// ── Credential Update (14) ──────────────────────────────────────────────
 	CodeCredentialUpdateSuccess    = 401400
 	CodeCredentialUpdateNotFound   = 401440

@@ -103,3 +103,8 @@ func (m *mockCredentialService) DownloadFile(ctx context.Context, id string) ([]
 	args := m.Called(ctx, id)
 	return args.Get(0).([]byte), args.String(1), args.String(2), args.Error(3)
 }
+
+func (m *mockCredentialService) LinkCompetencies(ctx context.Context, credentialID string, competencyIDs []string) error {
+	args := m.Called(ctx, credentialID, competencyIDs)
+	return args.Error(0)
+}
