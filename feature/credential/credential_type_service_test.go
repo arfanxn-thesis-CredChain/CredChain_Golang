@@ -72,6 +72,21 @@ func TestCredentialTypeService_Update_Deactivate(t *testing.T) {
 	assert.Equal(t, newName, updated.Name)
 }
 
+func TestCredentialTypeService_Update_RenamePreservesActive(t *testing.T) {
+	svc, _, _ := newCredentialTypeServiceTest(t)
+	ctx := context.Background()
+
+	created, err := svc.Store(ctx, "Degree", nil)
+	require.NoError(t, err)
+	assert.True(t, created.Active)
+
+	newName := "Degree Certificate"
+	updated, err := svc.Update(ctx, created.Id, &newName, nil)
+	require.NoError(t, err)
+	assert.Equal(t, newName, updated.Name)
+	assert.True(t, updated.Active, "name-only update must preserve the existing active state")
+}
+
 func TestCredentialTypeService_Destroy_ReferencedAndFree(t *testing.T) {
 	svc, typeRepo, credRepo := newCredentialTypeServiceTest(t)
 	ctx := context.Background()

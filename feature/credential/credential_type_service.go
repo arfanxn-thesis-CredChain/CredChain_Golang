@@ -112,10 +112,12 @@ func (s *credentialTypeService) Update(ctx context.Context, id string, name *str
 	}
 	u := domain.CredentialType{Id: target.Id}
 	if name != nil {
-		u.Name = *name
+		u.Name = strings.TrimSpace(*name)
 	}
 	if active != nil {
 		u.Active = *active
+	} else {
+		u.Active = target.Active
 	}
 	updated, err := s.typeRepo.Update(ctx, u)
 	if err != nil {
