@@ -129,6 +129,51 @@ func mapSortColumn(col string) string {
 	}
 }
 
+// ── Virtual filters (join-based, EXISTS subqueries) ───────────────────────
+
+// virtualFilterColumns are join-based filters handled by EXISTS subqueries
+// instead of the plain column allowlist (D18). They never produce duplicate
+// rows and stay count-safe, unlike LEFT JOINs on many-to-many relations.
+var virtualFilterColumns = map[string]bool{
+	"competency_name":  true,
+	"competency_id":    true,
+	"holder_unit_name": true,
+	"holder_unit_id":   true,
+}
+
+// applyVirtualFilters consumes virtual filters from the query and appends
+// EXISTS subqueries; the remaining filters flow through ApplyFilters.
+func (r *gormCredentialRepository) applyVirtualFilters(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
+	if query == nil || !query.HasFilters() {
+		return db
+	}
+	remaining := query.Filters[:0]
+	for _, f := range query.Filters {
+		switch {
+		case f.Column == "competency_name" && f.Operator == domainQuery.OperatorLike:
+			db = db.Where(`EXISTS (SELECT 1 FROM competency_credential cc
+				JOIN competencies comp ON comp.id = cc.competency_id
+				WHERE cc.credential_id = credentials.id AND LOWER(comp.name) LIKE LOWER(?))`,
+				"%"+f.GetValue()+"%")
+		case f.Column == "competency_id" && f.Operator == domainQuery.OperatorEqual:
+			db = db.Where(`EXISTS (SELECT 1 FROM competency_credential cc
+				WHERE cc.credential_id = credentials.id AND cc.competency_id = ?)`, f.GetValue())
+		case f.Column == "holder_unit_name" && f.Operator == domainQuery.OperatorLike:
+			db = db.Where(`EXISTS (SELECT 1 FROM users u
+				JOIN user_units uu ON uu.id = u.unit_id
+				WHERE u.id = credentials.holder_user_id AND LOWER(uu.name) LIKE LOWER(?))`,
+				"%"+f.GetValue()+"%")
+		case f.Column == "holder_unit_id" && f.Operator == domainQuery.OperatorEqual:
+			db = db.Where(`EXISTS (SELECT 1 FROM users u
+				WHERE u.id = credentials.holder_user_id AND u.unit_id = ?)`, f.GetValue())
+		default:
+			remaining = append(remaining, f)
+		}
+	}
+	query.Filters = remaining
+	return db
+}
+
 // ── Pagination ────────────────────────────────────────────────────────────
 
 // Get retrieves credentials with pagination, search, filters, sorts, and
@@ -180,6 +225,7 @@ func (r *gormCredentialRepository) Get(ctx context.Context, query *domainQuery.Q
 		}
 
 		if query.HasFilters() {
+			db = r.applyVirtualFilters(db, query)
 			db = gormhelpers.ApplyFilters(db, query.Filters, allowedFilterColumns, "credentials.")
 		}
 	}

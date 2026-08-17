@@ -11,6 +11,7 @@ import (
 	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/tests/db"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -1094,5 +1095,66 @@ func TestGormCredentialGet_FilterByIssuerUserId(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, total)
 		assert.Equal(t, "B", results[0].Name)
+	})
+}
+
+func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	// reference data
+	require.NoError(t, repo.db.Create(&model.UserUnit{Id: "unit-fac", Name: "Faculty"}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-ai", Name: "Artificial Intelligence"}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-db", Name: "Databases"}).Error)
+	holder := model.User{Id: "h1", Email: "h1@x.com", Name: lo.ToPtr("H"), Role: "holder", WalletAddress: "0xa", EncryptedWalletPrivateKey: "k", UnitID: lo.ToPtr("unit-fac")}
+	require.NoError(t, repo.db.Create(&holder).Error)
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "o1", TypeID: "t1", Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "o1", TypeID: "t1", Name: "B", FileHash: "0x2"},
+	)
+	require.NoError(t, err)
+	require.NoError(t, repo.db.Create(&[]model.CompetencyCredential{
+		{CompetencyId: "comp-ai", CredentialId: "c1"},
+		{CompetencyId: "comp-db", CredentialId: "c1"},
+		{CompetencyId: "comp-db", CredentialId: "c2"},
+	}).Error)
+
+	t.Run("competency_name LIKE", func(t *testing.T) {
+		q := &domainQuery.Query{Filters: []domainQuery.Filter{
+			domainQuery.NewFilter("competency_name", domainQuery.OperatorLike, "data"),
+		}}
+		got, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, got, 2, "c1 (databases + ai) and c2 (databases); no duplicate rows from the join")
+		assert.Equal(t, 2, total)
+	})
+
+	t.Run("competency_id equal", func(t *testing.T) {
+		q := &domainQuery.Query{Filters: []domainQuery.Filter{
+			domainQuery.NewFilter("competency_id", domainQuery.OperatorEqual, "comp-ai"),
+		}}
+		got, _, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "c1", got[0].ID)
+	})
+
+	t.Run("holder_unit_name LIKE", func(t *testing.T) {
+		q := &domainQuery.Query{Filters: []domainQuery.Filter{
+			domainQuery.NewFilter("holder_unit_name", domainQuery.OperatorLike, "fac"),
+		}}
+		got, _, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+	})
+
+	t.Run("holder_unit_id equal", func(t *testing.T) {
+		q := &domainQuery.Query{Filters: []domainQuery.Filter{
+			domainQuery.NewFilter("holder_unit_id", domainQuery.OperatorEqual, "unit-fac"),
+		}}
+		got, _, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
 	})
 }
