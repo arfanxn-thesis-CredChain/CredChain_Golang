@@ -44,6 +44,8 @@ type CredentialService interface {
 	SelfFind(ctx context.Context, id string, query *domainQuery.Query) (*domain.Credential, error)
 	Issue(ctx context.Context, items []CredentialIssuance) ([]domain.Credential, error)
 	Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error)
+	Approve(ctx context.Context, ids ...string) ([]domain.Credential, error)
+	Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error)
 	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
@@ -84,6 +86,12 @@ type CredentialSubmission struct {
 	Filename             string
 	MIMEType             string
 	FileBytes            []byte
+}
+
+// CredentialRejection is the service-layer input for one rejected credential.
+type CredentialRejection struct {
+	ID     string
+	Reason string
 }
 
 // ── Implementation struct & constructor ───────────────────────────────────
@@ -455,27 +463,8 @@ func (s *credentialService) issueCommit(
 					domain.WithMetadata("credential_id", c.ID))
 			}
 		}
-		issuances := make([]chain.CredentialIssuance, len(stored))
-		for i, c := range stored {
-			issuances[i] = chain.CredentialIssuance{
-				HolderAddress: holderByID[c.HolderUserID].WalletAddress,
-				Hash:          c.FileHash,
-				URI:           c.ID,
-				IssuedAt:      credentialIssuedAtToChain(c.IssuedAt),
-				ExpiresAt:     credentialExpiresAtToChain(c.ExpiresAt),
-			}
-		}
-		tokenIds, err := s.syncBlockchainIssue(ctx, authWallet, issuances)
-		if err != nil {
-			return err
-		}
-		updates := make([]domain.Credential, len(stored))
-		for i, c := range stored {
-			tok := tokenIds[i].String()
-			updates[i] = domain.Credential{ID: c.ID, TokenID: &tok}
-			stored[i].TokenID = &tok
-		}
-		if _, err := uow.Credential().Update(ctx, updates...); err != nil {
+		if err := s.mintCredentials(ctx, uow, authWallet, stored, holderByID,
+			domain.CodeCredentialIssueBlockchainSyncFailed); err != nil {
 			return err
 		}
 		for _, c := range stored {
@@ -488,12 +477,6 @@ func (s *credentialService) issueCommit(
 				links[j] = domain.CompetencyCredential{CompetencyId: compID, CredentialId: c.ID}
 			}
 			if _, err := uow.CompetencyCredential().Store(ctx, links...); err != nil {
-				return err
-			}
-		}
-		for _, c := range stored {
-			fileURI := filepath.Join(*s.cfg.CredentialFileStoragePath, *c.FileURI)
-			if err := s.issueEnqueueExtractJob(ctx, c.ID, fileURI); err != nil {
 				return err
 			}
 		}
@@ -769,6 +752,117 @@ func (s *credentialService) submitPrepareCredentials(
 		}
 	}
 	return creds, nil
+}
+
+// ── Review: Approve / Reject ─────────────────────────────────────────────
+
+// Approve batch-approves pending self-submissions. Approval is the on-chain
+// mint trigger: the approval update and the mint run in the SAME unit of
+// work, so a failed mint rolls the approval back and the rows stay pending.
+// No queue, no background worker, no deferred mint.
+func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domain.Credential, error) {
+	authUser := httpContext.MustGetUser(ctx)
+	now := time.Now()
+	approverID := authUser.Id
+
+	var approved []domain.Credential
+	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
+		targets, err := uow.Credential().FindByIds(ctx, ids, nil)
+		if err != nil {
+			return err
+		}
+		targetIDs := lo.Map(targets, func(c domain.Credential, _ int) string { return c.ID })
+		if missing, _ := lo.Difference(ids, targetIDs); len(missing) > 0 {
+			return domain.NewError(domain.CodeCredentialReviewNotFound, domain.WithMetadata("credential_ids", missing))
+		}
+		for _, t := range targets {
+			switch t.LifecycleStatus() {
+			case domain.CredentialLifecycleStatusApproved:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyApproved, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialLifecycleStatusRejected:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialLifecycleStatusRevoked:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
+			}
+		}
+
+		holders, err := s.userRepo.FindByIds(ctx, targetIDs...)
+		if err != nil {
+			return err
+		}
+		holderByID := lo.SliceToMap(holders, func(h domain.User) (string, domain.User) { return h.Id, h })
+
+		updates := make([]domain.Credential, len(targets))
+		for i, t := range targets {
+			updates[i] = domain.Credential{
+				ID:             t.ID,
+				ApproverUserID: &approverID,
+				ApprovedAt:     &now,
+				IssuerUserID:   approverID,                  // the officer who writes to chain
+				ExtractStatus:  domain.ExtractStatusPending, // job enqueued below
+			}
+		}
+		updated, err := uow.Credential().Update(ctx, updates...)
+		if err != nil {
+			return err
+		}
+
+		if err := s.mintCredentials(ctx, uow, domain.WalletFromUser(*authUser), updated, holderByID,
+			domain.CodeCredentialReviewBlockchainSyncFailed); err != nil {
+			return err // UoW rolls back the approval update — rows stay pending
+		}
+
+		approved = updated
+		return nil
+	})
+	return approved, err
+}
+
+// Reject batch-rejects pending submissions with per-credential reasons.
+// Rejected rows are historical: they are never edited back into pending —
+// re-submission creates a new row.
+func (s *credentialService) Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error) {
+	authUser := httpContext.MustGetUser(ctx)
+	now := time.Now()
+	rejecterID := authUser.Id
+
+	ids := lo.Map(rejections, func(r CredentialRejection, _ int) string { return r.ID })
+	reasonByID := lo.SliceToMap(rejections, func(r CredentialRejection) (string, string) { return r.ID, r.Reason })
+
+	var rejected []domain.Credential
+	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
+		targets, err := uow.Credential().FindByIds(ctx, ids, nil)
+		if err != nil {
+			return err
+		}
+		targetIDs := lo.Map(targets, func(c domain.Credential, _ int) string { return c.ID })
+		if missing, _ := lo.Difference(ids, targetIDs); len(missing) > 0 {
+			return domain.NewError(domain.CodeCredentialReviewNotFound, domain.WithMetadata("credential_ids", missing))
+		}
+		for _, t := range targets {
+			switch t.LifecycleStatus() {
+			case domain.CredentialLifecycleStatusApproved:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyApproved, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialLifecycleStatusRejected:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialLifecycleStatusRevoked:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
+			}
+		}
+		updates := make([]domain.Credential, len(targets))
+		for i, t := range targets {
+			reason := reasonByID[t.ID]
+			updates[i] = domain.Credential{
+				ID:              t.ID,
+				RejecterUserID:  &rejecterID,
+				RejectedAt:      &now,
+				RejectionReason: &reason,
+			}
+		}
+		rejected, err = uow.Credential().Update(ctx, updates...)
+		return err
+	})
+	return rejected, err
 }
 
 // issueEnqueueExtractJob enqueues a River extraction job.
@@ -1233,19 +1327,51 @@ func (s *credentialService) DownloadFile(ctx context.Context, id string) ([]byte
 
 // ── Blockchain sync helpers ───────────────────────────────────────────────
 
-// syncBlockchainIssue calls RegistryService.IssueCredentials and translates
-// raw chain errors into a domain code so the UoW transaction rolls back.
-func (s *credentialService) syncBlockchainIssue(ctx context.Context, signer domain.Wallet, issuances []chain.CredentialIssuance) ([]*big.Int, error) {
+// mintCredentials mints stored credentials on chain (signer wallet), persists
+// the returned token ids, and enqueues extract jobs. Called inside a UoW —
+// any error rolls back the caller's writes. chainFailCode is the domain code
+// for a failed registry call (issue uses 400244, approve uses 401244);
+// the contract's IssuedCredentialError always maps to 400242.
+func (s *credentialService) mintCredentials(
+	ctx context.Context,
+	uow domain.UnitOfWork,
+	signer domain.Wallet,
+	stored []domain.Credential,
+	holderByID map[string]domain.User,
+	chainFailCode int,
+) error {
+	issuances := make([]chain.CredentialIssuance, len(stored))
+	for i, c := range stored {
+		issuances[i] = chain.CredentialIssuance{
+			HolderAddress: holderByID[c.HolderUserID].WalletAddress,
+			Hash:          c.FileHash,
+			URI:           c.ID,
+			IssuedAt:      credentialIssuedAtToChain(c.IssuedAt),
+			ExpiresAt:     credentialExpiresAtToChain(c.ExpiresAt),
+		}
+	}
 	tokenIds, err := s.registryService.IssueCredentials(ctx, signer, issuances...)
 	if err != nil {
 		if strings.Contains(err.Error(), "IssuedCredentialError") {
-			return nil, domain.NewError(domain.CodeCredentialIssueDuplicateFileHash,
-				domain.WithError(err))
+			return domain.NewError(domain.CodeCredentialIssueDuplicateFileHash, domain.WithError(err))
 		}
-		return nil, domain.NewError(domain.CodeCredentialIssueBlockchainSyncFailed,
-			domain.WithError(err))
+		return domain.NewError(chainFailCode, domain.WithError(err))
 	}
-	return tokenIds, nil
+	updates := make([]domain.Credential, len(stored))
+	for i, c := range stored {
+		tok := tokenIds[i].String()
+		updates[i] = domain.Credential{ID: c.ID, TokenID: &tok}
+	}
+	if _, err := uow.Credential().Update(ctx, updates...); err != nil {
+		return err
+	}
+	for _, c := range stored {
+		fileURI := filepath.Join(*s.cfg.CredentialFileStoragePath, *c.FileURI)
+		if err := s.issueEnqueueExtractJob(ctx, c.ID, fileURI); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncBlockchainRevoke calls RegistryService.RevokeCredentials with the

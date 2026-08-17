@@ -218,3 +218,48 @@ func TestCredentialSubmitRequest_Validate(t *testing.T) {
 		assert.Error(t, r.Validate())
 	})
 }
+
+func TestCredentialApproveRequest_Validate(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		assert.NoError(t, CredentialApproveRequest{Ids: []string{"01J0"}}.Validate())
+	})
+	t.Run("empty", func(t *testing.T) {
+		assert.Error(t, CredentialApproveRequest{Ids: []string{}}.Validate())
+	})
+	t.Run("too many", func(t *testing.T) {
+		ids := make([]string, 101)
+		for i := range ids {
+			ids[i] = "x"
+		}
+		assert.Error(t, CredentialApproveRequest{Ids: ids}.Validate())
+	})
+}
+
+func TestCredentialRejectRequest_Validate(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		r := CredentialRejectRequest{Rejections: []CredentialRejectionInput{{ID: "01J0", Reason: "bad scan"}}}
+		assert.NoError(t, r.Validate())
+	})
+	t.Run("empty", func(t *testing.T) {
+		assert.Error(t, CredentialRejectRequest{Rejections: []CredentialRejectionInput{}}.Validate())
+	})
+	t.Run("too many", func(t *testing.T) {
+		rejections := make([]CredentialRejectionInput, 101)
+		for i := range rejections {
+			rejections[i] = CredentialRejectionInput{ID: "x", Reason: "y"}
+		}
+		assert.Error(t, CredentialRejectRequest{Rejections: rejections}.Validate())
+	})
+	t.Run("missing id", func(t *testing.T) {
+		r := CredentialRejectRequest{Rejections: []CredentialRejectionInput{{ID: "", Reason: "bad scan"}}}
+		assert.Error(t, r.Validate())
+	})
+	t.Run("missing reason", func(t *testing.T) {
+		r := CredentialRejectRequest{Rejections: []CredentialRejectionInput{{ID: "01J0", Reason: ""}}}
+		assert.Error(t, r.Validate())
+	})
+	t.Run("reason too long", func(t *testing.T) {
+		r := CredentialRejectRequest{Rejections: []CredentialRejectionInput{{ID: "01J0", Reason: strings.Repeat("a", 1001)}}}
+		assert.Error(t, r.Validate())
+	})
+}

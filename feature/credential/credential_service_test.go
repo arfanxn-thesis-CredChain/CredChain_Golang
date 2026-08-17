@@ -2,6 +2,7 @@ package credential
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -2354,4 +2355,240 @@ func TestSubmit_NumberDuplicate(t *testing.T) {
 	var verrs validation.Errors
 	require.ErrorAs(t, err, &verrs)
 	assert.Contains(t, verrs, "credentials.0.number", "duplicate number rejected on second submission")
+}
+
+// ── Review: Approve / Reject (B4) ─────────────────────────────────────────
+
+// newCredentialServiceForReview builds a *credentialService wired with a
+// propagating UoW, a user repo that answers holder lookups for the review
+// flows, a no-op enqueuer, and the given registry service mock.
+func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, credRepo *mocks.MockCredentialRepository, regSvc *mocks.MockRegistryService) *credentialService {
+	t.Helper()
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{
+		{Id: "h1", WalletAddress: "0x1111111111111111111111111111111111111111"},
+	}, nil)
+	enq := &localMockEnqueuer{}
+	enq.On("EnqueueExtract", mock.Anything, mock.Anything).Return(nil)
+	return &credentialService{
+		uow:             uow,
+		userRepo:        userRepo,
+		registryService: regSvc,
+		cfg:             testConfig(),
+		enqueuer:        enq,
+		policy:          &credentialPolicy{},
+		logger:          zap.NewNop(),
+	}
+}
+
+func reviewPendingCredential() domain.Credential {
+	return domain.Credential{
+		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		TypeID: "t1", IssuerOrganizationID: "o1", Name: "Degree", FileHash: "0x1",
+		FileURI: lo.ToPtr("f.pdf"), IssuedAt: time.Now(),
+		ExtractStatus: domain.ExtractStatusUnextracted,
+	}
+}
+
+func TestApprove_ChainFailure_RollsBackAndStaysPending(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	pending := []domain.Credential{reviewPendingCredential()}
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(pending, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return(pending, nil)
+
+	regSvc := new(mocks.MockRegistryService)
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("rpc down"))
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	_, err := svc.Approve(ctx, "c1")
+	var de *domain.Error
+	require.ErrorAs(t, err, &de)
+	assert.Equal(t, domain.CodeCredentialReviewBlockchainSyncFailed, de.Code)
+
+	// The approval Update ran inside the UoW but the mint failed — with the
+	// real GormUnitOfWork the approval is rolled back and the row stays pending.
+	innerCredRepo.AssertCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	pending := []domain.Credential{reviewPendingCredential()}
+
+	var approvalUpdates []domain.Credential
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(pending, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).
+		Return(pending, nil).
+		Run(func(args mock.Arguments) {
+			for _, c := range args.Get(1).([]domain.Credential) {
+				if c.ApproverUserID != nil {
+					approvalUpdates = append(approvalUpdates, c)
+				}
+			}
+		})
+
+	regSvc := new(mocks.MockRegistryService)
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).
+		Return([]*big.Int{big.NewInt(7)}, nil)
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	approved, err := svc.Approve(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, approved, 1)
+
+	regSvc.AssertCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+
+	require.Len(t, approvalUpdates, 1)
+	u := approvalUpdates[0]
+	assert.Equal(t, user.Id, *u.ApproverUserID)
+	assert.Equal(t, user.Id, u.IssuerUserID)
+	assert.NotNil(t, u.ApprovedAt)
+	assert.Equal(t, domain.ExtractStatusPending, u.ExtractStatus)
+}
+
+func TestApprove_NotFound(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"ghost"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	regSvc := new(mocks.MockRegistryService)
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	_, err := svc.Approve(ctx, "ghost")
+	var de *domain.Error
+	require.ErrorAs(t, err, &de)
+	assert.Equal(t, domain.CodeCredentialReviewNotFound, de.Code)
+	regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestApprove_NotPending(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name string
+		cred domain.Credential
+		want int
+	}{
+		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
+		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
+		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			ctx := ctxWithAuth(&user)
+
+			innerCredRepo := new(mocks.MockCredentialRepository)
+			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{tt.cred}, nil)
+			uow := mocks.NewPropagatingUnitOfWork()
+			uow.On("Credential").Return(innerCredRepo)
+			regSvc := new(mocks.MockRegistryService)
+			svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+			_, err := svc.Approve(ctx, "c1")
+			var de *domain.Error
+			require.ErrorAs(t, err, &de)
+			assert.Equal(t, tt.want, de.Code)
+			innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+			regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestReject_HappyPath(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	pending := []domain.Credential{
+		{ID: "c1", HolderUserID: "h1", ExtractStatus: domain.ExtractStatusUnextracted},
+		{ID: "c2", HolderUserID: "h1", ExtractStatus: domain.ExtractStatusUnextracted},
+	}
+
+	var updateArgs []domain.Credential
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1", "c2"}, (*domainQuery.Query)(nil)).Return(pending, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).
+		Return(pending, nil).
+		Run(func(args mock.Arguments) {
+			updateArgs = args.Get(1).([]domain.Credential)
+		})
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+
+	rejected, err := svc.Reject(ctx, []CredentialRejection{
+		{ID: "c1", Reason: "unreadable scan"},
+		{ID: "c2", Reason: "expired document"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rejected, 2)
+
+	require.Len(t, updateArgs, 2)
+	assert.Equal(t, "unreadable scan", *updateArgs[0].RejectionReason)
+	assert.Equal(t, "expired document", *updateArgs[1].RejectionReason)
+	assert.Equal(t, user.Id, *updateArgs[0].RejecterUserID)
+	assert.NotNil(t, updateArgs[0].RejectedAt)
+}
+
+func TestReject_NotFound(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"ghost"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+
+	_, err := svc.Reject(ctx, []CredentialRejection{{ID: "ghost", Reason: "x"}})
+	var de *domain.Error
+	require.ErrorAs(t, err, &de)
+	assert.Equal(t, domain.CodeCredentialReviewNotFound, de.Code)
+}
+
+func TestReject_NotPending(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name string
+		cred domain.Credential
+		want int
+	}{
+		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
+		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
+		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			ctx := ctxWithAuth(&user)
+
+			innerCredRepo := new(mocks.MockCredentialRepository)
+			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{tt.cred}, nil)
+			uow := mocks.NewPropagatingUnitOfWork()
+			uow.On("Credential").Return(innerCredRepo)
+			svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+
+			_, err := svc.Reject(ctx, []CredentialRejection{{ID: "c1", Reason: "x"}})
+			var de *domain.Error
+			require.ErrorAs(t, err, &de)
+			assert.Equal(t, tt.want, de.Code)
+			innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+		})
+	}
 }

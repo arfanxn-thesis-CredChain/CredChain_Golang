@@ -355,6 +355,72 @@ func TestHandler_ReExtract_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
+func TestHandler_Approve_Success(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod("POST"),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"ids": []string{"c1"}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	svc.On("Approve", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "c1"}}, nil)
+	h := &credentialHandler{credSvc: svc}
+	h.Approve(c)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	svc.AssertCalled(t, "Approve", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Approve_ValidationError(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod("POST"),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"ids": []string{}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.Approve(c)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	svc.AssertNotCalled(t, "Approve", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Reject_Success(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod("POST"),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"rejections": []map[string]any{{"id": "c1", "reason": "bad scan"}}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	svc.On("Reject", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "c1"}}, nil)
+	h := &credentialHandler{credSvc: svc}
+	h.Reject(c)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	svc.AssertCalled(t, "Reject", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Reject_ValidationError(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod("POST"),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"rejections": []map[string]any{{"id": "c1", "reason": ""}}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.Reject(c)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	svc.AssertNotCalled(t, "Reject", mock.Anything, mock.Anything)
+}
+
 func TestHandler_Verify_NoFile(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	c, rr := gintest.NewContext(t,

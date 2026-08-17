@@ -168,3 +168,43 @@ func (r CredentialSubmitRequest) Validate() error {
 		),
 	)
 }
+
+// CredentialApproveRequest is the JSON body for POST /api/credentials/batch/approve.
+type CredentialApproveRequest struct {
+	Ids []string `json:"ids"`
+}
+
+func (r CredentialApproveRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Ids, validation.Required, validation.Length(1, 100)),
+	)
+}
+
+// CredentialRejectionInput is one per-credential rejection in a batch reject
+// request. The API always carries per-item reasons (the frontend copies one
+// reason across items when the user wants a single batch reason).
+type CredentialRejectionInput struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// CredentialRejectRequest is the JSON body for POST /api/credentials/batch/reject.
+type CredentialRejectRequest struct {
+	Rejections []CredentialRejectionInput `json:"rejections"`
+}
+
+func (r CredentialRejectRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Rejections,
+			validation.Required,
+			validation.Length(1, 100),
+			validation.Each(validation.By(func(v any) error {
+				in := v.(CredentialRejectionInput)
+				return validation.ValidateStruct(&in,
+					validation.Field(&in.ID, validation.Required),
+					validation.Field(&in.Reason, validation.Required, validation.Length(1, 1000)),
+				)
+			})),
+		),
+	)
+}

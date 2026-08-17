@@ -33,6 +33,8 @@ type CredentialHandler interface {
 	Find(c *gin.Context)
 	Issue(c *gin.Context)
 	Submit(c *gin.Context)
+	Approve(c *gin.Context)
+	Reject(c *gin.Context)
 	Revoke(c *gin.Context)
 	Verify(c *gin.Context)
 	ReExtract(c *gin.Context)
@@ -358,6 +360,61 @@ func (h *credentialHandler) Submit(c *gin.Context) {
 	}
 	out := mapCredentialsToResponse(created)
 	responder.Send(c, domain.CodeCredentialSubmitSuccess, out)
+}
+
+// ── Approve ───────────────────────────────────────────────────────────────
+
+// Approve batch-approves pending self-submissions by ID (JSON body). Approval
+// mints the credentials on chain inside the same unit of work — a failed mint
+// rolls the approval back and the rows stay pending.
+func (h *credentialHandler) Approve(c *gin.Context) {
+	var req CredentialApproveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	approved, err := h.credSvc.Approve(c.Request.Context(), req.Ids...)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	out := mapCredentialsToResponse(approved)
+	responder.Send(c, domain.CodeCredentialReviewSuccess, out)
+}
+
+// ── Reject ────────────────────────────────────────────────────────────────
+
+// Reject batch-rejects pending self-submissions with per-credential reasons
+// (JSON body).
+func (h *credentialHandler) Reject(c *gin.Context) {
+	var req CredentialRejectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	rejections := make([]CredentialRejection, len(req.Rejections))
+	for i, in := range req.Rejections {
+		rejections[i] = CredentialRejection{ID: in.ID, Reason: in.Reason}
+	}
+	rejected, err := h.credSvc.Reject(c.Request.Context(), rejections)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	out := mapCredentialsToResponse(rejected)
+	responder.Send(c, domain.CodeCredentialReviewSuccess, out)
 }
 
 // ── Revoke ────────────────────────────────────────────────────────────────
