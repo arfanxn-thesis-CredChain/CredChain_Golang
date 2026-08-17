@@ -95,4 +95,9 @@ func (m *MockCredentialRepository) CountByIssuerOrganizationIds(ctx context.Cont
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockCredentialRepository) CountActiveByFileHashes(ctx context.Context, hashes ...string) (int64, error) {
+	args := m.Called(ctx, hashes)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 var _ domain.CredentialRepository = (*MockCredentialRepository)(nil)

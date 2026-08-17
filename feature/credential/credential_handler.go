@@ -32,6 +32,7 @@ type CredentialHandler interface {
 	Paginate(c *gin.Context)
 	Find(c *gin.Context)
 	Issue(c *gin.Context)
+	Submit(c *gin.Context)
 	Revoke(c *gin.Context)
 	Verify(c *gin.Context)
 	ReExtract(c *gin.Context)
@@ -266,6 +267,97 @@ func (h *credentialHandler) Issue(c *gin.Context) {
 	}
 	out := mapCredentialsToResponse(created)
 	responder.Send(c, domain.CodeCredentialIssueSuccess, out)
+}
+
+// ── Submit ────────────────────────────────────────────────────────────────
+
+// Submit parses a multipart form into batch self-submission items and
+// delegates to the service layer. Mirrors Issue's multipart flow with one
+// difference: there is NO holder_user_id key — the holder is the authenticated
+// user.
+//
+// Expected form structure (one set per item, zero-indexed):
+//
+//	credentials[0][name]
+//	credentials[0][type_id]
+//	credentials[0][issuer_organization_id]
+//	credentials[0][number]            (optional)
+//	credentials[0][issued_at]         (required, "2006-01-02")
+//	credentials[0][expires_at]        (optional, "2006-01-02")
+//	credentials[0][competency_ids]    (optional, comma-separated)
+//	credentials[0][meta]            (JSON string, optional)
+//	credentials[0][file]            (binary upload)
+//	credentials[1][...]
+func (h *credentialHandler) Submit(c *gin.Context) {
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+
+	items, err := buildSubmitItems(form)
+	if err != nil {
+		c.Error(err)
+		responder.SendValidationError(c, err)
+		return
+	}
+
+	req := CredentialSubmitRequest{Credentials: items}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+
+	serviceItems := make([]CredentialSubmission, len(items))
+	for i, it := range items {
+		fileBytes, mime, filename, err := readUploadedFile(it.File)
+		if err != nil {
+			c.Error(err)
+			responder.SendError(c, err)
+			return
+		}
+		if !allowedMIMETypes[mime] {
+			verrs := validation.Errors{
+				fmt.Sprintf("credentials.%d.file", i): validation.NewError("validation_file_type_invalid", ""),
+			}
+			responder.SendValidationError(c, verrs)
+			return
+		}
+		if int64(len(fileBytes)) > maxFileBytes {
+			verrs := validation.Errors{
+				fmt.Sprintf("credentials.%d.file", i): validation.NewError("validation_file_max_size", ""),
+			}
+			responder.SendValidationError(c, verrs)
+			return
+		}
+		serviceItems[i] = CredentialSubmission{
+			Name:                 it.Name,
+			TypeID:               it.TypeID,
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			Number:               it.Number,
+			IssuedAt:             parseDatePtr(it.IssuedAt),
+			ExpiresAt:            parseDatePtr(it.ExpiresAt),
+			CompetencyIDs:        it.CompetencyIDs,
+			Meta:                 it.Meta,
+			Filename:             filename,
+			MIMEType:             mime,
+			FileBytes:            fileBytes,
+		}
+	}
+
+	created, err := h.credSvc.Submit(c.Request.Context(), serviceItems)
+	if err != nil {
+		c.Error(err)
+		if verrs, ok := err.(validation.Errors); ok {
+			responder.SendValidationError(c, verrs)
+			return
+		}
+		responder.SendError(c, err)
+		return
+	}
+	out := mapCredentialsToResponse(created)
+	responder.Send(c, domain.CodeCredentialSubmitSuccess, out)
 }
 
 // ── Revoke ────────────────────────────────────────────────────────────────
@@ -539,4 +631,97 @@ func parseItemIndex(key string) (int, bool) {
 		return 0, false
 	}
 	return idx, true
+}
+
+// buildSubmitItems extracts CredentialSubmitInput slices from a parsed
+// multipart form. Mirrors buildIssueItems with NO holder_user_id key — the
+// holder is the authenticated user. Keys follow the pattern:
+//
+//	credentials[N][name] = "Bachelor's Degree"
+//	credentials[N][type_id] = "ulid"
+//	credentials[N][issuer_organization_id] = "ulid"
+//	credentials[N][number] = "N-001"
+//	credentials[N][issued_at] = "2026-08-01"
+//	credentials[N][expires_at] = "2026-09-01"
+//	credentials[N][competency_ids] = "comp-a,comp-b"  (comma-separated)
+//	credentials[N][meta] = `{"institution":"UI"}`
+//	credentials[N][file] = <binary>
+func buildSubmitItems(form *multipart.Form) ([]CredentialSubmitInput, error) {
+	values := form.Value
+	files := form.File
+
+	idxSet := make(map[int]bool)
+	for k := range values {
+		if idx, ok := parseItemIndex(k); ok {
+			idxSet[idx] = true
+		}
+	}
+	for k := range files {
+		if idx, ok := parseItemIndex(k); ok {
+			idxSet[idx] = true
+		}
+	}
+	if len(idxSet) == 0 {
+		return nil, nil
+	}
+
+	maxIdx := lo.Max(lo.Keys(idxSet))
+
+	items := make([]CredentialSubmitInput, maxIdx+1)
+	for i := 0; i <= maxIdx; i++ {
+		key := "credentials[" + strconv.Itoa(i) + "][name]"
+		if v, ok := values[key]; ok && len(v) > 0 {
+			items[i].Name = v[0]
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][type_id]"
+		if v, ok := values[key]; ok && len(v) > 0 {
+			items[i].TypeID = v[0]
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][issuer_organization_id]"
+		if v, ok := values[key]; ok && len(v) > 0 {
+			items[i].IssuerOrganizationID = v[0]
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][number]"
+		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
+			num := v[0]
+			items[i].Number = &num
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][issued_at]"
+		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
+			issuedAt := v[0]
+			items[i].IssuedAt = &issuedAt
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][expires_at]"
+		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
+			expiresAt := v[0]
+			items[i].ExpiresAt = &expiresAt
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][competency_ids]"
+		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
+			parts := strings.Split(v[0], ",")
+			ids := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if p = strings.TrimSpace(p); p != "" {
+					ids = append(ids, p)
+				}
+			}
+			items[i].CompetencyIDs = ids
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][meta]"
+		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
+			var m map[string]any
+			if err := json.Unmarshal([]byte(v[0]), &m); err == nil {
+				items[i].Meta = m
+			}
+		}
+		key = "credentials[" + strconv.Itoa(i) + "][file]"
+		if fh, ok := files[key]; ok && len(fh) > 0 {
+			items[i].File = fh[0]
+		}
+	}
+
+	out := lo.Filter(items, func(it CredentialSubmitInput, _ int) bool {
+		return it.Name != "" || it.File != nil
+	})
+	return out, nil
 }

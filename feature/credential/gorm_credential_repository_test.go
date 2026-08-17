@@ -53,6 +53,38 @@ func TestGormCredentialRepository_CountByTypeAndOrganizationIds(t *testing.T) {
 	assert.Equal(t, int64(0), none)
 }
 
+func TestGormCredentialRepository_CountActiveByFileHashes(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// One pending (active) + one revoked + one rejected row sharing a hash.
+	// The partial unique index only guards active rows, so all three rows are
+	// storable; CountActiveByFileHashes must count only the active one.
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: "i1", Name: "P", FileHash: "0xshared"},
+		domain.Credential{ID: "revoked", HolderUserID: "h1", IssuerUserID: "i1", Name: "R", FileHash: "0xshared", RevokedAt: &now},
+		domain.Credential{ID: "rejected", HolderUserID: "h1", IssuerUserID: "i1", Name: "J", FileHash: "0xshared", RejectedAt: &now},
+	)
+	require.NoError(t, err)
+
+	count, err := repo.CountActiveByFileHashes(ctx, "0xshared")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	multiple, err := repo.CountActiveByFileHashes(ctx, "0xshared", "0xmissing")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), multiple)
+
+	none, err := repo.CountActiveByFileHashes(ctx, "0xmissing")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), none)
+
+	empty, err := repo.CountActiveByFileHashes(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), empty)
+}
+
 func TestGormCredentialVerificationPathExcludesPending(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()

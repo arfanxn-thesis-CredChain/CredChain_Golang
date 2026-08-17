@@ -115,6 +115,7 @@ func RegisterRoutes(p RouteParams) {
 				creds.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Paginate)
 				creds.GET("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Find)
 				creds.POST("/batch/issue", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Issue)
+				creds.POST("/batch/submit", p.CredentialHandler.Submit)
 				creds.POST("/batch/revoke", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Revoke)
 				creds.POST("/batch/reextract", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.ReExtract)
 			}

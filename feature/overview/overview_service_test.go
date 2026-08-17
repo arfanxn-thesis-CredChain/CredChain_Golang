@@ -77,6 +77,10 @@ func (m *mockCredRepo) CountByIssuerOrganizationIds(ctx context.Context, organiz
 	return 0, nil
 }
 
+func (m *mockCredRepo) CountActiveByFileHashes(ctx context.Context, hashes ...string) (int64, error) {
+	return 0, nil
+}
+
 type mockUserRepo struct{ mock.Mock }
 
 func (m *mockUserRepo) Get(ctx context.Context, q *domainQuery.Query) ([]domain.User, int, error) {

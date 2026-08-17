@@ -46,6 +46,14 @@ func (m *mockCredentialService) Issue(ctx context.Context, items []CredentialIss
 	return args.Get(0).([]domain.Credential), args.Error(1)
 }
 
+func (m *mockCredentialService) Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error) {
+	args := m.Called(ctx, items)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.Credential), args.Error(1)
+}
+
 func (m *mockCredentialService) Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error) {
 	args := m.Called(ctx, ids)
 	return args.Get(0).([]domain.Credential), args.Error(1)

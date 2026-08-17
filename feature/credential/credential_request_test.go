@@ -150,3 +150,71 @@ func TestCredentialRevokeRequest_Validate(t *testing.T) {
 		assert.Error(t, CredentialRevokeRequest{Ids: ids}.Validate())
 	})
 }
+
+func TestCredentialSubmitInput_Validate(t *testing.T) {
+	issued := "2026-08-01"
+	valid := func() CredentialSubmitInput {
+		return CredentialSubmitInput{Name: "Degree", TypeID: "type-1", IssuerOrganizationID: "org-1", IssuedAt: &issued}
+	}
+	t.Run("valid", func(t *testing.T) {
+		assert.NoError(t, valid().Validate())
+	})
+	t.Run("missing name", func(t *testing.T) {
+		in := valid()
+		in.Name = ""
+		assert.Error(t, in.Validate())
+	})
+	t.Run("missing type", func(t *testing.T) {
+		in := valid()
+		in.TypeID = ""
+		assert.Error(t, in.Validate())
+	})
+	t.Run("missing org", func(t *testing.T) {
+		in := valid()
+		in.IssuerOrganizationID = ""
+		assert.Error(t, in.Validate())
+	})
+	t.Run("missing issued_at", func(t *testing.T) {
+		in := valid()
+		in.IssuedAt = nil
+		assert.Error(t, in.Validate())
+	})
+	t.Run("bad issued_at date", func(t *testing.T) {
+		in := valid()
+		bad := "not-a-date"
+		in.IssuedAt = &bad
+		assert.Error(t, in.Validate())
+	})
+	t.Run("name too long", func(t *testing.T) {
+		in := valid()
+		in.Name = strings.Repeat("a", 257)
+		assert.Error(t, in.Validate())
+	})
+}
+
+func TestCredentialSubmitRequest_Validate(t *testing.T) {
+	issued := "2026-08-01"
+	validItem := func() CredentialSubmitInput {
+		return CredentialSubmitInput{Name: "Degree", TypeID: "type-1", IssuerOrganizationID: "org-1", IssuedAt: &issued}
+	}
+	t.Run("valid", func(t *testing.T) {
+		r := CredentialSubmitRequest{Credentials: []CredentialSubmitInput{validItem()}}
+		assert.NoError(t, r.Validate())
+	})
+	t.Run("empty items", func(t *testing.T) {
+		r := CredentialSubmitRequest{Credentials: []CredentialSubmitInput{}}
+		assert.Error(t, r.Validate())
+	})
+	t.Run("too many items", func(t *testing.T) {
+		items := make([]CredentialSubmitInput, 101)
+		for i := range items {
+			items[i] = validItem()
+		}
+		r := CredentialSubmitRequest{Credentials: items}
+		assert.Error(t, r.Validate())
+	})
+	t.Run("invalid nested item", func(t *testing.T) {
+		r := CredentialSubmitRequest{Credentials: []CredentialSubmitInput{{Name: "no-issued-at"}}}
+		assert.Error(t, r.Validate())
+	})
+}

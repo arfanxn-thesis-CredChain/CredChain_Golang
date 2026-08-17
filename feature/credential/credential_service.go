@@ -43,6 +43,7 @@ type CredentialService interface {
 	SelfPaginate(ctx context.Context, query *domainQuery.Query) ([]domain.Credential, int, error)
 	SelfFind(ctx context.Context, id string, query *domainQuery.Query) (*domain.Credential, error)
 	Issue(ctx context.Context, items []CredentialIssuance) ([]domain.Credential, error)
+	Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error)
 	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
@@ -62,6 +63,24 @@ type CredentialIssuance struct {
 	Name                 string
 	Meta                 map[string]any
 	CompetencyIDs        []string
+	Filename             string
+	MIMEType             string
+	FileBytes            []byte
+}
+
+// CredentialSubmission is the service-layer input for one self-submitted
+// credential. The submitter is always the holder (auth user), so no holder
+// field exists. File bytes are already in memory (the handler reads multipart
+// upload bytes before calling the service).
+type CredentialSubmission struct {
+	Name                 string
+	TypeID               string
+	IssuerOrganizationID string
+	Number               *string
+	IssuedAt             *time.Time
+	ExpiresAt            *time.Time
+	CompetencyIDs        []string
+	Meta                 map[string]any
 	Filename             string
 	MIMEType             string
 	FileBytes            []byte
@@ -372,7 +391,7 @@ func (s *credentialService) issuePrepareCredentials(
 	return creds, nil
 }
 
-func (s *credentialService) issueCleanupOrphanFiles(creds []domain.Credential) {
+func (s *credentialService) cleanupOrphanCredentialFiles(creds []domain.Credential) {
 	paths := make([]string, 0, len(creds))
 	for _, c := range creds {
 		if c.FileURI != nil {
@@ -521,7 +540,7 @@ func (s *credentialService) Issue(ctx context.Context, items []CredentialIssuanc
 
 	creds, err := s.issuePrepareCredentials(ctx, items)
 	if err != nil {
-		s.issueCleanupOrphanFiles(creds)
+		s.cleanupOrphanCredentialFiles(creds)
 		return nil, err
 	}
 
@@ -535,11 +554,221 @@ func (s *credentialService) Issue(ctx context.Context, items []CredentialIssuanc
 	authWallet := domain.WalletFromUser(*authUser)
 	committed, err := s.issueCommit(ctx, authWallet, creds, competencyIDsByCredID)
 	if err != nil {
-		s.issueCleanupOrphanFiles(creds)
+		s.cleanupOrphanCredentialFiles(creds)
 		return nil, err
 	}
 
 	return committed, nil
+}
+
+// ── Submit (self-submission) ──────────────────────────────────────────────
+
+// Submit stores holder-submitted credentials as pending rows with
+// ExtractStatus unextracted and no mint (no on-chain interaction). Holder
+// and submitter are both the authenticated user. Submitted rows are rejected
+// at approval time or activated by an Issuer via the review flow (step 4).
+func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error) {
+	authUser := httpContext.MustGetUser(ctx)
+
+	verrs, err := s.submitValidate(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	if len(verrs) > 0 {
+		return nil, verrs
+	}
+
+	creds, err := s.submitPrepareCredentials(ctx, authUser.Id, items)
+	if err != nil {
+		s.cleanupOrphanCredentialFiles(creds)
+		return nil, err
+	}
+
+	var committed []domain.Credential
+	err = s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
+		stored, err := uow.Credential().Store(ctx, creds...)
+		if err != nil {
+			return err
+		}
+		for i, c := range stored {
+			if len(items[i].CompetencyIDs) == 0 {
+				continue
+			}
+			links := make([]domain.CompetencyCredential, len(items[i].CompetencyIDs))
+			for j, compID := range items[i].CompetencyIDs {
+				links[j] = domain.CompetencyCredential{CompetencyId: compID, CredentialId: c.ID}
+			}
+			if _, err := uow.CompetencyCredential().Store(ctx, links...); err != nil {
+				return err
+			}
+		}
+		committed = stored
+		return nil
+	})
+	if err != nil {
+		s.cleanupOrphanCredentialFiles(creds)
+		return nil, err
+	}
+	return committed, nil
+}
+
+// submitValidate performs batch input-driven validation for self-submission:
+// credential type (exists + active), issuer organization existence, number
+// uniqueness within the org (same batched per-distinct-org approach as
+// issueValidate), competency existence (one FindByIds), and active-duplicate
+// file-hash detection (one CountActiveByFileHashes per batch). The DB partial
+// unique index is the final authority for concurrent duplicates. Returns
+// validation.Errors keyed by "credentials.N.field"; the count error is a
+// server-side failure returned as a plain error.
+func (s *credentialService) submitValidate(
+	ctx context.Context,
+	items []CredentialSubmission,
+) (validation.Errors, error) {
+	verrs := validation.Errors{}
+
+	// Active-duplicate detection: one count per batch (NO-N+1).
+	hashes := make([]string, len(items))
+	for i, it := range items {
+		hashes[i] = "0x" + hex.EncodeToString(ethCrypto.Keccak256(it.FileBytes))
+	}
+	n, err := s.repo.CountActiveByFileHashes(ctx, hashes...)
+	if err != nil {
+		return nil, err
+	}
+	if n > 0 {
+		verrs["credentials.0.file"] = validation.NewError("validation_issue_duplicate_file_hash", "")
+		return verrs, nil
+	}
+
+	// Competency existence: one FindByIds across the whole batch (NO-N+1).
+	var allCompIDs []string
+	for _, it := range items {
+		allCompIDs = append(allCompIDs, it.CompetencyIDs...)
+	}
+	allCompIDs = lo.Uniq(allCompIDs)
+	existingComp := map[string]bool{}
+	if len(allCompIDs) > 0 {
+		if found, err := s.competencyRepo.FindByIds(ctx, allCompIDs...); err == nil {
+			for _, c := range found {
+				existingComp[c.Id] = true
+			}
+		}
+	}
+
+	// Number uniqueness: one Get per DISTINCT org (bounded by the batch's org
+	// count, never per input item — NO-N+1). Each org query uses a single
+	// number IN (...) so collisions are attributed back to the right items.
+	numbersByOrg := map[string][]string{}
+	for _, it := range items {
+		if it.Number != nil && *it.Number != "" {
+			numbersByOrg[it.IssuerOrganizationID] = append(numbersByOrg[it.IssuerOrganizationID], *it.Number)
+		}
+	}
+	duplicateNumbers := map[string]bool{}
+	for org, numbers := range numbersByOrg {
+		dupQuery := &domainQuery.Query{
+			Filters: []domainQuery.Filter{
+				domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, org),
+				domainQuery.NewFilter("number", domainQuery.OperatorIn, numbers...),
+			},
+		}
+		rows, _, err := s.repo.Get(ctx, dupQuery)
+		if err != nil {
+			continue
+		}
+		for _, r := range rows {
+			if r.Number != nil {
+				duplicateNumbers[org+"\x00"+*r.Number] = true
+			}
+		}
+	}
+
+	for i, it := range items {
+		prefix := fmt.Sprintf("credentials.%d", i)
+
+		if t, err := s.typeRepo.Find(ctx, it.TypeID); err != nil || t == nil {
+			verrs[prefix+".type_id"] = validation.NewError(
+				"validation_issue_type_not_found", "credential type not found",
+			)
+		} else if !t.Active {
+			verrs[prefix+".type_id"] = validation.NewError(
+				"validation_issue_type_inactive", "credential type inactive",
+			)
+		}
+
+		if _, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil {
+			verrs[prefix+".issuer_organization_id"] = validation.NewError(
+				"validation_issue_org_not_found", "issuer organization not found",
+			)
+		}
+
+		if it.Number != nil && *it.Number != "" && duplicateNumbers[it.IssuerOrganizationID+"\x00"+*it.Number] {
+			verrs[prefix+".number"] = validation.NewError(
+				"validation_issue_number_duplicate", "number already in use",
+			)
+		}
+
+		for _, cid := range it.CompetencyIDs {
+			if !existingComp[cid] {
+				verrs[prefix+".competency_ids"] = validation.NewError(
+					"validation_issue_competency_not_found", "competency not found",
+				)
+				break
+			}
+		}
+	}
+
+	return verrs, nil
+}
+
+// submitPrepareCredentials encrypts files, persists them to storage, and
+// builds domain.Credential entities with ExtractStatus unextracted, holder
+// and submitter both equal to the auth user, and NO approver fields (the row
+// enters the pending-review pool). IssuerUserID is the auth user as a D5
+// placeholder (the submitting holder is not an issuer; the real issuer is
+// stamped at approval). Returns *domain.Error on encryption or storage
+// failure (caller cleans up orphan files).
+func (s *credentialService) submitPrepareCredentials(
+	ctx context.Context,
+	holderID string,
+	items []CredentialSubmission,
+) ([]domain.Credential, error) {
+	creds := make([]domain.Credential, len(items))
+	for i, it := range items {
+		ext := strings.ToLower(filepath.Ext(it.Filename))
+		if ext == "" {
+			ext = ".bin"
+		}
+		encryptedHex, encErr := infraCrypto.Encrypt(it.FileBytes, []byte(*s.cfg.FileEncryptionKey))
+		if encErr != nil {
+			return nil, domain.NewError(domain.CodeCredentialSubmitStorageFailed,
+				domain.WithError(encErr))
+		}
+		filename := ulid.Make().String() + ext
+		filePath := filepath.Join(*s.cfg.CredentialFileStoragePath, filename)
+		if _, err := s.storage.SaveBytes([]byte(encryptedHex), filePath); err != nil {
+			return nil, domain.NewError(domain.CodeCredentialSubmitStorageFailed,
+				domain.WithError(err))
+		}
+		hash := "0x" + hex.EncodeToString(ethCrypto.Keccak256(it.FileBytes))
+		creds[i] = domain.Credential{
+			ID:                   ulid.Make().String(),
+			HolderUserID:         holderID,
+			SubmitterUserID:      holderID,
+			IssuerUserID:         holderID,
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			TypeID:               it.TypeID,
+			Number:               it.Number,
+			Name:                 it.Name,
+			Meta:                 it.Meta,
+			FileHash:             hash,
+			FileURI:              &filename,
+			ExtractStatus:        domain.ExtractStatusUnextracted,
+			IssuedAt:             *it.IssuedAt,
+			ExpiresAt:            it.ExpiresAt,
+		}
+	}
+	return creds, nil
 }
 
 // issueEnqueueExtractJob enqueues a River extraction job.

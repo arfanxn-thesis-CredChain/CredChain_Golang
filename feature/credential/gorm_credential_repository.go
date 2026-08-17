@@ -552,6 +552,25 @@ func (r *gormCredentialRepository) CountByIssuerOrganizationIds(ctx context.Cont
 	return count, nil
 }
 
+// CountActiveByFileHashes counts credentials whose file_hash matches any of
+// the given hashes AND which are neither revoked nor rejected (mirrors the
+// partial unique index). Pure read primitive for submit-time duplicate
+// detection — pending rows are invisible to the approved-gated finders.
+func (r *gormCredentialRepository) CountActiveByFileHashes(ctx context.Context, hashes ...string) (int64, error) {
+	if len(hashes) == 0 {
+		return 0, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.Credential{}).
+		Where("file_hash IN ?", hashes).
+		Where("revoked_at IS NULL").
+		Where("rejected_at IS NULL").
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ── Compile-time interface check ──────────────────────────────────────────
 
 var _ domain.CredentialRepository = (*gormCredentialRepository)(nil)

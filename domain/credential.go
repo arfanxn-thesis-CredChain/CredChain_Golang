@@ -159,4 +159,10 @@ type CredentialRepository interface {
 	// given issuer_organization ids. Pure read primitive for the step-3
 	// deletion guard.
 	CountByIssuerOrganizationIds(ctx context.Context, organizationIds ...string) (int64, error)
+
+	// CountActiveByFileHashes counts credentials whose file_hash matches any
+	// of the given hashes AND which are neither revoked nor rejected (mirrors
+	// the partial unique index). Pure read primitive for submit-time duplicate
+	// detection — pending rows are invisible to the approved-gated finders.
+	CountActiveByFileHashes(ctx context.Context, hashes ...string) (int64, error)
 }

@@ -125,3 +125,46 @@ func (r CredentialReExtractRequest) Validate() error {
 		validation.Field(&r.Ids, validation.Required, validation.Length(1, 100)),
 	)
 }
+
+// CredentialSubmitInput is one item in a batch self-submission request.
+type CredentialSubmitInput struct {
+	Name                 string         `form:"name"`
+	TypeID               string         `form:"type_id"`
+	IssuerOrganizationID string         `form:"issuer_organization_id"`
+	Number               *string        `form:"number"`
+	IssuedAt             *string        `form:"issued_at"`
+	ExpiresAt            *string        `form:"expires_at"`
+	CompetencyIDs        []string       `form:"-"`
+	Meta                 map[string]any `form:"meta"`
+	File                 *multipart.FileHeader
+}
+
+func (n CredentialSubmitInput) Validate() error {
+	return validation.ValidateStruct(&n,
+		validation.Field(&n.Name, validation.Required, validation.Length(1, 256)),
+		validation.Field(&n.TypeID, validation.Required),
+		validation.Field(&n.IssuerOrganizationID, validation.Required),
+		validation.Field(&n.IssuedAt, validation.Required, validation.Date("2006-01-02")),
+		validation.Field(&n.ExpiresAt, validation.Date("2006-01-02")),
+		validation.Field(&n.Number, validation.Length(0, 256)),
+	)
+}
+
+// CredentialSubmitRequest is the parsed multipart batch self-submission
+// request. Gin does not support nested multipart structs, so the handler
+// builds this manually from c.MultipartForm().
+type CredentialSubmitRequest struct {
+	Credentials []CredentialSubmitInput
+}
+
+func (r CredentialSubmitRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Credentials,
+			validation.Required,
+			validation.Length(1, 100),
+			validation.Each(validation.By(func(v any) error {
+				return v.(CredentialSubmitInput).Validate()
+			})),
+		),
+	)
+}

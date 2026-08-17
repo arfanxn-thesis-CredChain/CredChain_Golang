@@ -99,6 +99,137 @@ func TestBuildIssueItems_ParsesExtendedFields(t *testing.T) {
 	assert.Equal(t, []string{"comp-a", "comp-b", "comp-c"}, it.CompetencyIDs)
 }
 
+func TestBuildSubmitItems(t *testing.T) {
+	form := &multipart.Form{
+		Value: map[string][]string{
+			"credentials[0][name]": {"Degree"},
+			"credentials[1][name]": {"Diploma"},
+		},
+		File: map[string][]*multipart.FileHeader{},
+	}
+	items, err := buildSubmitItems(form)
+	assert.NoError(t, err)
+	assert.Len(t, items, 2)
+	assert.Equal(t, "Degree", items[0].Name)
+	assert.Equal(t, "Diploma", items[1].Name)
+}
+
+func TestBuildSubmitItems_ParsesExtendedFields_NoHolderKey(t *testing.T) {
+	number := "N-001"
+	form := &multipart.Form{
+		Value: map[string][]string{
+			"credentials[0][name]":                   {"Degree"},
+			"credentials[0][type_id]":                {"type-1"},
+			"credentials[0][issuer_organization_id]": {"org-1"},
+			"credentials[0][number]":                 {"N-001"},
+			"credentials[0][issued_at]":              {"2026-08-01"},
+			"credentials[0][expires_at]":             {"2026-09-01"},
+			"credentials[0][competency_ids]":         {"comp-a, comp-b ,,comp-c"},
+			"credentials[0][meta]":                   {`{"institution":"UI"}`},
+		},
+		File: map[string][]*multipart.FileHeader{},
+	}
+	items, err := buildSubmitItems(form)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	it := items[0]
+	assert.Equal(t, "type-1", it.TypeID)
+	assert.Equal(t, "org-1", it.IssuerOrganizationID)
+	assert.Equal(t, &number, it.Number)
+	assert.Equal(t, "2026-08-01", *it.IssuedAt)
+	assert.Equal(t, "2026-09-01", *it.ExpiresAt)
+	assert.Equal(t, []string{"comp-a", "comp-b", "comp-c"}, it.CompetencyIDs)
+	assert.Equal(t, map[string]any{"institution": "UI"}, it.Meta)
+}
+
+func TestHandler_Submit_Success(t *testing.T) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("credentials[0][name]", "Degree")
+	_ = writer.WriteField("credentials[0][type_id]", "t1")
+	_ = writer.WriteField("credentials[0][issuer_organization_id]", "o1")
+	_ = writer.WriteField("credentials[0][issued_at]", "2026-08-01")
+	mimeHdr := make(textproto.MIMEHeader)
+	mimeHdr.Set("Content-Disposition", `form-data; name="credentials[0][file]"; filename="test.pdf"`)
+	mimeHdr.Set("Content-Type", "application/pdf")
+	part, _ := writer.CreatePart(mimeHdr)
+	part.Write([]byte("test"))
+	writer.Close()
+
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	req := httptest.NewRequest("POST", "/", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+	c.Set("user", user)
+	bundle := gintest.LoadTestI18nBundle(t)
+	c.Set("i18n_localizer", i18n.NewLocalizer(bundle, "en"))
+
+	svc := &mockCredentialService{}
+	svc.On("Submit", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "c1"}}, nil)
+	h := &credentialHandler{credSvc: svc}
+	h.Submit(c)
+	assert.Equal(t, http.StatusOK, c.Writer.Status())
+	svc.AssertCalled(t, "Submit", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Submit_MissingIssuedAt(t *testing.T) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("credentials[0][name]", "Degree")
+	_ = writer.WriteField("credentials[0][type_id]", "t1")
+	_ = writer.WriteField("credentials[0][issuer_organization_id]", "o1")
+	writer.Close()
+
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	req := httptest.NewRequest("POST", "/", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+	c.Set("user", user)
+	bundle := gintest.LoadTestI18nBundle(t)
+	c.Set("i18n_localizer", i18n.NewLocalizer(bundle, "en"))
+
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.Submit(c)
+	assert.Equal(t, http.StatusBadRequest, c.Writer.Status())
+	svc.AssertNotCalled(t, "Submit", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Submit_InvalidFileType(t *testing.T) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("credentials[0][name]", "Degree")
+	_ = writer.WriteField("credentials[0][type_id]", "t1")
+	_ = writer.WriteField("credentials[0][issuer_organization_id]", "o1")
+	_ = writer.WriteField("credentials[0][issued_at]", "2026-08-01")
+	mimeHdr := make(textproto.MIMEHeader)
+	mimeHdr.Set("Content-Disposition", `form-data; name="credentials[0][file]"; filename="test.txt"`)
+	mimeHdr.Set("Content-Type", "text/plain")
+	part, _ := writer.CreatePart(mimeHdr)
+	part.Write([]byte("test"))
+	writer.Close()
+
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	req := httptest.NewRequest("POST", "/", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+	c.Set("user", user)
+	bundle := gintest.LoadTestI18nBundle(t)
+	c.Set("i18n_localizer", i18n.NewLocalizer(bundle, "en"))
+
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.Submit(c)
+	assert.Equal(t, http.StatusBadRequest, c.Writer.Status())
+	svc.AssertNotCalled(t, "Submit", mock.Anything, mock.Anything)
+}
+
 func TestHandler_Paginate_Success(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	c, rr := gintest.NewContext(t,

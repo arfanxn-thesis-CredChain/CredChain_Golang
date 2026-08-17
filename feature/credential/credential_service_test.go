@@ -9,11 +9,14 @@ import (
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/feature/user"
 	pyai "CredChain_Golang/infrastructure/ai/pyai"
 	"CredChain_Golang/infrastructure/chain/contracts"
+	gormInfra "CredChain_Golang/infrastructure/database/gorm"
 	httpContext "CredChain_Golang/infrastructure/http/context"
 	"CredChain_Golang/infrastructure/jobs"
 	"CredChain_Golang/infrastructure/storage"
+	"CredChain_Golang/tests/db"
 	"CredChain_Golang/tests/fixtures"
 	"CredChain_Golang/tests/mocks"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -2184,4 +2188,170 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 		}, storedLinks)
 	}
 	compCredRepo.AssertCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+// ── Submit (SQLite-backed tests) ──────────────────────────────────────────
+
+// newCredentialServiceWithSQLite builds a *credentialService over real GORM
+// repositories and a real GormUnitOfWork backed by in-memory SQLite, seeded
+// with an active credential type (id "t1") and an issuer organization (id "o1").
+// The partial unique index and CountActiveByFileHashes therefore behave like
+// production.
+func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCredentialRepository) {
+	t.Helper()
+	d := db.OpenInMemorySQLite(t)
+	credRepo := NewGormCredentialRepository(d).(*gormCredentialRepository)
+	typeRepo := NewGormCredentialTypeRepository(d)
+	orgRepo := NewGormCredentialIssuerOrganizationRepository(d)
+	compRepo := NewGormCompetencyRepository(d)
+	uow := gormInfra.NewGormUnitOfWork(d,
+		user.NewGormUserRepository,
+		NewGormCredentialRepository,
+		user.NewGormUserTokenRepository,
+		NewGormCompetencyCredentialRepository,
+	)
+
+	ctx := context.Background()
+	if _, err := typeRepo.Store(ctx, domain.CredentialType{Id: "t1", Name: "Degree", Active: true}); err != nil {
+		t.Fatalf("seed type: %v", err)
+	}
+	if _, err := orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+
+	cfg := &config.Config{
+		FileEncryptionKey:         lo.ToPtr("12345678901234567890123456789012"),
+		CredentialFileStoragePath: lo.ToPtr("credentials"),
+		StoragePath:               lo.ToPtr(t.TempDir()),
+	}
+	svc := &credentialService{
+		repo:           credRepo,
+		uow:            uow,
+		cfg:            cfg,
+		storage:        &storage.Storage{Config: cfg},
+		policy:         &credentialPolicy{},
+		typeRepo:       typeRepo,
+		orgRepo:        orgRepo,
+		competencyRepo: compRepo,
+		logger:         zap.NewNop(),
+	}
+	return svc, credRepo
+}
+
+func TestSubmit_DuplicateFileRejectedAtSubmission(t *testing.T) {
+	svc, _ := newCredentialServiceWithSQLite(t)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&authUser)
+
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	first := CredentialSubmission{
+		Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
+		IssuedAt: &issuedAt, FileBytes: []byte("same-bytes"),
+		Filename: "a.pdf", MIMEType: "application/pdf",
+	}
+	_, err := svc.Submit(ctx, []CredentialSubmission{first})
+	require.NoError(t, err)
+
+	_, err = svc.Submit(ctx, []CredentialSubmission{first})
+	var verrs validation.Errors
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.file", "duplicate file must be rejected at submission, not approval")
+}
+
+func TestSubmit_SetsUnextractedExtractStatus(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&authUser)
+
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	submitted, err := svc.Submit(ctx, []CredentialSubmission{
+		{
+			Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
+			IssuedAt: &issuedAt, FileBytes: []byte("b"),
+			Filename: "a.pdf", MIMEType: "application/pdf",
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, submitted, 1)
+
+	stored, err := repo.Find(ctx, submitted[0].ID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ExtractStatusUnextracted, stored.ExtractStatus)
+	assert.Nil(t, stored.ApprovedAt)
+	assert.Equal(t, authUser.Id, stored.SubmitterUserID)
+	assert.Equal(t, stored.HolderUserID, stored.SubmitterUserID)
+	assert.Equal(t, issuedAt.UTC(), stored.IssuedAt.UTC())
+	assert.Nil(t, stored.TokenID)
+}
+
+func TestSubmit_HappyPathStoresPendingCredential(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&authUser)
+
+	number := "N-001"
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	submitted, err := svc.Submit(ctx, []CredentialSubmission{
+		{
+			Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
+			Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("c"),
+			Filename: "a.pdf", MIMEType: "application/pdf",
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, submitted, 1)
+
+	stored, err := repo.Find(ctx, submitted[0].ID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "N-001", *stored.Number)
+	assert.Equal(t, domain.CredentialLifecycleStatusPending, stored.LifecycleStatus())
+}
+
+func TestSubmit_TypeNotFound(t *testing.T) {
+	svc, _ := newCredentialServiceWithSQLite(t)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&authUser)
+
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	_, err := svc.Submit(ctx, []CredentialSubmission{
+		{
+			Name: "Degree", TypeID: "missing-type", IssuerOrganizationID: "o1",
+			IssuedAt: &issuedAt, FileBytes: []byte("d"),
+			Filename: "a.pdf", MIMEType: "application/pdf",
+		},
+	})
+	var verrs validation.Errors
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.type_id")
+}
+
+func TestSubmit_NumberDuplicate(t *testing.T) {
+	svc, _ := newCredentialServiceWithSQLite(t)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&authUser)
+
+	number := "N-001"
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	first := CredentialSubmission{
+		Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
+		Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("x"),
+		Filename: "a.pdf", MIMEType: "application/pdf",
+	}
+	_, err := svc.Submit(ctx, []CredentialSubmission{first})
+	require.NoError(t, err)
+
+	second := CredentialSubmission{
+		Name: "Diploma", TypeID: "t1", IssuerOrganizationID: "o1",
+		Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("y"),
+		Filename: "b.pdf", MIMEType: "application/pdf",
+	}
+	_, err = svc.Submit(ctx, []CredentialSubmission{second})
+	var verrs validation.Errors
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.number", "duplicate number rejected on second submission")
 }
