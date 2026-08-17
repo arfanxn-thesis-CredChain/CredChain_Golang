@@ -56,6 +56,7 @@ type RouteParams struct {
 	I18nMiddleware                      middleware.I18nMiddleware
 	AuthHandler                         auth.AuthHandler
 	UserHandler                         user.UserHandler
+	UserUnitHandler                     user.UserUnitHandler
 	CredentialHandler                   credential.CredentialHandler
 	CredentialTypeHandler               credential.CredentialTypeHandler
 	CredentialIssuerOrganizationHandler credential.CredentialIssuerOrganizationHandler
@@ -137,6 +138,13 @@ func RegisterRoutes(p RouteParams) {
 				competencies.POST("", p.CompetencyHandler.Store)
 				competencies.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Update)
 				competencies.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Destroy)
+			}
+			userUnits := secure.Group("/user-units")
+			{
+				userUnits.GET("", p.UserUnitHandler.Paginate)
+				userUnits.POST("", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Store)
+				userUnits.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Update)
+				userUnits.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Destroy)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}
