@@ -786,7 +786,8 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 			}
 		}
 
-		holders, err := s.userRepo.FindByIds(ctx, targetIDs...)
+		holderIDs := lo.Map(targets, func(c domain.Credential, _ int) string { return c.HolderUserID })
+		holders, err := s.userRepo.FindByIds(ctx, holderIDs...)
 		if err != nil {
 			return err
 		}
@@ -1360,6 +1361,7 @@ func (s *credentialService) mintCredentials(
 	updates := make([]domain.Credential, len(stored))
 	for i, c := range stored {
 		tok := tokenIds[i].String()
+		stored[i].TokenID = &tok
 		updates[i] = domain.Credential{ID: c.ID, TokenID: &tok}
 	}
 	if _, err := uow.Credential().Update(ctx, updates...); err != nil {

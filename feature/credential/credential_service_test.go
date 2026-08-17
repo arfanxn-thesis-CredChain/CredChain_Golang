@@ -2165,8 +2165,10 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 	}
 
 	created, err := svc.Issue(ctx, items)
-	assert.NoError(t, err)
-	assert.Len(t, created, 1)
+	require.NoError(t, err)
+	require.Len(t, created, 1)
+	require.NotNil(t, created[0].TokenID, "issue must return the on-chain token id")
+	assert.Equal(t, "1", *created[0].TokenID)
 
 	if assert.NotEmpty(t, captureRepo.stored) {
 		c := captureRepo.stored[0]
@@ -2365,7 +2367,7 @@ func TestSubmit_NumberDuplicate(t *testing.T) {
 func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, credRepo *mocks.MockCredentialRepository, regSvc *mocks.MockRegistryService) *credentialService {
 	t.Helper()
 	userRepo := &mocks.MockUserRepository{}
-	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{
+	userRepo.On("FindByIds", mock.Anything, []string{"h1"}).Return([]domain.User{
 		{Id: "h1", WalletAddress: "0x1111111111111111111111111111111111111111"},
 	}, nil)
 	enq := &localMockEnqueuer{}
