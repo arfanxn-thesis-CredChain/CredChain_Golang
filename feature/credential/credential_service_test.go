@@ -1976,7 +1976,8 @@ func TestIssue_NumberDuplicate(t *testing.T) {
 
 	typeRepo, orgRepo, compRepo := newIssueRepos()
 	credRepo := &mocks.MockCredentialRepository{}
-	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "existing"}}, 1, nil)
+	credRepo.On("Get", mock.Anything, mock.Anything).
+		Return([]domain.Credential{{ID: "existing", Number: lo.ToPtr("N-001")}}, 1, nil)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: credRepo}
 	svc := newTestCredentialService(m)
@@ -1986,9 +1987,11 @@ func TestIssue_NumberDuplicate(t *testing.T) {
 	svc.orgRepo = orgRepo
 	svc.competencyRepo = compRepo
 
-	number := "N-001"
+	colliding := "N-001"
+	free := "N-002"
 	items := []CredentialIssuance{
-		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", Number: &number, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+		{HolderUserID: "h", Name: "C1", TypeID: "type-1", IssuerOrganizationID: "org-1", Number: &colliding, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+		{HolderUserID: "h", Name: "C2", TypeID: "type-1", IssuerOrganizationID: "org-1", Number: &free, Filename: "b.pdf", MIMEType: "application/pdf", FileBytes: []byte("y")},
 	}
 
 	_, err := svc.Issue(ctx, items)
@@ -1996,6 +1999,8 @@ func TestIssue_NumberDuplicate(t *testing.T) {
 	verrs, ok := err.(validation.Errors)
 	assert.True(t, ok)
 	assert.Contains(t, verrs, "credentials.0.number")
+	assert.NotContains(t, verrs, "credentials.1.number")
+	credRepo.AssertNumberOfCalls(t, "Get", 1)
 }
 
 func TestIssue_CompetencyNotFound(t *testing.T) {

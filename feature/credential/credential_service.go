@@ -232,6 +232,34 @@ func (s *credentialService) issueValidate(
 		}
 	}
 
+	// Number uniqueness: one Get per DISTINCT org (bounded by the batch's org
+	// count, never per input item — NO-N+1). Each org query uses a single
+	// number IN (...) so collisions are attributed back to the right items.
+	numbersByOrg := map[string][]string{}
+	for _, it := range items {
+		if it.Number != nil && *it.Number != "" {
+			numbersByOrg[it.IssuerOrganizationID] = append(numbersByOrg[it.IssuerOrganizationID], *it.Number)
+		}
+	}
+	duplicateNumbers := map[string]bool{}
+	for org, numbers := range numbersByOrg {
+		dupQuery := &domainQuery.Query{
+			Filters: []domainQuery.Filter{
+				domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, org),
+				domainQuery.NewFilter("number", domainQuery.OperatorIn, numbers...),
+			},
+		}
+		rows, _, err := s.repo.Get(ctx, dupQuery)
+		if err != nil {
+			continue
+		}
+		for _, r := range rows {
+			if r.Number != nil {
+				duplicateNumbers[*r.Number] = true
+			}
+		}
+	}
+
 	seenHash := map[string]bool{}
 	for i, it := range items {
 		prefix := fmt.Sprintf("credentials.%d", i)
@@ -268,18 +296,10 @@ func (s *credentialService) issueValidate(
 			)
 		}
 
-		if it.Number != nil && *it.Number != "" {
-			dupQuery := &domainQuery.Query{
-				Filters: []domainQuery.Filter{
-					domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, it.IssuerOrganizationID),
-					domainQuery.NewFilter("number", domainQuery.OperatorEqual, *it.Number),
-				},
-			}
-			if _, total, err := s.repo.Get(ctx, dupQuery); err == nil && total > 0 {
-				verrs[prefix+".number"] = validation.NewError(
-					"validation_issue_number_duplicate", "number already in use",
-				)
-			}
+		if it.Number != nil && *it.Number != "" && duplicateNumbers[*it.Number] {
+			verrs[prefix+".number"] = validation.NewError(
+				"validation_issue_number_duplicate", "number already in use",
+			)
 		}
 
 		for _, cid := range it.CompetencyIDs {
