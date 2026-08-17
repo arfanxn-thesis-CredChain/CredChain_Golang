@@ -59,6 +59,7 @@ type RouteParams struct {
 	CredentialHandler                   credential.CredentialHandler
 	CredentialTypeHandler               credential.CredentialTypeHandler
 	CredentialIssuerOrganizationHandler credential.CredentialIssuerOrganizationHandler
+	CompetencyHandler                   credential.CompetencyHandler
 	MetaHandler                         meta.MetaHandler
 	OverviewHandler                     overview.OverviewHandler
 	Logger                              *zap.Logger
@@ -129,6 +130,13 @@ func RegisterRoutes(p RouteParams) {
 				issuerOrganizations.POST("", p.CredentialIssuerOrganizationHandler.Store)
 				issuerOrganizations.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Update)
 				issuerOrganizations.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Destroy)
+			}
+			competencies := secure.Group("/competencies")
+			{
+				competencies.GET("", p.CompetencyHandler.Paginate)
+				competencies.POST("", p.CompetencyHandler.Store)
+				competencies.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Update)
+				competencies.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Destroy)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}
