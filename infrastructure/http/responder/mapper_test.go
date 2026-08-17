@@ -163,6 +163,26 @@ var allDomainCodes = []int{
 	domain.CodeUserUnitDestroySuccess,
 	domain.CodeUserUnitNotFound,
 	domain.CodeUserUnitParentInvalid,
+	// Credential Issue extensions
+	domain.CodeCredentialIssueTypeNotFound,
+	domain.CodeCredentialIssueTypeInactive,
+	domain.CodeCredentialIssueOrganizationNotFound,
+	domain.CodeCredentialIssueNumberDuplicate,
+	domain.CodeCredentialIssueCompetencyNotFound,
+	// Credential Submission
+	domain.CodeCredentialSubmitSuccess,
+	domain.CodeCredentialSubmitStorageFailed,
+	// Credential Review
+	domain.CodeCredentialReviewSuccess,
+	domain.CodeCredentialReviewNotFound,
+	domain.CodeCredentialReviewAlreadyApproved,
+	domain.CodeCredentialReviewAlreadyRejected,
+	domain.CodeCredentialReviewAlreadyRevoked,
+	domain.CodeCredentialReviewBlockchainSyncFailed,
+	// Credential Update
+	domain.CodeCredentialUpdateSuccess,
+	domain.CodeCredentialUpdateNotFound,
+	domain.CodeCredentialUpdateNotPending,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

@@ -79,7 +79,8 @@ CREATE UNIQUE INDEX uq_competencies_lower_name
 CREATE TYPE credential_extract_status AS ENUM (
     'pending',
     'succeeded',
-    'failed'
+    'failed',
+    'unextracted'
 );
 
 CREATE TABLE credentials (

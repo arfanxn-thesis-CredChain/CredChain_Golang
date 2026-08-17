@@ -19,17 +19,23 @@ const (
 	ExtractStatusPending   ExtractStatus = "pending"
 	ExtractStatusSucceeded ExtractStatus = "succeeded"
 	ExtractStatusFailed    ExtractStatus = "failed"
+	// ExtractStatusUnextracted marks rows for which no extraction has been
+	// performed (submitted rows, and rejected rows that never got approved).
+	// It is review-agnostic: the job is enqueued at approval, when the row
+	// flips to pending.
+	ExtractStatusUnextracted ExtractStatus = "unextracted"
 )
 
-// CredentialStatus is the workflow status of a credential, derived purely
-// from timestamps (see Credential.Status). It is NOT a database column.
-type CredentialStatus string
+// CredentialLifecycleStatus is the workflow lifecycle of a credential,
+// derived purely from timestamps (see Credential.LifecycleStatus). It is
+// NOT a database column.
+type CredentialLifecycleStatus string
 
 const (
-	CredentialStatusPending  CredentialStatus = "pending"
-	CredentialStatusApproved CredentialStatus = "approved"
-	CredentialStatusRejected CredentialStatus = "rejected"
-	CredentialStatusRevoked  CredentialStatus = "revoked"
+	CredentialLifecycleStatusPending  CredentialLifecycleStatus = "pending"
+	CredentialLifecycleStatusApproved CredentialLifecycleStatus = "approved"
+	CredentialLifecycleStatusRejected CredentialLifecycleStatus = "rejected"
+	CredentialLifecycleStatusRevoked  CredentialLifecycleStatus = "revoked"
 )
 
 // Credential represents a row in the credentials table.
@@ -81,7 +87,7 @@ type Credential struct {
 	Revoker *User `gorm:"-" json:"-"`
 }
 
-// Status derives the workflow status from timestamps only:
+// LifecycleStatus derives the workflow lifecycle from timestamps only:
 //
 //	revoked  when RevokedAt is set
 //	rejected when RejectedAt is set (and not revoked)
@@ -89,18 +95,18 @@ type Credential struct {
 //	pending  otherwise
 //
 // Expiry is deliberately NOT part of this derivation — expiry is evaluated
-// only on the verification path in a later step.
-func (c *Credential) Status() CredentialStatus {
+// only on the verification path (Task C1).
+func (c *Credential) LifecycleStatus() CredentialLifecycleStatus {
 	if c.RevokedAt != nil {
-		return CredentialStatusRevoked
+		return CredentialLifecycleStatusRevoked
 	}
 	if c.RejectedAt != nil {
-		return CredentialStatusRejected
+		return CredentialLifecycleStatusRejected
 	}
 	if c.ApprovedAt != nil {
-		return CredentialStatusApproved
+		return CredentialLifecycleStatusApproved
 	}
-	return CredentialStatusPending
+	return CredentialLifecycleStatusPending
 }
 
 // CredentialRepository defines the database contract for the credential domain.

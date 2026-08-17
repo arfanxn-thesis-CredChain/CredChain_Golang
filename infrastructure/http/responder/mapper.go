@@ -177,6 +177,30 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeUserUnitDestroySuccess: "success_user_unit_destroy",
 	domain.CodeUserUnitNotFound:       "error_user_unit_not_found",
 	domain.CodeUserUnitParentInvalid:  "error_user_unit_parent_invalid",
+
+	// Credential Issue extension codes
+	domain.CodeCredentialIssueTypeNotFound:         "error_credential_issue_type_not_found",
+	domain.CodeCredentialIssueTypeInactive:         "error_credential_issue_type_inactive",
+	domain.CodeCredentialIssueOrganizationNotFound: "error_credential_issue_organization_not_found",
+	domain.CodeCredentialIssueNumberDuplicate:      "error_credential_issue_number_duplicate",
+	domain.CodeCredentialIssueCompetencyNotFound:   "error_credential_issue_competency_not_found",
+
+	// Credential Submission codes
+	domain.CodeCredentialSubmitSuccess:       "success_credential_submit",
+	domain.CodeCredentialSubmitStorageFailed: "error_credential_submit_storage_failed",
+
+	// Credential Review codes
+	domain.CodeCredentialReviewSuccess:              "success_credential_review",
+	domain.CodeCredentialReviewNotFound:             "error_credential_review_not_found",
+	domain.CodeCredentialReviewAlreadyApproved:      "error_credential_review_already_approved",
+	domain.CodeCredentialReviewAlreadyRejected:      "error_credential_review_already_rejected",
+	domain.CodeCredentialReviewAlreadyRevoked:       "error_credential_review_already_revoked",
+	domain.CodeCredentialReviewBlockchainSyncFailed: "error_credential_review_blockchain_sync_failed",
+
+	// Credential Update codes
+	domain.CodeCredentialUpdateSuccess:    "success_credential_update",
+	domain.CodeCredentialUpdateNotFound:   "error_credential_update_not_found",
+	domain.CodeCredentialUpdateNotPending: "error_credential_update_not_pending",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -340,6 +364,30 @@ var HttpCodes = map[int]int{
 	domain.CodeUserUnitDestroySuccess: http.StatusOK,
 	domain.CodeUserUnitNotFound:       http.StatusNotFound,
 	domain.CodeUserUnitParentInvalid:  http.StatusBadRequest,
+
+	// Credential Issue extension codes
+	domain.CodeCredentialIssueTypeNotFound:         http.StatusBadRequest,
+	domain.CodeCredentialIssueTypeInactive:         http.StatusBadRequest,
+	domain.CodeCredentialIssueOrganizationNotFound: http.StatusBadRequest,
+	domain.CodeCredentialIssueNumberDuplicate:      http.StatusConflict,
+	domain.CodeCredentialIssueCompetencyNotFound:   http.StatusBadRequest,
+
+	// Credential Submission codes
+	domain.CodeCredentialSubmitSuccess:       http.StatusOK,
+	domain.CodeCredentialSubmitStorageFailed: http.StatusInternalServerError,
+
+	// Credential Review codes
+	domain.CodeCredentialReviewSuccess:              http.StatusOK,
+	domain.CodeCredentialReviewNotFound:             http.StatusNotFound,
+	domain.CodeCredentialReviewAlreadyApproved:      http.StatusConflict,
+	domain.CodeCredentialReviewAlreadyRejected:      http.StatusConflict,
+	domain.CodeCredentialReviewAlreadyRevoked:       http.StatusConflict,
+	domain.CodeCredentialReviewBlockchainSyncFailed: http.StatusInternalServerError,
+
+	// Credential Update codes
+	domain.CodeCredentialUpdateSuccess:    http.StatusOK,
+	domain.CodeCredentialUpdateNotFound:   http.StatusNotFound,
+	domain.CodeCredentialUpdateNotPending: http.StatusConflict,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

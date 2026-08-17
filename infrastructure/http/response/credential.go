@@ -13,35 +13,36 @@ import (
 // Holder, Issuer, and Revoker are optional user expansions loaded from the
 // preloaded domain.Credential entity via FromDomainCredential.
 type Credential struct {
-	ID                   string               `json:"id"`
-	HolderUserID         string               `json:"holder_user_id"`
-	SubmitterUserID      string               `json:"submitter_user_id"`
-	IssuerUserID         string               `json:"issuer_user_id"`
-	IssuerOrganizationID string               `json:"issuer_organization_id"`
-	TypeID               string               `json:"type_id"`
-	Number               *string              `json:"number"`
-	RevokerUserID        *string              `json:"revoker_user_id"`
-	Name                 string               `json:"name"`
-	Meta                 map[string]any       `json:"meta"`
-	TokenID              *string              `json:"token_id"`
-	FileHash             string               `json:"file_hash"`
-	FileURI              *string              `json:"file_uri"`
-	ExtractStatus        domain.ExtractStatus `json:"extract_status"`
-	ExtractError         *string              `json:"extract_error"`
-	ExtractedAt          *time.Time           `json:"extracted_at"`
-	IssuedAt             time.Time            `json:"issued_at"`
-	RevokedAt            *time.Time           `json:"revoked_at"`
-	ExpiresAt            *time.Time           `json:"expires_at"`
-	ApproverUserID       *string              `json:"approver_user_id"`
-	ApprovedAt           *time.Time           `json:"approved_at"`
-	RejecterUserID       *string              `json:"rejecter_user_id"`
-	RejectedAt           *time.Time           `json:"rejected_at"`
-	RejectionReason      *string              `json:"rejection_reason"`
-	CreatedAt            time.Time            `json:"created_at"`
-	UpdatedAt            *time.Time           `json:"updated_at"`
-	Holder               *User                `json:"holder,omitempty"`
-	Issuer               *User                `json:"issuer,omitempty"`
-	Revoker              *User                `json:"revoker,omitempty"`
+	ID                   string                           `json:"id"`
+	HolderUserID         string                           `json:"holder_user_id"`
+	SubmitterUserID      string                           `json:"submitter_user_id"`
+	IssuerUserID         string                           `json:"issuer_user_id"`
+	IssuerOrganizationID string                           `json:"issuer_organization_id"`
+	TypeID               string                           `json:"type_id"`
+	Number               *string                          `json:"number"`
+	RevokerUserID        *string                          `json:"revoker_user_id"`
+	Name                 string                           `json:"name"`
+	Meta                 map[string]any                   `json:"meta"`
+	TokenID              *string                          `json:"token_id"`
+	FileHash             string                           `json:"file_hash"`
+	FileURI              *string                          `json:"file_uri"`
+	ExtractStatus        domain.ExtractStatus             `json:"extract_status"`
+	ExtractError         *string                          `json:"extract_error"`
+	ExtractedAt          *time.Time                       `json:"extracted_at"`
+	IssuedAt             time.Time                        `json:"issued_at"`
+	RevokedAt            *time.Time                       `json:"revoked_at"`
+	ExpiresAt            *time.Time                       `json:"expires_at"`
+	LifecycleStatus      domain.CredentialLifecycleStatus `json:"lifecycle_status"`
+	ApproverUserID       *string                          `json:"approver_user_id"`
+	ApprovedAt           *time.Time                       `json:"approved_at"`
+	RejecterUserID       *string                          `json:"rejecter_user_id"`
+	RejectedAt           *time.Time                       `json:"rejected_at"`
+	RejectionReason      *string                          `json:"rejection_reason"`
+	CreatedAt            time.Time                        `json:"created_at"`
+	UpdatedAt            *time.Time                       `json:"updated_at"`
+	Holder               *User                            `json:"holder,omitempty"`
+	Issuer               *User                            `json:"issuer,omitempty"`
+	Revoker              *User                            `json:"revoker,omitempty"`
 }
 
 // FromDomainCredential converts a domain Credential entity to a response DTO.
@@ -68,6 +69,7 @@ func FromDomainCredential(c domain.Credential) Credential {
 		IssuedAt:             c.IssuedAt,
 		RevokedAt:            c.RevokedAt,
 		ExpiresAt:            c.ExpiresAt,
+		LifecycleStatus:      c.LifecycleStatus(),
 		ApproverUserID:       c.ApproverUserID,
 		ApprovedAt:           c.ApprovedAt,
 		RejecterUserID:       c.RejecterUserID,

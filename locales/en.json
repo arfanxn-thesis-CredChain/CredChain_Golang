@@ -171,5 +171,21 @@
     "success_user_unit_update": "User unit updated successfully.",
     "success_user_unit_destroy": "User unit destroyed successfully.",
     "error_user_unit_not_found": "User unit not found.",
-    "error_user_unit_parent_invalid": "The selected parent unit is not valid."
+    "error_user_unit_parent_invalid": "The selected parent unit is not valid.",
+    "error_credential_issue_type_not_found": "Credential type not found.",
+    "error_credential_issue_type_inactive": "This credential type is inactive and cannot be used.",
+    "error_credential_issue_organization_not_found": "Issuer organization not found.",
+    "error_credential_issue_number_duplicate": "One or more credential numbers are already in use.",
+    "error_credential_issue_competency_not_found": "One or more competencies were not found.",
+    "success_credential_submit": "Credential submitted successfully.",
+    "error_credential_submit_storage_failed": "Failed to store submitted credential files.",
+    "success_credential_review": "Credential review recorded successfully.",
+    "error_credential_review_not_found": "One or more credentials were not found.",
+    "error_credential_review_already_approved": "One or more credentials are already approved.",
+    "error_credential_review_already_rejected": "One or more credentials are already rejected.",
+    "error_credential_review_already_revoked": "One or more credentials are already revoked.",
+    "error_credential_review_blockchain_sync_failed": "Failed to sync credential review to the blockchain.",
+    "success_credential_update": "Credential updated successfully.",
+    "error_credential_update_not_found": "Credential not found.",
+    "error_credential_update_not_pending": "Only pending credentials can be updated."
 }

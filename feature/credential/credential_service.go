@@ -458,7 +458,7 @@ func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain
 
 		alreadyRevoked := []string{}
 		for _, t := range targets {
-			if t.Status() == domain.CredentialStatusRevoked {
+			if t.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked {
 				alreadyRevoked = append(alreadyRevoked, t.ID)
 			}
 		}
@@ -526,7 +526,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 		}
 		code := cached.VerdictCode
 		if code == domain.CodeCredentialVerifyAuthentic {
-			if cred != nil && cred.Status() == domain.CredentialStatusRevoked {
+			if cred != nil && cred.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked {
 				code = domain.CodeCredentialVerifyRevoked
 			} else if cred != nil {
 				holderGone := cred.Holder == nil || cred.Holder.DeletedAt != nil
@@ -691,8 +691,8 @@ func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []do
 			best, bestCred, bestOK = t, tc, true
 			continue
 		}
-		bestRevoked := bestCred.Status() == domain.CredentialStatusRevoked
-		tRevoked := tc.Status() == domain.CredentialStatusRevoked
+		bestRevoked := bestCred.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked
+		tRevoked := tc.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked
 		if bestRevoked && !tRevoked {
 			best, bestCred = t, tc
 		} else if bestRevoked == tRevoked && tc.IssuedAt.After(bestCred.IssuedAt) {

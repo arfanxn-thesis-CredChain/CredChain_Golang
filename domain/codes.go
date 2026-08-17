@@ -194,4 +194,28 @@ const (
 	CodeUserUnitDestroySuccess = 301003
 	CodeUserUnitNotFound       = 301040
 	CodeUserUnitParentInvalid  = 301041
+
+	// ── Issue extensions (02, CC 47-51) ─────────────────────────────────────
+	CodeCredentialIssueTypeNotFound         = 400247
+	CodeCredentialIssueTypeInactive         = 400248
+	CodeCredentialIssueOrganizationNotFound = 400249
+	CodeCredentialIssueNumberDuplicate      = 400250
+	CodeCredentialIssueCompetencyNotFound   = 400251
+
+	// ── Submission (11) ─────────────────────────────────────────────────────
+	CodeCredentialSubmitSuccess       = 401100
+	CodeCredentialSubmitStorageFailed = 401141
+
+	// ── Review (12) ─────────────────────────────────────────────────────────
+	CodeCredentialReviewSuccess              = 401200
+	CodeCredentialReviewNotFound             = 401240
+	CodeCredentialReviewAlreadyApproved      = 401241
+	CodeCredentialReviewAlreadyRejected      = 401242
+	CodeCredentialReviewAlreadyRevoked       = 401243
+	CodeCredentialReviewBlockchainSyncFailed = 401244
+
+	// ── Credential Update (14) ──────────────────────────────────────────────
+	CodeCredentialUpdateSuccess    = 401400
+	CodeCredentialUpdateNotFound   = 401440
+	CodeCredentialUpdateNotPending = 401441
 )

@@ -36,12 +36,18 @@ func NewGormCredentialRepository(db *gorm.DB) domain.CredentialRepository {
 // holder_user_id and issuer_user_id are intentionally included so the
 // user-detail UI can scope credentials to a specific holder or issuer.
 var allowedFilterColumns = map[string]bool{
-	"name":           true,
-	"issued_at":      true,
-	"revoked_at":     true,
-	"holder_user_id": true,
-	"issuer_user_id": true,
-	"extract_status": true,
+	"name":                   true,
+	"issued_at":              true,
+	"revoked_at":             true,
+	"holder_user_id":         true,
+	"issuer_user_id":         true,
+	"extract_status":         true,
+	"approved_at":            true,
+	"rejected_at":            true,
+	"type_id":                true,
+	"issuer_organization_id": true,
+	"number":                 true,
+	"expires_at":             true,
 }
 
 // allowedSortColumns whitelists credential columns plus virtual joined-user

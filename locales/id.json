@@ -171,5 +171,21 @@
     "success_user_unit_update": "Unit pengguna berhasil diperbarui.",
     "success_user_unit_destroy": "Unit pengguna berhasil dihapus permanen.",
     "error_user_unit_not_found": "Unit pengguna tidak ditemukan.",
-    "error_user_unit_parent_invalid": "Unit induk yang dipilih tidak valid."
+    "error_user_unit_parent_invalid": "Unit induk yang dipilih tidak valid.",
+    "error_credential_issue_type_not_found": "Tipe kredensial tidak ditemukan.",
+    "error_credential_issue_type_inactive": "Tipe kredensial ini tidak aktif dan tidak dapat digunakan.",
+    "error_credential_issue_organization_not_found": "Organisasi penerbit tidak ditemukan.",
+    "error_credential_issue_number_duplicate": "Satu atau lebih nomor kredensial sudah digunakan.",
+    "error_credential_issue_competency_not_found": "Satu atau lebih kompetensi tidak ditemukan.",
+    "success_credential_submit": "Kredensial berhasil diajukan.",
+    "error_credential_submit_storage_failed": "Gagal menyimpan file kredensial yang diajukan.",
+    "success_credential_review": "Tinjauan kredensial berhasil dicatat.",
+    "error_credential_review_not_found": "Satu atau lebih kredensial tidak ditemukan.",
+    "error_credential_review_already_approved": "Satu atau lebih kredensial sudah disetujui.",
+    "error_credential_review_already_rejected": "Satu atau lebih kredensial sudah ditolak.",
+    "error_credential_review_already_revoked": "Satu atau lebih kredensial sudah dicabut.",
+    "error_credential_review_blockchain_sync_failed": "Gagal menyinkronkan tinjauan kredensial ke blockchain.",
+    "success_credential_update": "Kredensial berhasil diperbarui.",
+    "error_credential_update_not_found": "Kredensial tidak ditemukan.",
+    "error_credential_update_not_pending": "Hanya kredensial berstatus pending yang dapat diperbarui."
 }
