@@ -46,6 +46,7 @@ type CredentialService interface {
 	Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error)
 	Approve(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error)
+	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
 	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
@@ -752,6 +753,126 @@ func (s *credentialService) submitPrepareCredentials(
 		}
 	}
 	return creds, nil
+}
+
+// ── Update ────────────────────────────────────────────────────────────────
+
+// Update batch-updates credentials. PENDING-ONLY (D12): every target must be
+// pending (submitted, not yet minted); approved/revoked/rejected rows are
+// fully immutable — revoke + reissue is the only fix. Stamps and the file
+// are never editable.
+func (s *credentialService) Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error) {
+	if len(credentials) == 0 {
+		return []domain.Credential{}, nil
+	}
+	ids := lo.Map(credentials, func(c domain.Credential, _ int) string { return c.ID })
+	targets, err := s.repo.FindByIds(ctx, ids, nil)
+	if err != nil {
+		return nil, err
+	}
+	targetByID := lo.SliceToMap(targets, func(c domain.Credential) (string, domain.Credential) { return c.ID, c })
+	targetIDs := lo.Map(targets, func(c domain.Credential, _ int) string { return c.ID })
+	if missing, _ := lo.Difference(ids, targetIDs); len(missing) > 0 {
+		return nil, domain.NewError(domain.CodeCredentialUpdateNotFound, domain.WithMetadata("credential_ids", missing))
+	}
+
+	for i := range credentials {
+		in := &credentials[i]
+		target := targetByID[in.ID]
+		if target.LifecycleStatus() != domain.CredentialLifecycleStatusPending {
+			return nil, domain.NewError(domain.CodeCredentialUpdateNotPending,
+				domain.WithMetadata("credential_ids", []string{in.ID}))
+		}
+		if in.TypeID != "" && in.TypeID != target.TypeID {
+			t, err := s.typeRepo.Find(ctx, in.TypeID)
+			if err != nil || !t.Active {
+				return nil, domain.NewError(domain.CodeCredentialIssueTypeInactive,
+					domain.WithMetadata("credential_ids", []string{in.ID}))
+			}
+		}
+		if in.IssuerOrganizationID != "" && in.IssuerOrganizationID != target.IssuerOrganizationID {
+			if _, err := s.orgRepo.Find(ctx, in.IssuerOrganizationID); err != nil {
+				return nil, domain.NewError(domain.CodeCredentialIssueOrganizationNotFound,
+					domain.WithMetadata("credential_ids", []string{in.ID}))
+			}
+		}
+	}
+
+	if err := s.updateValidateNumberUniqueness(ctx, credentials, targetByID); err != nil {
+		return nil, err
+	}
+
+	return s.repo.Update(ctx, credentials...)
+}
+
+// updateValidateNumberUniqueness checks that every number change is unique per
+// (issuer_organization_id, number). One Get per DISTINCT org (bounded by the
+// batch's org count, never per input item — NO-N+1, per the established B2
+// pattern). Collisions are attributed back to the offending items via an
+// org+"\x00"+number composite key so a number in org A never flags an org-B
+// item carrying the same number.
+func (s *credentialService) updateValidateNumberUniqueness(
+	ctx context.Context,
+	credentials []domain.Credential,
+	targetByID map[string]domain.Credential,
+) error {
+	numbersByOrg := map[string][]string{}
+	for i := range credentials {
+		in := &credentials[i]
+		target := targetByID[in.ID]
+		if in.Number == nil || *in.Number == derefString(target.Number) {
+			continue
+		}
+		orgID := target.IssuerOrganizationID
+		if in.IssuerOrganizationID != "" {
+			orgID = in.IssuerOrganizationID
+		}
+		numbersByOrg[orgID] = append(numbersByOrg[orgID], *in.Number)
+	}
+
+	duplicateNumbers := map[string]bool{}
+	for org, numbers := range numbersByOrg {
+		dupQuery := &domainQuery.Query{
+			Filters: []domainQuery.Filter{
+				domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, org),
+				domainQuery.NewFilter("number", domainQuery.OperatorIn, numbers...),
+			},
+		}
+		rows, _, err := s.repo.Get(ctx, dupQuery)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Number != nil {
+				duplicateNumbers[org+"\x00"+*r.Number] = true
+			}
+		}
+	}
+
+	for i := range credentials {
+		in := &credentials[i]
+		target := targetByID[in.ID]
+		if in.Number == nil || *in.Number == derefString(target.Number) {
+			continue
+		}
+		orgID := target.IssuerOrganizationID
+		if in.IssuerOrganizationID != "" {
+			orgID = in.IssuerOrganizationID
+		}
+		if duplicateNumbers[orgID+"\x00"+*in.Number] {
+			return domain.NewError(domain.CodeCredentialIssueNumberDuplicate,
+				domain.WithMetadata("credential_ids", []string{in.ID}))
+		}
+	}
+	return nil
+}
+
+// derefString returns "" for a nil *string, the value otherwise.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // ── Review: Approve / Reject ─────────────────────────────────────────────

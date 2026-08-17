@@ -421,6 +421,39 @@ func TestHandler_Reject_ValidationError(t *testing.T) {
 	svc.AssertNotCalled(t, "Reject", mock.Anything, mock.Anything)
 }
 
+func TestHandler_Update_Success(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod(http.MethodPut),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"credentials": []map[string]any{{"id": "c1", "name": "new"}}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	svc.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{{ID: "c1", Name: "new"}}, nil)
+	h := &credentialHandler{credSvc: svc}
+	h.Update(c)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	svc.AssertCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestHandler_Update_ValidationError(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	c, rr := gintest.NewContext(t,
+		gintest.WithUser(&user),
+		gintest.WithMethod(http.MethodPut),
+		gintest.WithPath("/"),
+		gintest.WithBody(map[string]any{"credentials": []map[string]any{{"name": "missing id"}}}),
+		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+	)
+	svc := &mockCredentialService{}
+	h := &credentialHandler{credSvc: svc}
+	h.Update(c)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	svc.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 func TestHandler_Verify_NoFile(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	c, rr := gintest.NewContext(t,

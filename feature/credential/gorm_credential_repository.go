@@ -430,6 +430,12 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return *c.ExpiresAt, true
 	})
+	addCol("issued_at", func(c domain.Credential) (interface{}, bool) {
+		if c.IssuedAt.IsZero() {
+			return nil, false
+		}
+		return c.IssuedAt, true
+	})
 	addCol("approver_user_id", func(c domain.Credential) (interface{}, bool) {
 		if c.ApproverUserID == nil {
 			return nil, false

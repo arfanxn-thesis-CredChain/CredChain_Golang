@@ -2594,3 +2594,136 @@ func TestReject_NotPending(t *testing.T) {
 		})
 	}
 }
+
+// ── Update (B5) ───────────────────────────────────────────────────────────
+
+func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
+	ctx := context.Background()
+	target := domain.Credential{
+		ID:                   "c1",
+		IssuerOrganizationID: "org-1",
+		TypeID:               "type-1",
+		Number:               lo.ToPtr("N-001"),
+		Name:                 "old",
+	}
+	updated := domain.Credential{
+		ID:                   "c1",
+		Name:                 "new",
+		Number:               lo.ToPtr("N-002"),
+		TypeID:               "type-2",
+		IssuerOrganizationID: "org-2",
+		IssuedAt:             time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		ExpiresAt:            lo.ToPtr(time.Date(2027, 8, 1, 0, 0, 0, 0, time.UTC)),
+		Meta:                 map[string]any{"k": "v"},
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
+	credRepo.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{updated}, nil)
+	typeRepo := &mockCredentialTypeRepository{}
+	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: true}, nil)
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, "org-2").Return(&domain.CredentialIssuerOrganization{Id: "org-2"}, nil)
+	svc := &credentialService{repo: credRepo, typeRepo: typeRepo, orgRepo: orgRepo, logger: zap.NewNop()}
+
+	got, err := svc.Update(ctx, updated)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "new", got[0].Name)
+	credRepo.AssertNumberOfCalls(t, "Get", 1)
+	credRepo.AssertCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCredentialUpdate_ApprovedRow_Rejected(t *testing.T) {
+	testCredentialUpdateNotPending(t, domain.Credential{ID: "c1", ApprovedAt: lo.ToPtr(time.Now())})
+}
+
+func TestCredentialUpdate_RejectedRow_Rejected(t *testing.T) {
+	testCredentialUpdateNotPending(t, domain.Credential{ID: "c1", RejectedAt: lo.ToPtr(time.Now())})
+}
+
+func TestCredentialUpdate_RevokedRow_Rejected(t *testing.T) {
+	testCredentialUpdateNotPending(t, domain.Credential{ID: "c1", RevokedAt: lo.ToPtr(time.Now())})
+}
+
+func testCredentialUpdateNotPending(t *testing.T, target domain.Credential) {
+	t.Helper()
+	ctx := context.Background()
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	svc := &credentialService{repo: credRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", Name: "new"})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialUpdateNotPending, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCredentialUpdate_TypeInactiveRejected(t *testing.T) {
+	ctx := context.Background()
+	target := domain.Credential{
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	typeRepo := &mockCredentialTypeRepository{}
+	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: false}, nil)
+	svc := &credentialService{repo: credRepo, typeRepo: typeRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", TypeID: "type-2"})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialIssueTypeInactive, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCredentialUpdate_OrgNotFoundRejected(t *testing.T) {
+	ctx := context.Background()
+	target := domain.Credential{
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, "org-missing").Return((*domain.CredentialIssuerOrganization)(nil), gorm.ErrRecordNotFound)
+	svc := &credentialService{repo: credRepo, orgRepo: orgRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: "org-missing"})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialIssueOrganizationNotFound, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCredentialUpdate_NumberDuplicateRejected(t *testing.T) {
+	ctx := context.Background()
+	target := domain.Credential{
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	credRepo.On("Get", mock.Anything, mock.Anything).Return(
+		[]domain.Credential{{ID: "other", Number: lo.ToPtr("N-002")}}, 1, nil)
+	svc := &credentialService{repo: credRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", Number: lo.ToPtr("N-002")})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialIssueNumberDuplicate, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCredentialUpdate_NotFound(t *testing.T) {
+	ctx := context.Background()
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1", "c2"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "c1"}}, nil)
+	svc := &credentialService{repo: credRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1"}, domain.Credential{ID: "c2"})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialUpdateNotFound, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}

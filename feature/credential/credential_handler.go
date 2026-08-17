@@ -35,6 +35,7 @@ type CredentialHandler interface {
 	Submit(c *gin.Context)
 	Approve(c *gin.Context)
 	Reject(c *gin.Context)
+	Update(c *gin.Context)
 	Revoke(c *gin.Context)
 	Verify(c *gin.Context)
 	ReExtract(c *gin.Context)
@@ -415,6 +416,30 @@ func (h *credentialHandler) Reject(c *gin.Context) {
 	}
 	out := mapCredentialsToResponse(rejected)
 	responder.Send(c, domain.CodeCredentialReviewSuccess, out)
+}
+
+// ── Update ────────────────────────────────────────────────────────────────
+
+// Update batch-updates pending credentials (JSON body). Mirrors userHandler.
+func (h *credentialHandler) Update(c *gin.Context) {
+	var req CredentialUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	updated, err := h.credSvc.Update(c.Request.Context(), req.ToDomain()...)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	out := mapCredentialsToResponse(updated)
+	responder.Send(c, domain.CodeCredentialUpdateSuccess, out)
 }
 
 // ── Revoke ────────────────────────────────────────────────────────────────

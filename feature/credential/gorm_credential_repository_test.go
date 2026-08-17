@@ -200,6 +200,44 @@ func TestGormCredentialUpdate(t *testing.T) {
 	assert.WithinDuration(t, revokedAt, *updated[0].RevokedAt, time.Second)
 }
 
+func TestGormCredentialUpdate_IssuedAt(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+	)
+	require.NoError(t, err)
+
+	issuedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	updated, err := repo.Update(ctx, domain.Credential{ID: "c1", IssuedAt: issuedAt})
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	assert.WithinDuration(t, issuedAt, updated[0].IssuedAt, time.Second)
+}
+
+func TestGormCredentialUpdate_IssuedAtZeroSkipsColumn(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+	)
+	require.NoError(t, err)
+
+	_, err = repo.Update(ctx, domain.Credential{ID: "c1", IssuedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)})
+	require.NoError(t, err)
+
+	// A partial row with zero IssuedAt must not clobber the stored value.
+	_, err = repo.Update(ctx, domain.Credential{ID: "c1", Name: "b"})
+	require.NoError(t, err)
+
+	rows, _, err := repo.Get(ctx, &domainQuery.Query{})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), rows[0].IssuedAt)
+}
+
 func TestGormCredentialGet(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()

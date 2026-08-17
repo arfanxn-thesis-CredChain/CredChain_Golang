@@ -101,6 +101,79 @@ func (r CredentialIssueRequest) ToDomain() []domain.Credential {
 	return out
 }
 
+// CredentialUpdateInput is one item in a batch credential update request.
+// id is required; every other field is optional (nil = unchanged).
+type CredentialUpdateInput struct {
+	Id                   string         `json:"id"`
+	Name                 *string        `json:"name"`
+	Number               *string        `json:"number"`
+	TypeID               *string        `json:"type_id"`
+	IssuerOrganizationID *string        `json:"issuer_organization_id"`
+	IssuedAt             *string        `json:"issued_at"`
+	ExpiresAt            *string        `json:"expires_at"`
+	Meta                 map[string]any `json:"meta"`
+}
+
+func (n CredentialUpdateInput) Validate() error {
+	return validation.ValidateStruct(&n,
+		validation.Field(&n.Id, validation.Required),
+		validation.Field(&n.Name, validation.Length(0, 256)),
+		validation.Field(&n.Number, validation.Length(0, 256)),
+		validation.Field(&n.IssuedAt, validation.Date("2006-01-02")),
+		validation.Field(&n.ExpiresAt, validation.Date("2006-01-02")),
+	)
+}
+
+func (n CredentialUpdateInput) ToDomain() domain.Credential {
+	c := domain.Credential{ID: n.Id}
+	if n.Name != nil {
+		c.Name = *n.Name
+	}
+	if n.Number != nil {
+		c.Number = n.Number
+	}
+	if n.TypeID != nil {
+		c.TypeID = *n.TypeID
+	}
+	if n.IssuerOrganizationID != nil {
+		c.IssuerOrganizationID = *n.IssuerOrganizationID
+	}
+	if t := parseDatePtr(n.IssuedAt); t != nil {
+		c.IssuedAt = *t
+	}
+	c.ExpiresAt = parseDatePtr(n.ExpiresAt)
+	c.Meta = n.Meta
+	return c
+}
+
+// CredentialUpdateRequest is the JSON body for PUT /api/credentials/batch.
+type CredentialUpdateRequest struct {
+	Credentials []CredentialUpdateInput `json:"credentials"`
+}
+
+func (r CredentialUpdateRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Credentials,
+			validation.Required,
+			validation.Length(1, 100),
+			validation.Each(validation.By(func(v any) error {
+				return v.(CredentialUpdateInput).Validate()
+			})),
+		),
+	)
+}
+
+func (r CredentialUpdateRequest) ToDomain() []domain.Credential {
+	if r.Credentials == nil {
+		return []domain.Credential{}
+	}
+	out := make([]domain.Credential, len(r.Credentials))
+	for i, item := range r.Credentials {
+		out[i] = item.ToDomain()
+	}
+	return out
+}
+
 // CredentialRevokeRequest is the JSON body for POST /api/credentials/batch/revoke.
 type CredentialRevokeRequest struct {
 	Ids []string `json:"ids"`

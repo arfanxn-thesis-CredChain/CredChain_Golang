@@ -25,6 +25,110 @@ func TestCredentialReExtractRequest_Validate(t *testing.T) {
 	})
 }
 
+func TestCredentialUpdateInput_Validate(t *testing.T) {
+	t.Run("valid minimal", func(t *testing.T) {
+		assert.NoError(t, CredentialUpdateInput{Id: "01J0000000000000000000000A"}.Validate())
+	})
+	t.Run("valid full", func(t *testing.T) {
+		name := "Degree"
+		number := "N-001"
+		typeID := "type-1"
+		orgID := "org-1"
+		issued := "2026-08-01"
+		expires := "2026-09-01"
+		in := CredentialUpdateInput{
+			Id: "01J0000000000000000000000A", Name: &name, Number: &number,
+			TypeID: &typeID, IssuerOrganizationID: &orgID, IssuedAt: &issued, ExpiresAt: &expires,
+		}
+		assert.NoError(t, in.Validate())
+	})
+	t.Run("missing id", func(t *testing.T) {
+		assert.Error(t, CredentialUpdateInput{}.Validate())
+	})
+	t.Run("name too long", func(t *testing.T) {
+		name := strings.Repeat("a", 257)
+		assert.Error(t, CredentialUpdateInput{Id: "c1", Name: &name}.Validate())
+	})
+	t.Run("number too long", func(t *testing.T) {
+		number := strings.Repeat("1", 257)
+		assert.Error(t, CredentialUpdateInput{Id: "c1", Number: &number}.Validate())
+	})
+	t.Run("bad issued_at date", func(t *testing.T) {
+		bad := "not-a-date"
+		assert.Error(t, CredentialUpdateInput{Id: "c1", IssuedAt: &bad}.Validate())
+	})
+	t.Run("bad expires_at date", func(t *testing.T) {
+		bad := "01/02/2026"
+		assert.Error(t, CredentialUpdateInput{Id: "c1", ExpiresAt: &bad}.Validate())
+	})
+}
+
+func TestCredentialUpdateInput_ToDomain(t *testing.T) {
+	name := "Degree"
+	number := "N-001"
+	typeID := "type-1"
+	orgID := "org-1"
+	issued := "2026-08-01"
+	expires := "2026-09-01"
+	in := CredentialUpdateInput{
+		Id: "c1", Name: &name, Number: &number,
+		TypeID: &typeID, IssuerOrganizationID: &orgID, IssuedAt: &issued, ExpiresAt: &expires,
+		Meta: map[string]any{"k": "v"},
+	}
+	got := in.ToDomain()
+	assert.Equal(t, "c1", got.ID)
+	assert.Equal(t, "Degree", got.Name)
+	assert.Equal(t, "N-001", *got.Number)
+	assert.Equal(t, "type-1", got.TypeID)
+	assert.Equal(t, "org-1", got.IssuerOrganizationID)
+	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), got.IssuedAt)
+	assert.Equal(t, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), *got.ExpiresAt)
+	assert.Equal(t, map[string]any{"k": "v"}, got.Meta)
+}
+
+func TestCredentialUpdateInput_ToDomain_Partial(t *testing.T) {
+	got := CredentialUpdateInput{Id: "c1"}.ToDomain()
+	assert.Equal(t, "c1", got.ID)
+	assert.Equal(t, "", got.Name)
+	assert.Nil(t, got.Number)
+	assert.Nil(t, got.ExpiresAt)
+	assert.True(t, got.IssuedAt.IsZero())
+}
+
+func TestCredentialUpdateRequest_Validate(t *testing.T) {
+	validItem := func() CredentialUpdateInput { return CredentialUpdateInput{Id: "c1"} }
+	t.Run("valid", func(t *testing.T) {
+		r := CredentialUpdateRequest{Credentials: []CredentialUpdateInput{validItem()}}
+		assert.NoError(t, r.Validate())
+	})
+	t.Run("empty items", func(t *testing.T) {
+		r := CredentialUpdateRequest{Credentials: []CredentialUpdateInput{}}
+		assert.Error(t, r.Validate())
+	})
+	t.Run("too many items", func(t *testing.T) {
+		items := make([]CredentialUpdateInput, 101)
+		for i := range items {
+			items[i] = validItem()
+		}
+		assert.Error(t, CredentialUpdateRequest{Credentials: items}.Validate())
+	})
+	t.Run("invalid nested item", func(t *testing.T) {
+		r := CredentialUpdateRequest{Credentials: []CredentialUpdateInput{{}}}
+		assert.Error(t, r.Validate())
+	})
+}
+
+func TestCredentialUpdateRequest_ToDomain(t *testing.T) {
+	r := CredentialUpdateRequest{Credentials: []CredentialUpdateInput{
+		{Id: "c1"},
+		{Id: "c2"},
+	}}
+	out := r.ToDomain()
+	assert.Len(t, out, 2)
+	assert.Equal(t, "c1", out[0].ID)
+	assert.Equal(t, "c2", out[1].ID)
+}
+
 func TestCredentialIssueInput_Validate(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		in := CredentialIssueInput{
