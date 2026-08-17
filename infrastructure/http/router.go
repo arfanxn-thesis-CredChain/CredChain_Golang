@@ -57,6 +57,7 @@ type RouteParams struct {
 	AuthHandler                auth.AuthHandler
 	UserHandler                user.UserHandler
 	CredentialHandler          credential.CredentialHandler
+	CredentialTypeHandler      credential.CredentialTypeHandler
 	MetaHandler                meta.MetaHandler
 	OverviewHandler            overview.OverviewHandler
 	Logger                     *zap.Logger
@@ -113,6 +114,13 @@ func RegisterRoutes(p RouteParams) {
 				creds.POST("/batch/issue", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Issue)
 				creds.POST("/batch/revoke", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Revoke)
 				creds.POST("/batch/reextract", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.ReExtract)
+			}
+			credentialTypes := secure.Group("/credential-types")
+			{
+				credentialTypes.GET("", p.CredentialTypeHandler.Paginate)
+				credentialTypes.POST("", p.CredentialTypeHandler.Store)
+				credentialTypes.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Update)
+				credentialTypes.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Destroy)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}
