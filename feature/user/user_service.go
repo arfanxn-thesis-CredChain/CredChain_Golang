@@ -38,6 +38,7 @@ type UserService interface {
 
 type userService struct {
 	userRepo         domain.UserRepository
+	unitRepo         domain.UserUnitRepository
 	uow              domain.UnitOfWork
 	cfg              *config.Config
 	authorityService chain.AuthorityService
@@ -49,6 +50,7 @@ type userService struct {
 type UserServiceParams struct {
 	fx.In
 	UserRepo         domain.UserRepository
+	UnitRepo         domain.UserUnitRepository
 	UoW              domain.UnitOfWork
 	Config           *config.Config
 	AuthorityService chain.AuthorityService
@@ -60,6 +62,7 @@ type UserServiceParams struct {
 func NewUserService(p UserServiceParams) UserService {
 	return &userService{
 		userRepo:         p.UserRepo,
+		unitRepo:         p.UnitRepo,
 		uow:              p.UoW,
 		cfg:              p.Config,
 		authorityService: p.AuthorityService,
@@ -166,7 +169,22 @@ func (s *userService) syncBlockchainRoles(ctx context.Context, users []domain.Us
 	return nil
 }
 
+// Paginate returns a paginated user list. A unit_id filter (equal) is
+// rewritten into unit_id IN (unit + all descendants) via the recursive
+// user_units query — faculty-level filtering without denormalization.
 func (s *userService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.User, int, error) {
+	if query != nil {
+		for i, f := range query.Filters {
+			if f.Column == "unit_id" && f.Operator == domainQuery.OperatorEqual {
+				units, err := s.unitRepo.FindWithDescendants(ctx, f.GetValue())
+				if err != nil {
+					return nil, 0, err
+				}
+				ids := lo.Map(units, func(u domain.UserUnit, _ int) string { return u.Id })
+				query.Filters[i] = domainQuery.NewFilter("unit_id", domainQuery.OperatorIn, ids...)
+			}
+		}
+	}
 	return s.userRepo.Get(ctx, query)
 }
 

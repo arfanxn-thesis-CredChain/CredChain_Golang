@@ -15,8 +15,10 @@ import (
 	"CredChain_Golang/tests/mocks"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"google.golang.org/api/idtoken"
 )
@@ -112,12 +114,43 @@ func TestUserService_Paginate(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
 	repo.On("Get", mock.Anything, mock.Anything).Return([]domain.User{}, 0, nil)
 	svc := NewUserService(UserServiceParams{
-		UserRepo: repo, UoW: nil, Config: mkSvcCfg(),
+		UserRepo: repo, UnitRepo: &mocks.MockUserUnitRepository{}, UoW: nil, Config: mkSvcCfg(),
 		Logger: zap.NewNop(), Policy: nil,
 	})
 
 	_, _, err := svc.Paginate(context.Background(), &domainQuery.Query{})
 	assert.NoError(t, err)
+}
+
+func TestUserService_Paginate_UnitFilterExpandsDescendants(t *testing.T) {
+	unitRepo := new(mocks.MockUserUnitRepository)
+	unitRepo.On("FindWithDescendants", mock.Anything, "unit-faculty").Return([]domain.UserUnit{
+		{Id: "unit-faculty", Name: "Faculty"},
+		{Id: "unit-informatics", ParentId: lo.ToPtr("unit-faculty"), Name: "Informatics"},
+	}, nil)
+
+	var captured *domainQuery.Query
+	userRepo := new(mocks.MockUserRepository)
+	userRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.User{}, 0, nil).
+		Run(func(args mock.Arguments) {
+			captured = args.Get(1).(*domainQuery.Query)
+		})
+
+	svc := NewUserService(UserServiceParams{
+		UserRepo: userRepo, UnitRepo: unitRepo, UoW: nil, Config: mkSvcCfg(),
+		Logger: zap.NewNop(), Policy: nil,
+	})
+
+	q := &domainQuery.Query{Filters: []domainQuery.Filter{
+		domainQuery.NewFilter("unit_id", domainQuery.OperatorEqual, "unit-faculty"),
+	}}
+	_, _, err := svc.Paginate(context.Background(), q)
+	require.NoError(t, err)
+
+	require.NotNil(t, captured)
+	require.Len(t, captured.Filters, 1)
+	assert.Equal(t, domainQuery.OperatorIn, captured.Filters[0].Operator)
+	assert.ElementsMatch(t, []string{"unit-faculty", "unit-informatics"}, captured.Filters[0].Values)
 }
 
 func TestUserService_Find(t *testing.T) {
