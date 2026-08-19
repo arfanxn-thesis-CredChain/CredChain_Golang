@@ -111,6 +111,7 @@ var allDomainCodes = []int{
 	domain.CodeCredentialVerifyExtractFailed,
 	domain.CodeCredentialVerifyAiServiceFailed,
 	domain.CodeCredentialVerifyCredentialNotFound,
+	domain.CodeCredentialVerifyDocumentUnreadable,
 	domain.CodeCredentialVerifyAuthentic,
 	domain.CodeCredentialVerifyRevoked,
 	domain.CodeCredentialVerifyIntegrityWarning,
