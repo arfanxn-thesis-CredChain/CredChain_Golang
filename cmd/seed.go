@@ -7,6 +7,7 @@ import (
 
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
+	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/feature/user"
 	gormInfra "CredChain_Golang/infrastructure/database/gorm"
 	"CredChain_Golang/infrastructure/database/seeder"
@@ -48,10 +49,24 @@ Examples:
 				NewConfigFromCmd(cmd),
 				gormInfra.NewGorm,
 				user.NewGormUserRepository,
-				func(userRepo domain.UserRepository, cfg *config.Config) *seeder.Registry {
-					mnemonic := seedGetHardhatMnemonic(cfg)
+				user.NewGormUserUnitRepository,
+				credential.NewGormCredentialTypeRepository,
+				credential.NewGormCredentialIssuerOrganizationRepository,
+				credential.NewGormCompetencyRepository,
+				func(
+					userRepo domain.UserRepository,
+					userUnitRepo domain.UserUnitRepository,
+					credentialTypeRepo domain.CredentialTypeRepository,
+					issuerOrgRepo domain.CredentialIssuerOrganizationRepository,
+					competencyRepo domain.CompetencyRepository,
+					cfg *config.Config,
+				) *seeder.Registry {
 					return seeder.NewRegistry(
-						seeder.NewUserSeeder(userRepo, mnemonic, *cfg.WalletEncryptionKey),
+						seeder.NewUserUnitSeeder(userUnitRepo),
+						seeder.NewUserSeeder(userRepo, userUnitRepo, cfg),
+						seeder.NewCredentialTypeSeeder(credentialTypeRepo),
+						seeder.NewCredentialIssuerOrganizationSeeder(issuerOrgRepo),
+						seeder.NewCompetencySeeder(competencyRepo),
 					)
 				},
 			),
@@ -89,13 +104,4 @@ func seedRun(registry *seeder.Registry, names []string, logger *zap.Logger) erro
 
 	logger.Info("seed completed successfully")
 	return nil
-}
-
-// seedGetHardhatMnemonic resolves the mnemonic from config or returns the
-// standard Hardhat default mnemonic.
-func seedGetHardhatMnemonic(cfg *config.Config) string {
-	if cfg.HardhatMnemonic != nil && *cfg.HardhatMnemonic != "" {
-		return *cfg.HardhatMnemonic
-	}
-	return "test test test test test test test test test test test junk"
 }

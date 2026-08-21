@@ -156,3 +156,12 @@ func seedChainRun(cfg *config.Config, userRepo domain.UserRepository, authorityS
 
 	return nil
 }
+
+// seedGetHardhatMnemonic resolves the mnemonic from config or returns the
+// standard Hardhat default mnemonic.
+func seedGetHardhatMnemonic(cfg *config.Config) string {
+	if cfg.HardhatMnemonic != nil && *cfg.HardhatMnemonic != "" {
+		return *cfg.HardhatMnemonic
+	}
+	return "test test test test test test test test test test test junk"
+}
