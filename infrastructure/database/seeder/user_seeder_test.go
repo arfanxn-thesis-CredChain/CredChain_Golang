@@ -4,23 +4,36 @@ import (
 	"context"
 	"testing"
 
+	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/user"
 	"CredChain_Golang/infrastructure/database/seeder"
 	"CredChain_Golang/tests/db"
 	"CredChain_Golang/tests/fixtures"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 )
+
+func testUserSeederConfig(mnemonic, encKey string) *config.Config {
+	return &config.Config{
+		HardhatMnemonic:     lo.ToPtr(mnemonic),
+		WalletEncryptionKey: lo.ToPtr(encKey),
+	}
+}
 
 func TestUserSeeder_Seeds15Users(t *testing.T) {
 	gormDB := db.OpenInMemorySQLite(t)
 	userRepo := user.NewGormUserRepository(gormDB)
+	userUnitRepo := user.NewGormUserUnitRepository(gormDB)
 	ctx := context.Background()
 
 	seedMnemonic := "test test test test test test test test test test test junk"
 	encKey := string(fixtures.TestWalletEncryptionKey())
-	s := seeder.NewUserSeeder(userRepo, seedMnemonic, encKey)
+
+	assert.NoError(t, seeder.NewUserUnitSeeder(userUnitRepo).Seed(ctx))
+
+	s := seeder.NewUserSeeder(userRepo, userUnitRepo, testUserSeederConfig(seedMnemonic, encKey))
 
 	err := s.Seed(ctx)
 	assert.NoError(t, err)
@@ -35,6 +48,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.NotNil(t, superAdmins[0].Meta)
 	assert.Equal(t, "A1B2C3D4", superAdmins[0].Meta["key"])
 	assert.Nil(t, superAdmins[0].DeletedAt)
+	assert.Nil(t, superAdmins[0].UnitID, "super admin must not have a unit")
 
 	admins, err := userRepo.FindByRole(ctx, domain.RoleAdmin)
 	assert.NoError(t, err)
@@ -43,6 +57,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.NotNil(t, admins[0].Number)
 	assert.Nil(t, admins[0].Meta)
 	assert.Nil(t, admins[0].DeletedAt)
+	assert.Nil(t, admins[0].UnitID, "admin must not have a unit")
 
 	issuers, err := userRepo.FindByRole(ctx, domain.RoleIssuer)
 	assert.NoError(t, err)
@@ -51,6 +66,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	for _, u := range issuers {
 		assert.NotNil(t, u.Number, "all users must have Number")
 		assert.True(t, len(*u.Number) == 18, "issuer number must be 18-digit NIP")
+		assert.Nil(t, u.UnitID, "issuer must not have a unit")
 		if u.Email == "edysusilo17580@gmail.com" {
 			hasEdy = true
 			assert.NotNil(t, u.Meta)
@@ -67,6 +83,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 		assert.NotNil(t, u.Number, "all users must have Number")
 		assert.True(t, len(*u.Number) == 8)
 		assert.True(t, (*u.Number)[:4] == "2209")
+		assert.NotNil(t, u.UnitID, "holder must have a unit")
 	}
 
 	total := len(superAdmins) + len(admins) + len(issuers) + len(holders)
@@ -92,7 +109,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 }
 
 func TestUserSeeder_Name(t *testing.T) {
-	s := seeder.NewUserSeeder(nil, "", "")
+	s := seeder.NewUserSeeder(nil, nil, nil)
 	assert.Equal(t, "user", s.Name())
 }
 
@@ -102,17 +119,22 @@ func TestUserSeeder_DeterministicRandomUsers(t *testing.T) {
 
 	repo1 := user.NewGormUserRepository(gormDB1)
 	repo2 := user.NewGormUserRepository(gormDB2)
+	unitRepo1 := user.NewGormUserUnitRepository(gormDB1)
+	unitRepo2 := user.NewGormUserUnitRepository(gormDB2)
 
 	encKey := string(fixtures.TestWalletEncryptionKey())
 	mnemonic := "test test test test test test test test test test test junk"
 
 	ctx := context.Background()
 
-	s1 := seeder.NewUserSeeder(repo1, mnemonic, encKey)
+	assert.NoError(t, seeder.NewUserUnitSeeder(unitRepo1).Seed(ctx))
+	assert.NoError(t, seeder.NewUserUnitSeeder(unitRepo2).Seed(ctx))
+
+	s1 := seeder.NewUserSeeder(repo1, unitRepo1, testUserSeederConfig(mnemonic, encKey))
 	err := s1.Seed(ctx)
 	assert.NoError(t, err)
 
-	s2 := seeder.NewUserSeeder(repo2, mnemonic, encKey)
+	s2 := seeder.NewUserSeeder(repo2, unitRepo2, testUserSeederConfig(mnemonic, encKey))
 	err = s2.Seed(ctx)
 	assert.NoError(t, err)
 
@@ -127,9 +149,11 @@ func TestUserSeeder_DeterministicRandomUsers(t *testing.T) {
 	for i := range issuers1 {
 		assert.Equal(t, issuers1[i].Email, issuers2[i].Email)
 		assert.Equal(t, issuers1[i].Number, issuers2[i].Number)
+		assert.Equal(t, issuers1[i].Id, issuers2[i].Id, "user id must be deterministic")
 	}
 	for i := range holders1 {
 		assert.Equal(t, holders1[i].Email, holders2[i].Email)
 		assert.Equal(t, holders1[i].Number, holders2[i].Number)
+		assert.Equal(t, holders1[i].Id, holders2[i].Id, "user id must be deterministic")
 	}
 }

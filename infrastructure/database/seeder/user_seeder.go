@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"time"
 
+	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	cryptoInfra "CredChain_Golang/infrastructure/crypto"
 
@@ -14,24 +15,31 @@ import (
 )
 
 type UserSeeder struct {
-	repo       domain.UserRepository
-	mnemonic   string
-	encryptKey string
+	repo     domain.UserRepository
+	unitRepo domain.UserUnitRepository
+	cfg      *config.Config
 }
 
-func NewUserSeeder(repo domain.UserRepository, mnemonic string, encryptKey string) *UserSeeder {
-	return &UserSeeder{repo: repo, mnemonic: mnemonic, encryptKey: encryptKey}
+func NewUserSeeder(repo domain.UserRepository, unitRepo domain.UserUnitRepository, cfg *config.Config) *UserSeeder {
+	return &UserSeeder{repo: repo, unitRepo: unitRepo, cfg: cfg}
 }
 
 func (s *UserSeeder) Name() string { return "user" }
 
 func (s *UserSeeder) Seed(ctx context.Context) error {
+	units, err := s.unitRepo.Get(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("user seeder: fetch units: %w", err)
+	}
+	programs := seedLeafUnits(units)
+
 	seed := hashToSeed("credchain-seed")
 	rng := rand.New(rand.NewSource(seed))
 
 	users := s.seedBuildUsers(rng)
+	seedAssignUnitIDs(users, programs)
 
-	_, err := s.repo.Store(ctx, users...)
+	_, err = s.repo.Store(ctx, users...)
 	if err != nil {
 		return fmt.Errorf("user seeder: store: %w", err)
 	}
@@ -172,11 +180,12 @@ type seedBuildUserParams struct {
 }
 
 func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {
-	privKeyHex, address, err := cryptoInfra.DeriveKeyFromMnemonic(s.mnemonic, p.index)
+	mnemonic := seedMnemonic(s.cfg)
+	privKeyHex, address, err := cryptoInfra.DeriveKeyFromMnemonic(mnemonic, p.index)
 	if err != nil {
 		panic(fmt.Sprintf("failed to derive key for index %d: %v", p.index, err))
 	}
-	encryptedKey, err := cryptoInfra.Encrypt([]byte(privKeyHex), []byte(s.encryptKey))
+	encryptedKey, err := cryptoInfra.Encrypt([]byte(privKeyHex), []byte(*s.cfg.WalletEncryptionKey))
 	if err != nil {
 		panic(fmt.Sprintf("failed to encrypt key for index %d: %v", p.index, err))
 	}
@@ -185,12 +194,53 @@ func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {
 		updatedAt = &p.createdAt
 	}
 	return domain.User{
+		Id:   deterministicULID(p.index),
 		Name: lo.ToPtr(p.name), Number: lo.ToPtr(p.number),
 		Email:  p.email,
 		Gender: p.gender, BirthDate: p.birthDate,
 		Meta: p.meta, Role: p.role,
 		WalletAddress: address, EncryptedWalletPrivateKey: encryptedKey,
 		CreatedAt: p.createdAt, UpdatedAt: updatedAt, DeletedAt: p.deletedAt,
+	}
+}
+
+func seedMnemonic(cfg *config.Config) string {
+	if cfg.HardhatMnemonic != nil && *cfg.HardhatMnemonic != "" {
+		return *cfg.HardhatMnemonic
+	}
+	return "test test test test test test test test test test test junk"
+}
+
+// seedLeafUnits returns units with a ParentId that are not themselves parents
+// (i.e., the study programs at the leaves of the tree).
+func seedLeafUnits(units []domain.UserUnit) []domain.UserUnit {
+	parentSet := make(map[string]bool, len(units))
+	for _, u := range units {
+		if u.ParentId != nil {
+			parentSet[*u.ParentId] = true
+		}
+	}
+	leaves := make([]domain.UserUnit, 0, len(units))
+	for _, u := range units {
+		if u.ParentId != nil && !parentSet[u.Id] {
+			leaves = append(leaves, u)
+		}
+	}
+	return leaves
+}
+
+// seedAssignUnitIDs assigns study programs round-robin to Holder users.
+// Non-Holder users keep a nil UnitID.
+func seedAssignUnitIDs(users []domain.User, programs []domain.UserUnit) {
+	if len(programs) == 0 {
+		return
+	}
+	idx := 0
+	for i := range users {
+		if users[i].Role == domain.RoleHolder {
+			users[i].UnitID = lo.ToPtr(programs[idx%len(programs)].Id)
+			idx++
+		}
 	}
 }
 
