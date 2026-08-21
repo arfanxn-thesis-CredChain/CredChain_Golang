@@ -24,16 +24,12 @@ func TestUserUnitSeeder_SeedsTree(t *testing.T) {
 
 	units, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
-	assert.Len(t, units, 12)
+	assert.Len(t, units, 11)
 
 	byName := map[string]domain.UserUnit{}
 	for _, u := range units {
 		byName[u.Name] = u
 	}
-
-	root, ok := byName["Universitas Harkat Negeri"]
-	require.True(t, ok)
-	assert.Nil(t, root.ParentId)
 
 	faculties := map[string][]string{
 		"Fakultas Teknik": {
@@ -54,8 +50,7 @@ func TestUserUnitSeeder_SeedsTree(t *testing.T) {
 	for facName, programs := range faculties {
 		fac, ok := byName[facName]
 		require.True(t, ok)
-		require.NotNil(t, fac.ParentId)
-		assert.Equal(t, root.Id, *fac.ParentId)
+		assert.Nil(t, fac.ParentId)
 		for _, progName := range programs {
 			prog, ok := byName[progName]
 			require.True(t, ok)

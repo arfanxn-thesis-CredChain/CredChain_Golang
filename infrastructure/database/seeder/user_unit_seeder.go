@@ -51,8 +51,6 @@ func (s *UserUnitSeeder) seedBuildUnits(rng *rand.Rand) []domain.UserUnit {
 		}
 	}
 
-	root := newUnit("Universitas Harkat Negeri", nil)
-
 	faculties := []struct {
 		name     string
 		programs []string
@@ -82,10 +80,9 @@ func (s *UserUnitSeeder) seedBuildUnits(rng *rand.Rand) []domain.UserUnit {
 		},
 	}
 
-	units := make([]domain.UserUnit, 0, 12)
-	units = append(units, root)
+	units := make([]domain.UserUnit, 0, 11)
 	for _, f := range faculties {
-		fac := newUnit(f.name, lo.ToPtr(root.Id))
+		fac := newUnit(f.name, nil)
 		units = append(units, fac)
 		for _, p := range f.programs {
 			units = append(units, newUnit(p, lo.ToPtr(fac.Id)))
