@@ -191,4 +191,17 @@ func (r *gormUserUnitRepository) CountByParentIds(ctx context.Context, parentIds
 	return count, nil
 }
 
+// UpdateParent sets a single unit's parent_id, writing SQL NULL when parentId is
+// nil (promote to root). Kept separate from the batch Update because that CASE
+// builder skips a nil parent_id — it can't tell "clear" from "leave untouched".
+func (r *gormUserUnitRepository) UpdateParent(ctx context.Context, id string, parentId *string) error {
+	var value interface{}
+	if parentId != nil {
+		value = *parentId
+	}
+	return r.db.WithContext(ctx).Model(&model.UserUnit{}).
+		Where("id = ?", id).
+		Update("parent_id", value).Error
+}
+
 var _ domain.UserUnitRepository = (*gormUserUnitRepository)(nil)

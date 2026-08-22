@@ -35,6 +35,11 @@ type UserUnitRepository interface {
 	// Only non-nil / non-zero fields are touched.
 	Update(ctx context.Context, units ...UserUnit) ([]UserUnit, error)
 
+	// UpdateParent sets a single unit's parent_id, writing NULL when parentId is
+	// nil (promote to root). Separate from Update because the batch CASE builder
+	// skips a nil parent_id and so cannot clear a parent.
+	UpdateParent(ctx context.Context, id string, parentId *string) error
+
 	// FindWithDescendants returns the unit with the given id plus all of its
 	// descendants in the tree (single WITH RECURSIVE query; includes self).
 	FindWithDescendants(ctx context.Context, id string) ([]UserUnit, error)

@@ -91,3 +91,27 @@ func TestGormUserUnitRepository_CountByParentIdsAndDestroy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), countAfter)
 }
+
+func TestGormUserUnitRepository_UpdateParent(t *testing.T) {
+	repo := openUnitRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.UserUnit{Id: "root", Name: "Root"},
+		domain.UserUnit{Id: "child", ParentId: strPtrUnit("root"), Name: "Child"},
+	)
+	require.NoError(t, err)
+
+	// nil parentId writes SQL NULL (promote to root).
+	require.NoError(t, repo.UpdateParent(ctx, "child", nil))
+	got, err := repo.Find(ctx, "child")
+	require.NoError(t, err)
+	assert.Nil(t, got.ParentId, "nil parentId must write NULL")
+
+	// non-nil parentId writes the value (reparent).
+	require.NoError(t, repo.UpdateParent(ctx, "child", strPtrUnit("root")))
+	got, err = repo.Find(ctx, "child")
+	require.NoError(t, err)
+	require.NotNil(t, got.ParentId)
+	assert.Equal(t, "root", *got.ParentId)
+}

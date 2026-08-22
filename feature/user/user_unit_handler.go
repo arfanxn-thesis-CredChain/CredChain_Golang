@@ -1,6 +1,8 @@
 package user
 
 import (
+	"encoding/json"
+
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
 	queryRequest "CredChain_Golang/infrastructure/http/request/query"
@@ -8,6 +10,7 @@ import (
 	"CredChain_Golang/infrastructure/http/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"go.uber.org/fx"
 )
 
@@ -94,7 +97,7 @@ func (h *userUnitHandler) Store(c *gin.Context) {
 func (h *userUnitHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	var req UserUnitUpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
 		return
@@ -103,7 +106,13 @@ func (h *userUnitHandler) Update(c *gin.Context) {
 		responder.SendValidationError(c, err)
 		return
 	}
-	updated, err := h.userUnitSvc.Update(c.Request.Context(), id, req.Name, req.ParentID)
+	// Detect whether parent_id was present in the body so a null value clears the
+	// parent (move to root) — distinct from omitting the field, which leaves the
+	// parent untouched. A *string alone can't tell JSON null from an absent key.
+	var raw map[string]json.RawMessage
+	_ = c.ShouldBindBodyWith(&raw, binding.JSON)
+	_, setParent := raw["parent_id"]
+	updated, err := h.userUnitSvc.Update(c.Request.Context(), id, req.Name, req.ParentID, setParent)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)

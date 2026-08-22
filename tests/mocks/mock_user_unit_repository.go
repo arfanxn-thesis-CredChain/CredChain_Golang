@@ -71,4 +71,9 @@ func (m *MockUserUnitRepository) CountByParentIds(ctx context.Context, parentIds
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockUserUnitRepository) UpdateParent(ctx context.Context, id string, parentId *string) error {
+	args := m.Called(ctx, id, parentId)
+	return args.Error(0)
+}
+
 var _ domain.UserUnitRepository = (*MockUserUnitRepository)(nil)

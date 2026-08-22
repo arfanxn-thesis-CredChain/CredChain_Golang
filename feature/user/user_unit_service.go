@@ -19,7 +19,10 @@ type UserUnitService interface {
 	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.UserUnit, error)
 	Find(ctx context.Context, id string) (*domain.UserUnit, error)
 	Store(ctx context.Context, name string, parentId *string) (*domain.UserUnit, error)
-	Update(ctx context.Context, id string, name *string, parentId *string) (*domain.UserUnit, error)
+	// Update changes name and/or parent. setParent distinguishes "clear parent to
+	// root" (parentId nil, setParent true) from "leave parent untouched"
+	// (setParent false); the handler derives it from parent_id key presence.
+	Update(ctx context.Context, id string, name *string, parentId *string, setParent bool) (*domain.UserUnit, error)
 	// Destroy hard-deletes units neither users nor child units reference.
 	// Referenced units fail with CodeUserUnitDestroyInUse.
 	Destroy(ctx context.Context, ids ...string) (int64, error)
@@ -72,30 +75,29 @@ func (s *userUnitService) Store(ctx context.Context, name string, parentId *stri
 	return &u, nil
 }
 
-func (s *userUnitService) Update(ctx context.Context, id string, name *string, parentId *string) (*domain.UserUnit, error) {
+func (s *userUnitService) Update(ctx context.Context, id string, name *string, parentId *string, setParent bool) (*domain.UserUnit, error) {
 	target, err := s.Find(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateParent(ctx, parentId, target.Id); err != nil {
-		return nil, err
+	if setParent {
+		if err := s.validateParent(ctx, parentId, target.Id); err != nil {
+			return nil, err
+		}
 	}
-	u := domain.UserUnit{Id: target.Id, Name: target.Name, ParentId: target.ParentId}
 	if name != nil {
-		u.Name = strings.TrimSpace(*name)
+		if _, err := s.unitRepo.Update(ctx, domain.UserUnit{Id: target.Id, Name: strings.TrimSpace(*name)}); err != nil {
+			return nil, err
+		}
 	}
-	if parentId != nil {
-		u.ParentId = parentId
+	// Parent is persisted separately: the batch Update's CASE builder skips a nil
+	// parent_id, so it can't clear a parent. UpdateParent writes NULL for root.
+	if setParent {
+		if err := s.unitRepo.UpdateParent(ctx, target.Id, parentId); err != nil {
+			return nil, err
+		}
 	}
-	updated, err := s.unitRepo.Update(ctx, u)
-	if err != nil {
-		return nil, err
-	}
-	if len(updated) == 0 {
-		return nil, domain.NewError(domain.CodeUserUnitNotFound, domain.WithMetadata("user_unit_id", id))
-	}
-	out := updated[0]
-	return &out, nil
+	return s.Find(ctx, id)
 }
 
 // validateParent ensures parentId references an existing unit that is neither
