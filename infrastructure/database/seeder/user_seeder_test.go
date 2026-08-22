@@ -89,6 +89,15 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	total := len(superAdmins) + len(admins) + len(issuers) + len(holders)
 	assert.Equal(t, 15, total)
 
+	allUsers := append(append(superAdmins, admins...), append(issuers, holders...)...)
+	for _, u := range allUsers {
+		assert.NotNil(t, u.JoinedYear, "all seeded users must have a joined year: %s", u.Email)
+		if u.JoinedYear != nil {
+			allowed := []int{u.CreatedAt.Year() - 1, u.CreatedAt.Year(), u.CreatedAt.Year() + 1}
+			assert.Contains(t, allowed, *u.JoinedYear, "joined year must be within +/-1 of created year: %s", u.Email)
+		}
+	}
+
 	deletedCount := 0
 	for _, groups := range [][]domain.User{superAdmins, admins, issuers, holders} {
 		for _, u := range groups {
@@ -150,10 +159,12 @@ func TestUserSeeder_DeterministicRandomUsers(t *testing.T) {
 		assert.Equal(t, issuers1[i].Email, issuers2[i].Email)
 		assert.Equal(t, issuers1[i].Number, issuers2[i].Number)
 		assert.Equal(t, issuers1[i].Id, issuers2[i].Id, "user id must be deterministic")
+		assert.Equal(t, issuers1[i].JoinedYear, issuers2[i].JoinedYear, "joined year must be deterministic")
 	}
 	for i := range holders1 {
 		assert.Equal(t, holders1[i].Email, holders2[i].Email)
 		assert.Equal(t, holders1[i].Number, holders2[i].Number)
 		assert.Equal(t, holders1[i].Id, holders2[i].Id, "user id must be deterministic")
+		assert.Equal(t, holders1[i].JoinedYear, holders2[i].JoinedYear, "joined year must be deterministic")
 	}
 }

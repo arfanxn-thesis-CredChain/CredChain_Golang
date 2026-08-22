@@ -198,7 +198,8 @@ func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {
 		Name: lo.ToPtr(p.name), Number: lo.ToPtr(p.number),
 		Email:  p.email,
 		Gender: p.gender, BirthDate: p.birthDate,
-		Meta: p.meta, Role: p.role,
+		JoinedYear: lo.ToPtr(seedJoinedYear(p.createdAt, p.index)),
+		Meta:       p.meta, Role: p.role,
 		WalletAddress: address, EncryptedWalletPrivateKey: encryptedKey,
 		CreatedAt: p.createdAt, UpdatedAt: updatedAt, DeletedAt: p.deletedAt,
 	}
@@ -280,6 +281,15 @@ func seedMustParseDate(date string) *time.Time {
 }
 
 func seedGenderPtr(g domain.Gender) *domain.Gender { return &g }
+
+var seedJoinedYearOffsets = []int{-1, 0, 1}
+
+// seedJoinedYear returns a deterministic joined year: the created_at year
+// plus an offset in {-1, 0, +1} chosen by the user's wallet index, so the
+// value is stable across reseeds.
+func seedJoinedYear(createdAt time.Time, index uint32) int {
+	return createdAt.Year() + seedJoinedYearOffsets[index%3]
+}
 
 func hashToSeed(s string) int64 {
 	h := fnv.New64a()
