@@ -15,7 +15,8 @@ import (
 
 // CompetencyService is the business-logic layer for competencies.
 type CompetencyService interface {
-	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, error)
+	// Paginate returns the page and the total matching rows before pagination.
+	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error)
 	Find(ctx context.Context, id string) (*domain.Competency, error)
 	Store(ctx context.Context, name string) (*domain.Competency, error)
 	Update(ctx context.Context, id string, name *string) (*domain.Competency, error)
@@ -39,7 +40,10 @@ func NewCompetencyService(p CompetencyServiceParams) CompetencyService {
 	return &competencyService{competencyRepo: p.CompetencyRepo, competencyCredentialRepo: p.CompetencyCredentialRepo}
 }
 
-func (s *competencyService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, error) {
+// Paginate returns the requested page and the total number of competencies
+// matching the query before pagination, so the handler can build a complete
+// pagination envelope.
+func (s *competencyService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error) {
 	return s.competencyRepo.Get(ctx, query)
 }
 
@@ -61,7 +65,7 @@ func (s *competencyService) Find(ctx context.Context, id string) (*domain.Compet
 func (s *competencyService) Store(ctx context.Context, name string) (*domain.Competency, error) {
 	trimmed := strings.TrimSpace(name)
 
-	existing, err := s.competencyRepo.Get(ctx, nil)
+	existing, _, err := s.competencyRepo.Get(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +87,7 @@ func (s *competencyService) Store(ctx context.Context, name string) (*domain.Com
 }
 
 func (s *competencyService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, err := s.competencyRepo.Get(ctx, nil)
+	existing, _, err := s.competencyRepo.Get(ctx, nil)
 	if err != nil {
 		return err
 	}

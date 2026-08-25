@@ -70,19 +70,53 @@ func (r *gormCompetencyRepository) FindByIds(ctx context.Context, ids ...string)
 	return out, nil
 }
 
-func (r *gormCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, error) {
+// allowedCompetencyFilterColumns whitelists columns clients may filter on. "id"
+// is included so the UI can resolve a specific set of competencies by id
+// (?filters=id$a,b,c) — selected chips may live outside the loaded page.
+var allowedCompetencyFilterColumns = map[string]bool{
+	"id":         true,
+	"name":       true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+var allowedCompetencySortColumns = map[string]bool{
+	"name":       true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+// Get retrieves competencies with pagination, search, filters, and sorts.
+// Returns: ([]Competency, int, error) — the page, the total matching the
+// criteria before pagination, and an error.
+func (r *gormCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error) {
 	db := r.db.WithContext(ctx).Model(&model.Competency{})
-	db = gormhelpers.ApplySorts(db, query, nil, "name ASC", nil, "id ASC")
+
+	if query != nil {
+		if query.HasSearch() {
+			db = db.Where("LOWER(name) LIKE LOWER(?)", "%"+query.Search+"%")
+		}
+		if query.HasFilters() {
+			db = gormhelpers.ApplyFilters(db, query.Filters, allowedCompetencyFilterColumns, "")
+		}
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	db = gormhelpers.ApplySorts(db, query, allowedCompetencySortColumns, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)
 	var rows []model.Competency
 	if err := db.Find(&rows).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]domain.Competency, len(rows))
 	for i, m := range rows {
 		out[i] = m.ToDomain()
 	}
-	return out, nil
+	return out, int(total), nil
 }
 
 func (r *gormCompetencyRepository) Update(ctx context.Context, competencies ...domain.Competency) ([]domain.Competency, error) {

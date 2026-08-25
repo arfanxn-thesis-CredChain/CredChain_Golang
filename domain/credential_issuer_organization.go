@@ -22,7 +22,9 @@ type CredentialIssuerOrganizationRepository interface {
 	Store(ctx context.Context, orgs ...CredentialIssuerOrganization) ([]CredentialIssuerOrganization, error)
 	Find(ctx context.Context, id string) (*CredentialIssuerOrganization, error)
 	FindByIds(ctx context.Context, ids ...string) ([]CredentialIssuerOrganization, error)
-	Get(ctx context.Context, query *domainQuery.Query) ([]CredentialIssuerOrganization, error)
+	// Get lists issuer organizations, returning the page and the total number of
+	// rows matching the query before pagination.
+	Get(ctx context.Context, query *domainQuery.Query) ([]CredentialIssuerOrganization, int, error)
 	Update(ctx context.Context, orgs ...CredentialIssuerOrganization) ([]CredentialIssuerOrganization, error)
 
 	// Destroy hard-deletes rows by ID (batch). Rows referenced by credentials

@@ -11,9 +11,15 @@ import (
 	"go.uber.org/fx"
 )
 
-// lookupDefaultPageSize is the handler-side default for lookup-table lists:
-// small reference tables, one request should fill a dropdown.
-const lookupDefaultPageSize = 100
+// Handler-side page sizes for the lookup tables, applied when the client sends
+// no explicit limit. Types and organizations are short lists, so one request
+// fills a dropdown; competencies is the long table and pages in smaller bites.
+// QueryRequest.Validate caps a client-supplied limit at 100, so these are also
+// the ceiling.
+const (
+	lookupDefaultPageSize     = 100
+	competencyDefaultPageSize = 50
+)
 
 type CredentialTypeHandler interface {
 	Paginate(c *gin.Context)
@@ -58,7 +64,7 @@ func (h *credentialTypeHandler) Paginate(c *gin.Context) {
 	if req.Page == 0 && req.Limit == 0 {
 		query.Limit = lookupDefaultPageSize
 	}
-	types, err := h.credentialTypeSvc.Paginate(c.Request.Context(), query)
+	types, total, err := h.credentialTypeSvc.Paginate(c.Request.Context(), query)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
@@ -68,7 +74,7 @@ func (h *credentialTypeHandler) Paginate(c *gin.Context) {
 	for i, t := range types {
 		out[i] = response.FromDomainCredentialType(t)
 	}
-	responder.Send(c, domain.CodeCredentialTypeFetchSuccess, out)
+	responder.SendPaginationWithPageLimit(c, domain.CodeCredentialTypeFetchSuccess, out, total, query.Page, query.Limit)
 }
 
 func (h *credentialTypeHandler) Store(c *gin.Context) {

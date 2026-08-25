@@ -22,7 +22,7 @@ func TestCredentialTypeSeeder_SeedsTypes(t *testing.T) {
 	err := s.Seed(ctx)
 	require.NoError(t, err)
 
-	types, err := repo.Get(ctx, nil)
+	types, _, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, types, 7)
 
@@ -60,9 +60,9 @@ func TestCredentialTypeSeeder_DeterministicIDs(t *testing.T) {
 	require.NoError(t, seeder.NewCredentialTypeSeeder(repo1).Seed(ctx))
 	require.NoError(t, seeder.NewCredentialTypeSeeder(repo2).Seed(ctx))
 
-	t1, err := repo1.Get(ctx, nil)
+	t1, _, err := repo1.Get(ctx, nil)
 	require.NoError(t, err)
-	t2, err := repo2.Get(ctx, nil)
+	t2, _, err := repo2.Get(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, t1, len(t2))
 

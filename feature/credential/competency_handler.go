@@ -52,9 +52,9 @@ func (h *competencyHandler) Paginate(c *gin.Context) {
 		query = &domainQuery.Query{}
 	}
 	if req.Page == 0 && req.Limit == 0 {
-		query.Limit = lookupDefaultPageSize
+		query.Limit = competencyDefaultPageSize
 	}
-	competencies, err := h.competencySvc.Paginate(c.Request.Context(), query)
+	competencies, total, err := h.competencySvc.Paginate(c.Request.Context(), query)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
@@ -64,7 +64,7 @@ func (h *competencyHandler) Paginate(c *gin.Context) {
 	for i, cpt := range competencies {
 		out[i] = response.FromDomainCompetency(cpt)
 	}
-	responder.Send(c, domain.CodeCompetencyFetchSuccess, out)
+	responder.SendPaginationWithPageLimit(c, domain.CodeCompetencyFetchSuccess, out, total, query.Page, query.Limit)
 }
 
 func (h *competencyHandler) Store(c *gin.Context) {

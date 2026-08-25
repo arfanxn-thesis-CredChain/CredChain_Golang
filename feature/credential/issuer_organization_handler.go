@@ -54,7 +54,7 @@ func (h *credentialIssuerOrganizationHandler) Paginate(c *gin.Context) {
 	if req.Page == 0 && req.Limit == 0 {
 		query.Limit = lookupDefaultPageSize
 	}
-	orgs, err := h.issuerOrganizationSvc.Paginate(c.Request.Context(), query)
+	orgs, total, err := h.issuerOrganizationSvc.Paginate(c.Request.Context(), query)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
@@ -64,7 +64,7 @@ func (h *credentialIssuerOrganizationHandler) Paginate(c *gin.Context) {
 	for i, o := range orgs {
 		out[i] = response.FromDomainIssuerOrganization(o)
 	}
-	responder.Send(c, domain.CodeIssuerOrganizationFetchSuccess, out)
+	responder.SendPaginationWithPageLimit(c, domain.CodeIssuerOrganizationFetchSuccess, out, total, query.Page, query.Limit)
 }
 
 func (h *credentialIssuerOrganizationHandler) Store(c *gin.Context) {

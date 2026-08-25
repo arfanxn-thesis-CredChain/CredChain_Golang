@@ -23,13 +23,14 @@ type Pagination[T any] struct {
 	Total        int     `json:"total"`
 }
 
-// NewPaginationFromContext constructs a Pagination based on items, total, and gin context.
+// NewPaginationFromContext constructs a Pagination based on items, total, and gin
+// context, deriving page and limit from the query string.
+//
+// Only correct when the handler used those same values. A handler that applies
+// its own default (see the lookup endpoints, which page at 50-100) must call
+// NewPagination with the effective values instead, or the envelope reports a
+// limit the rows do not match and last_page comes out wrong.
 func NewPaginationFromContext[T any](c *gin.Context, items []T, total int) Pagination[T] {
-	if items == nil {
-		items = make([]T, 0)
-	}
-
-	// Extract page and limit from gin context
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
 		page = 1
@@ -38,11 +39,23 @@ func NewPaginationFromContext[T any](c *gin.Context, items []T, total int) Pagin
 	if err != nil || limit < 1 {
 		limit = 10
 	}
+	return NewPaginationWithPageLimit(c, items, total, page, limit)
+}
 
-	lastPage := int(math.Ceil(float64(total) / float64(limit)))
-	if lastPage < 1 {
-		lastPage = 1
+// NewPaginationWithPageLimit constructs a Pagination from the page and limit the
+// handler actually applied, rather than re-reading them from the query string.
+func NewPaginationWithPageLimit[T any](c *gin.Context, items []T, total, page, limit int) Pagination[T] {
+	if items == nil {
+		items = make([]T, 0)
 	}
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 10
+	}
+
+	lastPage := max(int(math.Ceil(float64(total)/float64(limit))), 1)
 
 	from := (page-1)*limit + 1
 	to := page * limit

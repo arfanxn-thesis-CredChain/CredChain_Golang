@@ -14,9 +14,12 @@ import (
 	"go.uber.org/fx"
 )
 
-// lookupDefaultPageSize is the handler-side default for lookup-table lists:
-// small reference tables, one request should fill a dropdown.
-const lookupDefaultPageSize = 100
+// lookupDefaultPageSize is the handler-side default when the client sends
+// neither page nor limit. Units render as a tree, so a truncated response is
+// structurally broken rather than merely short — the default is high enough to
+// return whole org charts in one request instead of silently cutting them off
+// at the old 100.
+const lookupDefaultPageSize = 1000
 
 type UserUnitHandler interface {
 	Paginate(c *gin.Context)

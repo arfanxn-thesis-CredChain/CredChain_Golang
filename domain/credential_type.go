@@ -22,7 +22,9 @@ type CredentialTypeRepository interface {
 	Store(ctx context.Context, types ...CredentialType) ([]CredentialType, error)
 	Find(ctx context.Context, id string) (*CredentialType, error)
 	FindByIds(ctx context.Context, ids ...string) ([]CredentialType, error)
-	Get(ctx context.Context, query *domainQuery.Query) ([]CredentialType, error)
+	// Get lists credential types, returning the page and the total number of
+	// rows matching the query before pagination.
+	Get(ctx context.Context, query *domainQuery.Query) ([]CredentialType, int, error)
 	Update(ctx context.Context, types ...CredentialType) ([]CredentialType, error)
 
 	// Destroy hard-deletes rows by ID (batch). Rows referenced by credentials

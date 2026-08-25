@@ -21,7 +21,7 @@ func TestCredentialIssuerOrganizationSeeder_SeedsOrgs(t *testing.T) {
 	err := s.Seed(ctx)
 	require.NoError(t, err)
 
-	orgs, err := repo.Get(ctx, nil)
+	orgs, _, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, orgs, 6)
 
@@ -52,9 +52,9 @@ func TestCredentialIssuerOrganizationSeeder_DeterministicIDs(t *testing.T) {
 	require.NoError(t, seeder.NewCredentialIssuerOrganizationSeeder(repo1).Seed(ctx))
 	require.NoError(t, seeder.NewCredentialIssuerOrganizationSeeder(repo2).Seed(ctx))
 
-	o1, err := repo1.Get(ctx, nil)
+	o1, _, err := repo1.Get(ctx, nil)
 	require.NoError(t, err)
-	o2, err := repo2.Get(ctx, nil)
+	o2, _, err := repo2.Get(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, o1, len(o2))
 

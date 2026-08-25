@@ -21,7 +21,7 @@ func TestCompetencySeeder_SeedsCompetencies(t *testing.T) {
 	err := s.Seed(ctx)
 	require.NoError(t, err)
 
-	competencies, err := repo.Get(ctx, nil)
+	competencies, _, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, competencies, 31)
 
@@ -53,9 +53,9 @@ func TestCompetencySeeder_DeterministicIDs(t *testing.T) {
 	require.NoError(t, seeder.NewCompetencySeeder(repo1).Seed(ctx))
 	require.NoError(t, seeder.NewCompetencySeeder(repo2).Seed(ctx))
 
-	c1, err := repo1.Get(ctx, nil)
+	c1, _, err := repo1.Get(ctx, nil)
 	require.NoError(t, err)
-	c2, err := repo2.Get(ctx, nil)
+	c2, _, err := repo2.Get(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, c1, len(c2))
 

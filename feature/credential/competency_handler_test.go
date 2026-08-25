@@ -19,12 +19,12 @@ import (
 // mockCompetencyService implements CompetencyService for handler tests.
 type mockCompetencyService struct{ mock.Mock }
 
-func (m *mockCompetencyService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.Competency, error) {
+func (m *mockCompetencyService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.Competency, int, error) {
 	args := m.Called(ctx, q)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Competency), args.Error(1)
+		return v.([]domain.Competency), args.Int(1), args.Error(2)
 	}
-	return nil, args.Error(1)
+	return nil, args.Int(1), args.Error(2)
 }
 
 func (m *mockCompetencyService) Find(ctx context.Context, id string) (*domain.Competency, error) {
@@ -85,8 +85,8 @@ func TestCompetencyHandler_Paginate_AppliesDefaultLimit(t *testing.T) {
 
 	svc := &mockCompetencyService{}
 	svc.On("Paginate", mock.Anything, mock.MatchedBy(func(q *domainQuery.Query) bool {
-		return q != nil && q.Limit == lookupDefaultPageSize
-	})).Return([]domain.Competency{}, nil)
+		return q != nil && q.Limit == competencyDefaultPageSize
+	})).Return([]domain.Competency{}, 0, nil)
 
 	h := &competencyHandler{competencySvc: svc}
 	h.Paginate(c)

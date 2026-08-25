@@ -31,9 +31,10 @@ func TestCompetencyService_StoreAndPaginate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Blockchain Fundamentals", created.Name)
 
-	list, err := svc.Paginate(ctx, nil)
+	list, total, err := svc.Paginate(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
+	assert.Equal(t, 1, total)
 
 	again, err := svc.Store(ctx, "blockchain fundamentals")
 	require.NoError(t, err)

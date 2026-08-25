@@ -70,19 +70,55 @@ func (r *gormCredentialTypeRepository) FindByIds(ctx context.Context, ids ...str
 	return out, nil
 }
 
-func (r *gormCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error) {
+// allowedCredentialTypeFilterColumns whitelists columns clients may filter on.
+// "id" is included so the UI can resolve a specific set of types by id
+// (?filters=id$a,b,c) — selected chips may live outside the loaded page.
+var allowedCredentialTypeFilterColumns = map[string]bool{
+	"id":         true,
+	"name":       true,
+	"active":     true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+var allowedCredentialTypeSortColumns = map[string]bool{
+	"name":       true,
+	"active":     true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+// Get retrieves credential types with pagination, search, filters, and sorts.
+// Returns: ([]CredentialType, int, error) — the page, the total matching the
+// criteria before pagination, and an error.
+func (r *gormCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, int, error) {
 	db := r.db.WithContext(ctx).Model(&model.CredentialType{})
-	db = gormhelpers.ApplySorts(db, query, nil, "name ASC", nil, "id ASC")
+
+	if query != nil {
+		if query.HasSearch() {
+			db = db.Where("LOWER(name) LIKE LOWER(?)", "%"+query.Search+"%")
+		}
+		if query.HasFilters() {
+			db = gormhelpers.ApplyFilters(db, query.Filters, allowedCredentialTypeFilterColumns, "")
+		}
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	db = gormhelpers.ApplySorts(db, query, allowedCredentialTypeSortColumns, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)
 	var rows []model.CredentialType
 	if err := db.Find(&rows).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]domain.CredentialType, len(rows))
 	for i, m := range rows {
 		out[i] = m.ToDomain()
 	}
-	return out, nil
+	return out, int(total), nil
 }
 
 func (r *gormCredentialTypeRepository) Update(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {

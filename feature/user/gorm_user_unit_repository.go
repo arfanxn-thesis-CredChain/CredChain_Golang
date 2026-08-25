@@ -70,7 +70,47 @@ func (r *gormUserUnitRepository) FindByIds(ctx context.Context, ids ...string) (
 	return out, nil
 }
 
+// unitSearchSQL returns every unit whose name matches, plus each match's full
+// parent chain and full subtree. The ancestors keep the tree reconstructable —
+// without them a matched child renders as a false root. The descendants are
+// what a user means by matching a parent: naming a faculty should show what is
+// in it. The two arms mirror each other, climbing on uu.id = a.parent_id and
+// descending on uu.parent_id = d.id. UNION (not UNION ALL) dedupes nodes that
+// are both and terminates even on cyclic data.
+const unitSearchSQL = `
+WITH RECURSIVE matches AS (
+	SELECT id, parent_id FROM user_units WHERE LOWER(name) LIKE LOWER(?)
+),
+ancestors AS (
+	SELECT id, parent_id FROM matches
+	UNION
+	SELECT uu.id, uu.parent_id FROM user_units uu JOIN ancestors a ON uu.id = a.parent_id
+),
+descendants AS (
+	SELECT id, parent_id FROM matches
+	UNION
+	SELECT uu.id, uu.parent_id FROM user_units uu JOIN descendants d ON uu.parent_id = d.id
+)
+SELECT id, parent_id, name, created_at, updated_at FROM user_units
+WHERE id IN (SELECT id FROM ancestors) OR id IN (SELECT id FROM descendants)
+ORDER BY name ASC, id ASC`
+
+// Get lists units. A search returns matches plus their ancestor chain and
+// subtree, and deliberately skips pagination — a truncated branch renders a
+// structurally broken tree.
 func (r *gormUserUnitRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.UserUnit, error) {
+	if query != nil && query.HasSearch() {
+		var rows []model.UserUnit
+		if err := r.db.WithContext(ctx).Raw(unitSearchSQL, "%"+query.Search+"%").Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		out := make([]domain.UserUnit, len(rows))
+		for i, m := range rows {
+			out[i] = m.ToDomain()
+		}
+		return out, nil
+	}
+
 	db := r.db.WithContext(ctx).Model(&model.UserUnit{})
 	db = gormhelpers.ApplySorts(db, query, nil, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)

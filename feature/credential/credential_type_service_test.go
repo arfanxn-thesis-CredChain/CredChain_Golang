@@ -33,9 +33,10 @@ func TestCredentialTypeService_StoreAndPaginate(t *testing.T) {
 	assert.Equal(t, "Certificate of Completion", created.Name)
 	assert.True(t, created.Active)
 
-	list, err := svc.Paginate(ctx, nil)
+	list, total, err := svc.Paginate(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
+	assert.Equal(t, 1, total)
 
 	again, err := svc.Store(ctx, "certificate of completion", nil)
 	require.NoError(t, err)

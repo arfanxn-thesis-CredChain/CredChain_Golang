@@ -31,9 +31,19 @@ func Send[T any](c *gin.Context, code int, data T) {
 	})
 }
 
-// SendPagination writes a unified paginated response.
+// SendPagination writes a unified paginated response, deriving page and limit
+// from the query string.
 func SendPagination[T any](c *gin.Context, code int, items []T, total int) {
 	data := response.NewPaginationFromContext(c, items, total)
+	Send(c, code, data)
+}
+
+// SendPaginationWithPageLimit writes a paginated response using the page and
+// limit the handler actually applied. Use it wherever the handler defaults
+// differ from the query string, so the envelope's limit and last_page match the
+// rows returned.
+func SendPaginationWithPageLimit[T any](c *gin.Context, code int, items []T, total, page, limit int) {
+	data := response.NewPaginationWithPageLimit(c, items, total, page, limit)
 	Send(c, code, data)
 }
 

@@ -16,7 +16,8 @@ import (
 // CredentialIssuerOrganizationService is the business-logic layer for
 // credential_issuer_organizations.
 type CredentialIssuerOrganizationService interface {
-	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error)
+	// Paginate returns the page and the total matching rows before pagination.
+	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error)
 	Find(ctx context.Context, id string) (*domain.CredentialIssuerOrganization, error)
 	Store(ctx context.Context, name string) (*domain.CredentialIssuerOrganization, error)
 	Update(ctx context.Context, id string, name *string) (*domain.CredentialIssuerOrganization, error)
@@ -40,7 +41,10 @@ func NewCredentialIssuerOrganizationService(p CredentialIssuerOrganizationServic
 	return &credentialIssuerOrganizationService{orgRepo: p.OrgRepo, credentialRepo: p.CredentialRepo}
 }
 
-func (s *credentialIssuerOrganizationService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error) {
+// Paginate returns the requested page and the total number of organizations
+// matching the query before pagination, so the handler can build a complete
+// pagination envelope.
+func (s *credentialIssuerOrganizationService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error) {
 	return s.orgRepo.Get(ctx, query)
 }
 
@@ -62,7 +66,7 @@ func (s *credentialIssuerOrganizationService) Find(ctx context.Context, id strin
 func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name string) (*domain.CredentialIssuerOrganization, error) {
 	trimmed := strings.TrimSpace(name)
 
-	existing, err := s.orgRepo.Get(ctx, nil)
+	existing, _, err := s.orgRepo.Get(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +88,7 @@ func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name st
 }
 
 func (s *credentialIssuerOrganizationService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, err := s.orgRepo.Get(ctx, nil)
+	existing, _, err := s.orgRepo.Get(ctx, nil)
 	if err != nil {
 		return err
 	}

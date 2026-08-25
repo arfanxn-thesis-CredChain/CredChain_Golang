@@ -19,12 +19,12 @@ import (
 // mockCredentialTypeService implements CredentialTypeService for handler tests.
 type mockCredentialTypeService struct{ mock.Mock }
 
-func (m *mockCredentialTypeService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.CredentialType, error) {
+func (m *mockCredentialTypeService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.CredentialType, int, error) {
 	args := m.Called(ctx, q)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.CredentialType), args.Error(1)
+		return v.([]domain.CredentialType), args.Int(1), args.Error(2)
 	}
-	return nil, args.Error(1)
+	return nil, args.Int(1), args.Error(2)
 }
 
 func (m *mockCredentialTypeService) Find(ctx context.Context, id string) (*domain.CredentialType, error) {
@@ -86,7 +86,7 @@ func TestCredentialTypeHandler_Paginate_AppliesDefaultLimit(t *testing.T) {
 	svc := &mockCredentialTypeService{}
 	svc.On("Paginate", mock.Anything, mock.MatchedBy(func(q *domainQuery.Query) bool {
 		return q != nil && q.Limit == lookupDefaultPageSize
-	})).Return([]domain.CredentialType{}, nil)
+	})).Return([]domain.CredentialType{}, 0, nil)
 
 	h := &credentialTypeHandler{credentialTypeSvc: svc}
 	h.Paginate(c)

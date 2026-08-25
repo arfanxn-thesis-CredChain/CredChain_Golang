@@ -20,7 +20,9 @@ type CompetencyRepository interface {
 	Store(ctx context.Context, competencies ...Competency) ([]Competency, error)
 	Find(ctx context.Context, id string) (*Competency, error)
 	FindByIds(ctx context.Context, ids ...string) ([]Competency, error)
-	Get(ctx context.Context, query *domainQuery.Query) ([]Competency, error)
+	// Get lists competencies, returning the page and the total number of rows
+	// matching the query before pagination.
+	Get(ctx context.Context, query *domainQuery.Query) ([]Competency, int, error)
 	Update(ctx context.Context, competencies ...Competency) ([]Competency, error)
 
 	// Destroy hard-deletes rows by ID (batch). Rows referenced by credentials

@@ -20,12 +20,12 @@ import (
 // CredentialIssuerOrganizationService for handler tests.
 type mockCredentialIssuerOrganizationService struct{ mock.Mock }
 
-func (m *mockCredentialIssuerOrganizationService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error) {
+func (m *mockCredentialIssuerOrganizationService) Paginate(ctx context.Context, q *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error) {
 	args := m.Called(ctx, q)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.CredentialIssuerOrganization), args.Error(1)
+		return v.([]domain.CredentialIssuerOrganization), args.Int(1), args.Error(2)
 	}
-	return nil, args.Error(1)
+	return nil, args.Int(1), args.Error(2)
 }
 
 func (m *mockCredentialIssuerOrganizationService) Find(ctx context.Context, id string) (*domain.CredentialIssuerOrganization, error) {
@@ -87,7 +87,7 @@ func TestCredentialIssuerOrganizationHandler_Paginate_AppliesDefaultLimit(t *tes
 	svc := &mockCredentialIssuerOrganizationService{}
 	svc.On("Paginate", mock.Anything, mock.MatchedBy(func(q *domainQuery.Query) bool {
 		return q != nil && q.Limit == lookupDefaultPageSize
-	})).Return([]domain.CredentialIssuerOrganization{}, nil)
+	})).Return([]domain.CredentialIssuerOrganization{}, 0, nil)
 
 	h := &credentialIssuerOrganizationHandler{issuerOrganizationSvc: svc}
 	h.Paginate(c)

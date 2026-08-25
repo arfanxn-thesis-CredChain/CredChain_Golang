@@ -31,9 +31,10 @@ func TestCredentialIssuerOrganizationService_StoreAndPaginate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Faculty of Computer Science", created.Name)
 
-	list, err := svc.Paginate(ctx, nil)
+	list, total, err := svc.Paginate(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
+	assert.Equal(t, 1, total)
 
 	again, err := svc.Store(ctx, "faculty of computer science")
 	require.NoError(t, err)

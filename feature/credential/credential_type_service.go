@@ -15,7 +15,8 @@ import (
 
 // CredentialTypeService is the business-logic layer for credential_types.
 type CredentialTypeService interface {
-	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error)
+	// Paginate returns the page and the total matching rows before pagination.
+	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, int, error)
 	Find(ctx context.Context, id string) (*domain.CredentialType, error)
 	Store(ctx context.Context, name string, active *bool) (*domain.CredentialType, error)
 	Update(ctx context.Context, id string, name *string, active *bool) (*domain.CredentialType, error)
@@ -40,7 +41,10 @@ func NewCredentialTypeService(p CredentialTypeServiceParams) CredentialTypeServi
 	return &credentialTypeService{typeRepo: p.TypeRepo, credentialRepo: p.CredentialRepo}
 }
 
-func (s *credentialTypeService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error) {
+// Paginate returns the requested page and the total number of credential types
+// matching the query before pagination, so the handler can build a complete
+// pagination envelope.
+func (s *credentialTypeService) Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, int, error) {
 	return s.typeRepo.Get(ctx, query)
 }
 
@@ -66,7 +70,7 @@ func (s *credentialTypeService) Store(ctx context.Context, name string, active *
 	}
 	trimmed := strings.TrimSpace(name)
 
-	existing, err := s.typeRepo.Get(ctx, nil)
+	existing, _, err := s.typeRepo.Get(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +92,7 @@ func (s *credentialTypeService) Store(ctx context.Context, name string, active *
 }
 
 func (s *credentialTypeService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, err := s.typeRepo.Get(ctx, nil)
+	existing, _, err := s.typeRepo.Get(ctx, nil)
 	if err != nil {
 		return err
 	}

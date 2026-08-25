@@ -70,19 +70,53 @@ func (r *gormIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ..
 	return out, nil
 }
 
-func (r *gormIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error) {
+// allowedIssuerOrganizationFilterColumns whitelists columns clients may filter
+// on. "id" is included so the UI can resolve a specific set of organizations by
+// id (?filters=id$a,b,c) — selected chips may live outside the loaded page.
+var allowedIssuerOrganizationFilterColumns = map[string]bool{
+	"id":         true,
+	"name":       true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+var allowedIssuerOrganizationSortColumns = map[string]bool{
+	"name":       true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+// Get retrieves issuer organizations with pagination, search, filters, and
+// sorts. Returns: ([]CredentialIssuerOrganization, int, error) — the page, the
+// total matching the criteria before pagination, and an error.
+func (r *gormIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error) {
 	db := r.db.WithContext(ctx).Model(&model.CredentialIssuerOrganization{})
-	db = gormhelpers.ApplySorts(db, query, nil, "name ASC", nil, "id ASC")
+
+	if query != nil {
+		if query.HasSearch() {
+			db = db.Where("LOWER(name) LIKE LOWER(?)", "%"+query.Search+"%")
+		}
+		if query.HasFilters() {
+			db = gormhelpers.ApplyFilters(db, query.Filters, allowedIssuerOrganizationFilterColumns, "")
+		}
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	db = gormhelpers.ApplySorts(db, query, allowedIssuerOrganizationSortColumns, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)
 	var rows []model.CredentialIssuerOrganization
 	if err := db.Find(&rows).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]domain.CredentialIssuerOrganization, len(rows))
 	for i, m := range rows {
 		out[i] = m.ToDomain()
 	}
-	return out, nil
+	return out, int(total), nil
 }
 
 func (r *gormIssuerOrganizationRepository) Update(ctx context.Context, orgs ...domain.CredentialIssuerOrganization) ([]domain.CredentialIssuerOrganization, error) {

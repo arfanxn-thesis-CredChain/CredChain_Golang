@@ -93,9 +93,11 @@ func (m *mockCredentialTypeRepository) FindByIds(ctx context.Context, ids ...str
 	return args.Get(0).([]domain.CredentialType), args.Error(1)
 }
 
-func (m *mockCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, error) {
+// Get returns a zero total: credential_service only ever uses this repo to look
+// a row up, never to paginate, so expectations stay two-valued Return(rows, err).
+func (m *mockCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, int, error) {
 	args := m.Called(ctx, query)
-	return args.Get(0).([]domain.CredentialType), args.Error(1)
+	return args.Get(0).([]domain.CredentialType), 0, args.Error(1)
 }
 
 func (m *mockCredentialTypeRepository) Update(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
@@ -130,9 +132,10 @@ func (m *mockCredentialIssuerOrganizationRepository) FindByIds(ctx context.Conte
 	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
 }
 
-func (m *mockCredentialIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, error) {
+// Get returns a zero total — see mockCredentialTypeRepository.Get.
+func (m *mockCredentialIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error) {
 	args := m.Called(ctx, query)
-	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), 0, args.Error(1)
 }
 
 func (m *mockCredentialIssuerOrganizationRepository) Update(ctx context.Context, orgs ...domain.CredentialIssuerOrganization) ([]domain.CredentialIssuerOrganization, error) {
@@ -167,9 +170,10 @@ func (m *mockCompetencyRepository) FindByIds(ctx context.Context, ids ...string)
 	return args.Get(0).([]domain.Competency), args.Error(1)
 }
 
-func (m *mockCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, error) {
+// Get returns a zero total — see mockCredentialTypeRepository.Get.
+func (m *mockCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error) {
 	args := m.Called(ctx, query)
-	return args.Get(0).([]domain.Competency), args.Error(1)
+	return args.Get(0).([]domain.Competency), 0, args.Error(1)
 }
 
 func (m *mockCompetencyRepository) Update(ctx context.Context, competencies ...domain.Competency) ([]domain.Competency, error) {
