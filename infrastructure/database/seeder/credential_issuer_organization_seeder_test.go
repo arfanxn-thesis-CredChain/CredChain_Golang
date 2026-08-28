@@ -28,6 +28,9 @@ func TestCredentialIssuerOrganizationSeeder_SeedsOrgs(t *testing.T) {
 	names := map[string]bool{}
 	for _, o := range orgs {
 		names[o.Name] = true
+		// Guards the zero-value trap: the GORM tag omits `default:true`, so a
+		// seeder that forgets Active would insert every row inactive.
+		assert.True(t, o.Active, "seeded organization must be active: %s", o.Name)
 	}
 	expected := []string{
 		"Universitas Harkat Negeri",

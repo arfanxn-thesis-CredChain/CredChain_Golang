@@ -76,12 +76,14 @@ func (r *gormCompetencyRepository) FindByIds(ctx context.Context, ids ...string)
 var allowedCompetencyFilterColumns = map[string]bool{
 	"id":         true,
 	"name":       true,
+	"active":     true,
 	"created_at": true,
 	"updated_at": true,
 }
 
 var allowedCompetencySortColumns = map[string]bool{
 	"name":       true,
+	"active":     true,
 	"created_at": true,
 	"updated_at": true,
 }
@@ -144,6 +146,11 @@ func (r *gormCompetencyRepository) Update(ctx context.Context, competencies ...d
 			return c.Name, true
 		}
 		return nil, false
+	})
+	// Active is a bool without a pointer; callers toggling it include the
+	// field explicitly, so always emit the CASE branch for update calls.
+	addCol("active", func(c domain.Competency) (interface{}, bool) {
+		return c.Active, true
 	})
 	if len(clauses) == 0 {
 		return []domain.Competency{}, nil

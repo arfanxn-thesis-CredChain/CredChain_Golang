@@ -18,10 +18,11 @@ type CompetencyService interface {
 	// Paginate returns the page and the total matching rows before pagination.
 	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error)
 	Find(ctx context.Context, id string) (*domain.Competency, error)
-	Store(ctx context.Context, name string) (*domain.Competency, error)
-	Update(ctx context.Context, id string, name *string) (*domain.Competency, error)
+	Store(ctx context.Context, name string, active *bool) (*domain.Competency, error)
+	Update(ctx context.Context, id string, name *string, active *bool) (*domain.Competency, error)
 	// Destroy hard-deletes competencies no credential references. Referenced
-	// competencies fail with CodeCompetencyDestroyInUse.
+	// competencies fail with CodeCompetencyDestroyInUse; Update(active=false)
+	// is the everyday deactivation path.
 	Destroy(ctx context.Context, ids ...string) (int64, error)
 }
 
@@ -62,7 +63,11 @@ func (s *competencyService) Find(ctx context.Context, id string) (*domain.Compet
 // case-insensitively; an existing name returns the existing row (HTTP 200),
 // so submitters can reference a competency that does not exist yet without
 // ever creating duplicates.
-func (s *competencyService) Store(ctx context.Context, name string) (*domain.Competency, error) {
+func (s *competencyService) Store(ctx context.Context, name string, active *bool) (*domain.Competency, error) {
+	activeVal := true
+	if active != nil {
+		activeVal = *active
+	}
 	trimmed := strings.TrimSpace(name)
 
 	existing, _, err := s.competencyRepo.Get(ctx, nil)
@@ -75,7 +80,7 @@ func (s *competencyService) Store(ctx context.Context, name string) (*domain.Com
 		return &found, nil
 	}
 
-	stored, err := s.competencyRepo.Store(ctx, domain.Competency{Name: trimmed})
+	stored, err := s.competencyRepo.Store(ctx, domain.Competency{Name: trimmed, Active: activeVal})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +104,7 @@ func (s *competencyService) checkNameUnique(ctx context.Context, name string, ex
 	return nil
 }
 
-func (s *competencyService) Update(ctx context.Context, id string, name *string) (*domain.Competency, error) {
+func (s *competencyService) Update(ctx context.Context, id string, name *string, active *bool) (*domain.Competency, error) {
 	target, err := s.Find(ctx, id)
 	if err != nil {
 		return nil, err
@@ -112,6 +117,13 @@ func (s *competencyService) Update(ctx context.Context, id string, name *string)
 	u := domain.Competency{Id: target.Id, Name: target.Name}
 	if name != nil {
 		u.Name = strings.TrimSpace(*name)
+	}
+	// The repository always emits the `active` CASE branch, so a name-only
+	// update must carry the current value forward or it would deactivate.
+	if active != nil {
+		u.Active = *active
+	} else {
+		u.Active = target.Active
 	}
 	updated, err := s.competencyRepo.Update(ctx, u)
 	if err != nil {

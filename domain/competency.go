@@ -8,9 +8,11 @@ import (
 )
 
 // Competency represents a row in the competencies table.
+// Active flags whether the competency may still be used for new credentials.
 type Competency struct {
 	Id        string     `json:"id"`
 	Name      string     `json:"name"`
+	Active    bool       `json:"active"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt *time.Time `json:"updated_at"`
 }

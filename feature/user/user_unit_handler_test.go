@@ -43,8 +43,8 @@ func (m *mockUserUnitService) Store(ctx context.Context, name string, parentId *
 	return nil, args.Error(1)
 }
 
-func (m *mockUserUnitService) Update(ctx context.Context, id string, name *string, parentId *string, setParent bool) (*domain.UserUnit, error) {
-	args := m.Called(ctx, id, name, parentId, setParent)
+func (m *mockUserUnitService) Update(ctx context.Context, id string, name *string, parentId *string, setParent bool, active *bool) (*domain.UserUnit, error) {
+	args := m.Called(ctx, id, name, parentId, setParent, active)
 	if v := args.Get(0); v != nil {
 		return v.(*domain.UserUnit), args.Error(1)
 	}
@@ -141,7 +141,7 @@ func TestUserUnitHandler_Update_ParentPresenceDetection(t *testing.T) {
 		c.Params = gin.Params{{Key: "id", Value: unitId}}
 
 		svc := &mockUserUnitService{}
-		svc.On("Update", mock.Anything, unitId, (*string)(nil), (*string)(nil), true).Return(&unit, nil)
+		svc.On("Update", mock.Anything, unitId, (*string)(nil), (*string)(nil), true, (*bool)(nil)).Return(&unit, nil)
 		h := &userUnitHandler{userUnitSvc: svc}
 		h.Update(c)
 
@@ -163,7 +163,7 @@ func TestUserUnitHandler_Update_ParentPresenceDetection(t *testing.T) {
 		svc := &mockUserUnitService{}
 		svc.On("Update", mock.Anything, unitId,
 			mock.MatchedBy(func(n *string) bool { return n != nil && *n == "Renamed" }),
-			(*string)(nil), false).Return(&unit, nil)
+			(*string)(nil), false, (*bool)(nil)).Return(&unit, nil)
 		h := &userUnitHandler{userUnitSvc: svc}
 		h.Update(c)
 

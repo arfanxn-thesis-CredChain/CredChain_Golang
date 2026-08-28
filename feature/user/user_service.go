@@ -81,6 +81,10 @@ func (s *userService) Store(ctx context.Context, users ...domain.User) ([]domain
 		return nil, verrs
 	}
 
+	if verrs := s.validateUnitsActive(ctx, users); len(verrs) > 0 {
+		return nil, verrs
+	}
+
 	if err := s.storeGenerateWallets(users); err != nil {
 		return nil, err
 	}
@@ -123,6 +127,33 @@ func (s *userService) storeValidateEmails(ctx context.Context, users []domain.Us
 		}
 	}
 
+	return verrs
+}
+
+// validateUnitsActive rejects any user whose unit_id points to an inactive unit.
+// Best-effort like storeValidateEmails: a DB read error is ignored, and ids that
+// resolve to nothing are left to the users.unit_id foreign key.
+func (s *userService) validateUnitsActive(ctx context.Context, users []domain.User) validation.Errors {
+	verrs := validation.Errors{}
+
+	var unitIds []string
+	for _, u := range users {
+		if u.UnitID != nil {
+			unitIds = append(unitIds, *u.UnitID)
+		}
+	}
+	if len(unitIds) == 0 {
+		return verrs
+	}
+
+	units, _ := s.unitRepo.FindByIds(ctx, lo.Uniq(unitIds)...)
+	inactive := lo.SliceToMap(units, func(u domain.UserUnit) (string, bool) { return u.Id, !u.Active })
+
+	for i, u := range users {
+		if u.UnitID != nil && inactive[*u.UnitID] {
+			verrs[fmt.Sprintf("users.%d.unit_id", i)] = validation.NewError("validation_unit_inactive", "")
+		}
+	}
 	return verrs
 }
 
@@ -210,6 +241,9 @@ func (s *userService) FindByIds(ctx context.Context, ids ...string) ([]domain.Us
 func (s *userService) Update(ctx context.Context, users ...domain.User) ([]domain.User, error) {
 	if err := s.policy.UpdatePreFetch(ctx, users...); err != nil {
 		return nil, err
+	}
+	if verrs := s.validateUnitsActive(ctx, users); len(verrs) > 0 {
+		return nil, verrs
 	}
 	ids := make([]string, len(users))
 	for i, u := range users {

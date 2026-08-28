@@ -76,12 +76,14 @@ func (r *gormIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ..
 var allowedIssuerOrganizationFilterColumns = map[string]bool{
 	"id":         true,
 	"name":       true,
+	"active":     true,
 	"created_at": true,
 	"updated_at": true,
 }
 
 var allowedIssuerOrganizationSortColumns = map[string]bool{
 	"name":       true,
+	"active":     true,
 	"created_at": true,
 	"updated_at": true,
 }
@@ -144,6 +146,11 @@ func (r *gormIssuerOrganizationRepository) Update(ctx context.Context, orgs ...d
 			return o.Name, true
 		}
 		return nil, false
+	})
+	// Active is a bool without a pointer; callers toggling it include the
+	// field explicitly, so always emit the CASE branch for update calls.
+	addCol("active", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		return o.Active, true
 	})
 	if len(clauses) == 0 {
 		return []domain.CredentialIssuerOrganization{}, nil

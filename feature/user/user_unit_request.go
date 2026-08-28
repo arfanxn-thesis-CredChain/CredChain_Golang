@@ -17,6 +17,7 @@ func (r UserUnitStoreRequest) Validate() error {
 type UserUnitUpdateRequest struct {
 	Name     *string `json:"name"`
 	ParentID *string `json:"parent_id"`
+	Active   *bool   `json:"active"`
 }
 
 func (r UserUnitUpdateRequest) Validate() error {

@@ -1180,6 +1180,71 @@ func TestUserService_Restore_SelfTargetForbidden(t *testing.T) {
 	auth.AssertNotCalled(t, "UpdateUserRole", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestUserService_Store_InactiveUnitRejected(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	uow := &mocks.MockUnitOfWork{}
+	auth := &mocks.MockAuthorityService{}
+	policy := &mocks.MockUserPolicy{}
+	unitRepo := &mocks.MockUserUnitRepository{}
+	policy.On("Store", mock.Anything, mock.Anything).Return(nil)
+	repo.On("FindByEmails", mock.Anything, mock.Anything).Return([]domain.User{}, nil)
+	unitRepo.On("FindByIds", mock.Anything, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 1 && ids[0] == "unit-off"
+	})).Return([]domain.UserUnit{
+		{Id: "unit-off", Name: "Off", Active: false},
+	}, nil)
+
+	svc := NewUserService(UserServiceParams{
+		UserRepo: repo, UoW: uow, Config: mkSvcCfg(),
+		AuthorityService: auth, Logger: zap.NewNop(), Policy: policy,
+		UnitRepo: unitRepo,
+	})
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleAdmin))
+	u := fixtures.NewDomainUser(fixtures.WithUnitID("unit-off"))
+	_, err := svc.Store(ctxWithAuth(&authUser), u)
+	verrs, ok := err.(validation.Errors)
+	require.True(t, ok)
+	assert.Contains(t, verrs, "users.0.unit_id")
+	for _, ve := range verrs {
+		vErr, ok := ve.(validation.Error)
+		assert.True(t, ok)
+		assert.Equal(t, "validation_unit_inactive", vErr.Code())
+	}
+}
+
+func TestUserService_Update_InactiveUnitRejected(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	uow := &mocks.MockUnitOfWork{}
+	auth := &mocks.MockAuthorityService{}
+	policy := &mocks.MockUserPolicy{}
+	unitRepo := &mocks.MockUserUnitRepository{}
+	policy.On("UpdatePreFetch", mock.Anything, mock.Anything).Return(nil)
+	unitRepo.On("FindByIds", mock.Anything, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 1 && ids[0] == "unit-off"
+	})).Return([]domain.UserUnit{
+		{Id: "unit-off", Name: "Off", Active: false},
+	}, nil)
+
+	svc := NewUserService(UserServiceParams{
+		UserRepo: repo, UoW: uow, Config: mkSvcCfg(),
+		AuthorityService: auth, Logger: zap.NewNop(), Policy: policy,
+		UnitRepo: unitRepo,
+	})
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleAdmin))
+	u := fixtures.NewDomainUser(fixtures.WithID("u1"), fixtures.WithUnitID("unit-off"))
+	_, err := svc.Update(ctxWithAuth(&authUser), u)
+	verrs, ok := err.(validation.Errors)
+	require.True(t, ok)
+	assert.Contains(t, verrs, "users.0.unit_id")
+	for _, ve := range verrs {
+		vErr, ok := ve.(validation.Error)
+		assert.True(t, ok)
+		assert.Equal(t, "validation_unit_inactive", vErr.Code())
+	}
+}
+
 func TestUserService_Restore_BlockchainSyncFailed_RollsBack(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
 	uow := mocks.NewPropagatingUnitOfWork()

@@ -28,6 +28,9 @@ func TestCompetencySeeder_SeedsCompetencies(t *testing.T) {
 	names := map[string]bool{}
 	for _, c := range competencies {
 		names[c.Name] = true
+		// Guards the zero-value trap: the GORM tag omits `default:true`, so a
+		// seeder that forgets Active would insert every row inactive.
+		assert.True(t, c.Active, "seeded competency must be active: %s", c.Name)
 	}
 	expected := []string{
 		"Pemrograman Backend", "Pemrograman Frontend", "Analisis Data", "Keamanan Siber",

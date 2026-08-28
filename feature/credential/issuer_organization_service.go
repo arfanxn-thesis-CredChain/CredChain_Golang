@@ -19,10 +19,11 @@ type CredentialIssuerOrganizationService interface {
 	// Paginate returns the page and the total matching rows before pagination.
 	Paginate(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error)
 	Find(ctx context.Context, id string) (*domain.CredentialIssuerOrganization, error)
-	Store(ctx context.Context, name string) (*domain.CredentialIssuerOrganization, error)
-	Update(ctx context.Context, id string, name *string) (*domain.CredentialIssuerOrganization, error)
+	Store(ctx context.Context, name string, active *bool) (*domain.CredentialIssuerOrganization, error)
+	Update(ctx context.Context, id string, name *string, active *bool) (*domain.CredentialIssuerOrganization, error)
 	// Destroy hard-deletes organizations no credential references. Referenced
-	// organizations fail with CodeCredentialIssuerOrganizationDestroyInUse.
+	// organizations fail with CodeCredentialIssuerOrganizationDestroyInUse;
+	// Update(active=false) is the everyday deactivation path.
 	Destroy(ctx context.Context, ids ...string) (int64, error)
 }
 
@@ -63,7 +64,11 @@ func (s *credentialIssuerOrganizationService) Find(ctx context.Context, id strin
 // case-insensitively; an existing name returns the existing row (HTTP 200),
 // so submitters can reference an organization that does not exist yet without
 // ever creating duplicates.
-func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name string) (*domain.CredentialIssuerOrganization, error) {
+func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name string, active *bool) (*domain.CredentialIssuerOrganization, error) {
+	activeVal := true
+	if active != nil {
+		activeVal = *active
+	}
 	trimmed := strings.TrimSpace(name)
 
 	existing, _, err := s.orgRepo.Get(ctx, nil)
@@ -76,7 +81,7 @@ func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name st
 		return &found, nil
 	}
 
-	stored, err := s.orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Name: trimmed})
+	stored, err := s.orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Name: trimmed, Active: activeVal})
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +105,7 @@ func (s *credentialIssuerOrganizationService) checkNameUnique(ctx context.Contex
 	return nil
 }
 
-func (s *credentialIssuerOrganizationService) Update(ctx context.Context, id string, name *string) (*domain.CredentialIssuerOrganization, error) {
+func (s *credentialIssuerOrganizationService) Update(ctx context.Context, id string, name *string, active *bool) (*domain.CredentialIssuerOrganization, error) {
 	target, err := s.Find(ctx, id)
 	if err != nil {
 		return nil, err
@@ -113,6 +118,13 @@ func (s *credentialIssuerOrganizationService) Update(ctx context.Context, id str
 	u := domain.CredentialIssuerOrganization{Id: target.Id, Name: target.Name}
 	if name != nil {
 		u.Name = strings.TrimSpace(*name)
+	}
+	// The repository always emits the `active` CASE branch, so a name-only
+	// update must carry the current value forward or it would deactivate.
+	if active != nil {
+		u.Active = *active
+	} else {
+		u.Active = target.Active
 	}
 	updated, err := s.orgRepo.Update(ctx, u)
 	if err != nil {

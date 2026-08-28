@@ -252,11 +252,13 @@ func (s *credentialService) issueValidate(
 		allCompIDs = append(allCompIDs, it.CompetencyIDs...)
 	}
 	allCompIDs = lo.Uniq(allCompIDs)
+	// Value is the row's active flag, so presence answers "exists" and the value
+	// answers "usable" off the same single query.
 	existingComp := map[string]bool{}
 	if len(allCompIDs) > 0 {
 		if found, err := s.competencyRepo.FindByIds(ctx, allCompIDs...); err == nil {
 			for _, c := range found {
-				existingComp[c.Id] = true
+				existingComp[c.Id] = c.Active
 			}
 		}
 	}
@@ -321,9 +323,13 @@ func (s *credentialService) issueValidate(
 			)
 		}
 
-		if _, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil {
+		if o, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil || o == nil {
 			verrs[prefix+".issuer_organization_id"] = validation.NewError(
 				"validation_issue_org_not_found", "issuer organization not found",
+			)
+		} else if !o.Active {
+			verrs[prefix+".issuer_organization_id"] = validation.NewError(
+				"validation_issue_org_inactive", "issuer organization inactive",
 			)
 		}
 
@@ -334,9 +340,16 @@ func (s *credentialService) issueValidate(
 		}
 
 		for _, cid := range it.CompetencyIDs {
-			if !existingComp[cid] {
+			active, exists := existingComp[cid]
+			if !exists {
 				verrs[prefix+".competency_ids"] = validation.NewError(
 					"validation_issue_competency_not_found", "competency not found",
+				)
+				break
+			}
+			if !active {
+				verrs[prefix+".competency_ids"] = validation.NewError(
+					"validation_issue_competency_inactive", "competency inactive",
 				)
 				break
 			}
@@ -631,11 +644,13 @@ func (s *credentialService) submitValidate(
 		allCompIDs = append(allCompIDs, it.CompetencyIDs...)
 	}
 	allCompIDs = lo.Uniq(allCompIDs)
+	// Value is the row's active flag, so presence answers "exists" and the value
+	// answers "usable" off the same single query.
 	existingComp := map[string]bool{}
 	if len(allCompIDs) > 0 {
 		if found, err := s.competencyRepo.FindByIds(ctx, allCompIDs...); err == nil {
 			for _, c := range found {
-				existingComp[c.Id] = true
+				existingComp[c.Id] = c.Active
 			}
 		}
 	}
@@ -681,9 +696,13 @@ func (s *credentialService) submitValidate(
 			)
 		}
 
-		if _, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil {
+		if o, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil || o == nil {
 			verrs[prefix+".issuer_organization_id"] = validation.NewError(
 				"validation_issue_org_not_found", "issuer organization not found",
+			)
+		} else if !o.Active {
+			verrs[prefix+".issuer_organization_id"] = validation.NewError(
+				"validation_issue_org_inactive", "issuer organization inactive",
 			)
 		}
 
@@ -694,9 +713,16 @@ func (s *credentialService) submitValidate(
 		}
 
 		for _, cid := range it.CompetencyIDs {
-			if !existingComp[cid] {
+			active, exists := existingComp[cid]
+			if !exists {
 				verrs[prefix+".competency_ids"] = validation.NewError(
 					"validation_issue_competency_not_found", "competency not found",
+				)
+				break
+			}
+			if !active {
+				verrs[prefix+".competency_ids"] = validation.NewError(
+					"validation_issue_competency_inactive", "competency inactive",
 				)
 				break
 			}
@@ -792,8 +818,13 @@ func (s *credentialService) Update(ctx context.Context, credentials ...domain.Cr
 			}
 		}
 		if in.IssuerOrganizationID != "" && in.IssuerOrganizationID != target.IssuerOrganizationID {
-			if _, err := s.orgRepo.Find(ctx, in.IssuerOrganizationID); err != nil {
+			o, err := s.orgRepo.Find(ctx, in.IssuerOrganizationID)
+			if err != nil || o == nil {
 				return nil, domain.NewError(domain.CodeCredentialIssueOrganizationNotFound,
+					domain.WithMetadata("credential_ids", []string{in.ID}))
+			}
+			if !o.Active {
+				return nil, domain.NewError(domain.CodeCredentialIssueOrganizationInactive,
 					domain.WithMetadata("credential_ids", []string{in.ID}))
 			}
 		}
@@ -1478,10 +1509,17 @@ func (s *credentialService) LinkCompetencies(ctx context.Context, credentialID s
 			if err != nil {
 				return err
 			}
-			foundSet := lo.SliceToMap(found, func(c domain.Competency) (string, bool) { return c.Id, true })
+			// Value is the active flag: presence answers "exists", the value
+			// answers "usable" — still one FindByIds for the whole set.
+			foundSet := lo.SliceToMap(found, func(c domain.Competency) (string, bool) { return c.Id, c.Active })
 			for _, id := range competencyIDs {
-				if !foundSet[id] {
+				active, exists := foundSet[id]
+				if !exists {
 					return domain.NewError(domain.CodeCredentialCompetencyLinkCompetencyNotFound,
+						domain.WithMetadata("competency_ids", []string{id}))
+				}
+				if !active {
+					return domain.NewError(domain.CodeCredentialIssueCompetencyInactive,
 						domain.WithMetadata("competency_ids", []string{id}))
 				}
 			}

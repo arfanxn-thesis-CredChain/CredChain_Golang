@@ -226,6 +226,10 @@ func (h *userHandler) Update(c *gin.Context) {
 	updated, err := h.userSvc.Update(c.Request.Context(), users...)
 	if err != nil {
 		c.Error(err)
+		if verrs, ok := err.(validation.Errors); ok {
+			responder.SendValidationError(c, verrs)
+			return
+		}
 		responder.SendError(c, err)
 		return
 	}

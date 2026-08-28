@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"CredChain_Golang/config"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 )
 
 type AuthMiddlewareParams struct {
@@ -70,7 +72,13 @@ func NewAuthMiddleware(p AuthMiddlewareParams) gin.HandlerFunc {
 		user, err := p.UserRepo.Find(c.Request.Context(), claims.UserId)
 		if err != nil {
 			c.Abort()
-			responder.SendError(c, domain.NewError(domain.CodeUserFetchNotFound))
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// A token referencing a user no longer in the DB is a stale
+				// session, not a 404 — treat it like the soft-delete case below.
+				responder.SendError(c, domain.NewError(domain.CodeAuthUnauthorized))
+			} else {
+				responder.SendError(c, domain.NewError(domain.CodeSystemInternal, domain.WithError(err)))
+			}
 			return
 		}
 

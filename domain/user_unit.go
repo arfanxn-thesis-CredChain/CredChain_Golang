@@ -10,9 +10,11 @@ import (
 // UserUnit represents a row in the user_units table — an organizational unit
 // (faculty / study program / department) in a self-referential tree.
 type UserUnit struct {
-	Id        string     `json:"id"`
-	ParentId  *string    `json:"parent_id"`
-	Name      string     `json:"name"`
+	Id       string  `json:"id"`
+	ParentId *string `json:"parent_id"`
+	Name     string  `json:"name"`
+	// Active flags whether the unit may still be assigned to a user.
+	Active    bool       `json:"active"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt *time.Time `json:"updated_at"`
 }

@@ -15,6 +15,7 @@ CREATE TABLE user_units (
     id CHAR(26) PRIMARY KEY,
     parent_id CHAR(26),
     name VARCHAR(256) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT fk_user_units_parent_id FOREIGN KEY (parent_id) REFERENCES user_units(id)
@@ -56,6 +57,7 @@ CREATE TABLE credential_types (
 CREATE TABLE credential_issuer_organizations (
     id CHAR(26) PRIMARY KEY,
     name VARCHAR(256) NOT NULL UNIQUE,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE
 );
@@ -63,6 +65,7 @@ CREATE TABLE credential_issuer_organizations (
 CREATE TABLE competencies (
     id CHAR(26) PRIMARY KEY,
     name VARCHAR(256) NOT NULL UNIQUE,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE
 );

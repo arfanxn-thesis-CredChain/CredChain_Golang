@@ -91,7 +91,7 @@ descendants AS (
 	UNION
 	SELECT uu.id, uu.parent_id FROM user_units uu JOIN descendants d ON uu.parent_id = d.id
 )
-SELECT id, parent_id, name, created_at, updated_at FROM user_units
+SELECT id, parent_id, name, active, created_at, updated_at FROM user_units
 WHERE id IN (SELECT id FROM ancestors) OR id IN (SELECT id FROM descendants)
 ORDER BY name ASC, id ASC`
 
@@ -157,6 +157,10 @@ func (r *gormUserUnitRepository) Update(ctx context.Context, units ...domain.Use
 		}
 		return nil, false
 	})
+	// Unlike name/parent_id, active must always emit — otherwise active:false
+	// would be silently dropped and a deactivation would never persist. Callers
+	// carry the current value forward when they do not mean to change it.
+	addCol("active", func(u domain.UserUnit) (interface{}, bool) { return u.Active, true })
 	if len(clauses) == 0 {
 		return []domain.UserUnit{}, nil
 	}
@@ -181,13 +185,13 @@ func (r *gormUserUnitRepository) Update(ctx context.Context, units ...domain.Use
 func (r *gormUserUnitRepository) FindWithDescendants(ctx context.Context, id string) ([]domain.UserUnit, error) {
 	const sql = `
 WITH RECURSIVE descendants AS (
-	SELECT id, parent_id, name, created_at, updated_at FROM user_units WHERE id = ?
+	SELECT id, parent_id, name, active, created_at, updated_at FROM user_units WHERE id = ?
 	UNION ALL
-	SELECT uu.id, uu.parent_id, uu.name, uu.created_at, uu.updated_at
+	SELECT uu.id, uu.parent_id, uu.name, uu.active, uu.created_at, uu.updated_at
 	FROM user_units uu
 	JOIN descendants d ON uu.parent_id = d.id
 )
-SELECT id, parent_id, name, created_at, updated_at FROM descendants`
+SELECT id, parent_id, name, active, created_at, updated_at FROM descendants`
 
 	var rows []model.UserUnit
 	if err := r.db.WithContext(ctx).Raw(sql, id).Scan(&rows).Error; err != nil {

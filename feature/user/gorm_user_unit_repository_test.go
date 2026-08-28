@@ -215,3 +215,31 @@ func TestGormUserUnitRepository_UpdateParent(t *testing.T) {
 	require.NotNil(t, got.ParentId)
 	assert.Equal(t, "root", *got.ParentId)
 }
+
+// The batch Update must write active=false even though false is the zero value.
+// The always-emit addCol is what makes deactivation possible; the name/parent
+// columns omit falsy values, so a naive copy would silently skip active:false.
+func TestGormUserUnitRepository_UpdateBatchWritesActiveFalse(t *testing.T) {
+	repo := openUnitRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.UserUnit{Id: "root", Name: "Root", Active: true},
+		domain.UserUnit{Id: "child", ParentId: strPtrUnit("root"), Name: "Child", Active: true},
+	)
+	require.NoError(t, err)
+
+	_, err = repo.Update(ctx,
+		domain.UserUnit{Id: "root", Active: false},
+		domain.UserUnit{Id: "child", Active: false},
+	)
+	require.NoError(t, err)
+
+	root, err := repo.Find(ctx, "root")
+	require.NoError(t, err)
+	assert.False(t, root.Active)
+
+	child, err := repo.Find(ctx, "child")
+	require.NoError(t, err)
+	assert.False(t, child.Active)
+}

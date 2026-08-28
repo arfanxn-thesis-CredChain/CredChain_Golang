@@ -195,13 +195,16 @@ const (
 	CodeUserUnitDestroySuccess = 301003
 	CodeUserUnitNotFound       = 301040
 	CodeUserUnitParentInvalid  = 301041
+	CodeUserUnitParentInactive = 301042
 
-	// ── Issue extensions (02, CC 47-51) ─────────────────────────────────────
+	// ── Issue extensions (02, CC 47-53) ─────────────────────────────────────
 	CodeCredentialIssueTypeNotFound         = 400247
 	CodeCredentialIssueTypeInactive         = 400248
 	CodeCredentialIssueOrganizationNotFound = 400249
 	CodeCredentialIssueNumberDuplicate      = 400250
 	CodeCredentialIssueCompetencyNotFound   = 400251
+	CodeCredentialIssueOrganizationInactive = 400252
+	CodeCredentialIssueCompetencyInactive   = 400253
 
 	// ── Submission (11) ─────────────────────────────────────────────────────
 	CodeCredentialSubmitSuccess       = 401100

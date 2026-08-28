@@ -3,7 +3,8 @@ package credential
 import validation "github.com/go-ozzo/ozzo-validation/v4"
 
 type IssuerOrganizationStoreRequest struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Active *bool  `json:"active"`
 }
 
 func (r IssuerOrganizationStoreRequest) Validate() error {
@@ -13,7 +14,8 @@ func (r IssuerOrganizationStoreRequest) Validate() error {
 }
 
 type IssuerOrganizationUpdateRequest struct {
-	Name *string `json:"name"`
+	Name   *string `json:"name"`
+	Active *bool   `json:"active"`
 }
 
 func (r IssuerOrganizationUpdateRequest) Validate() error {

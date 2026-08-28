@@ -10,6 +10,7 @@ import (
 type IssuerOrganization struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
+	Active    bool       `json:"active"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt *time.Time `json:"updated_at"`
 }
@@ -19,6 +20,7 @@ func FromDomainIssuerOrganization(o domain.CredentialIssuerOrganization) IssuerO
 	return IssuerOrganization{
 		ID:        o.Id,
 		Name:      o.Name,
+		Active:    o.Active,
 		CreatedAt: o.CreatedAt,
 		UpdatedAt: o.UpdatedAt,
 	}

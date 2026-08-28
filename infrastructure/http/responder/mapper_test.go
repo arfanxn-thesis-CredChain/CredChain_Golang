@@ -171,6 +171,8 @@ var allDomainCodes = []int{
 	domain.CodeCredentialIssueOrganizationNotFound,
 	domain.CodeCredentialIssueNumberDuplicate,
 	domain.CodeCredentialIssueCompetencyNotFound,
+	domain.CodeCredentialIssueOrganizationInactive,
+	domain.CodeCredentialIssueCompetencyInactive,
 	// Credential Submission
 	domain.CodeCredentialSubmitSuccess,
 	domain.CodeCredentialSubmitStorageFailed,

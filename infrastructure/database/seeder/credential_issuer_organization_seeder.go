@@ -49,8 +49,11 @@ func (s *CredentialIssuerOrganizationSeeder) seedBuildOrgs(rng *rand.Rand) []dom
 		createdAt := baseTime.Add(time.Duration(rng.Int63n(365)) * 24 * time.Hour)
 		updatedAt := createdAt.Add(time.Duration(1+rng.Int63n(30)) * 24 * time.Hour)
 		orgs[i] = domain.CredentialIssuerOrganization{
-			Id:        deterministicULID(uint32(i + 1)),
-			Name:      n,
+			Id:   deterministicULID(uint32(i + 1)),
+			Name: n,
+			// Explicit: the GORM tag omits `default:true`, so the zero value
+			// would insert every seeded row as inactive.
+			Active:    true,
 			CreatedAt: createdAt,
 			UpdatedAt: &updatedAt,
 		}

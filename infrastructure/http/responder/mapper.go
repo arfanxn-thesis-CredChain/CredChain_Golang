@@ -185,6 +185,8 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialIssueOrganizationNotFound: "error_credential_issue_organization_not_found",
 	domain.CodeCredentialIssueNumberDuplicate:      "error_credential_issue_number_duplicate",
 	domain.CodeCredentialIssueCompetencyNotFound:   "error_credential_issue_competency_not_found",
+	domain.CodeCredentialIssueOrganizationInactive: "error_credential_issue_organization_inactive",
+	domain.CodeCredentialIssueCompetencyInactive:   "error_credential_issue_competency_inactive",
 
 	// Credential Submission codes
 	domain.CodeCredentialSubmitSuccess:       "success_credential_submit",
@@ -378,6 +380,8 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialIssueOrganizationNotFound: http.StatusBadRequest,
 	domain.CodeCredentialIssueNumberDuplicate:      http.StatusConflict,
 	domain.CodeCredentialIssueCompetencyNotFound:   http.StatusBadRequest,
+	domain.CodeCredentialIssueOrganizationInactive: http.StatusBadRequest,
+	domain.CodeCredentialIssueCompetencyInactive:   http.StatusBadRequest,
 
 	// Credential Submission codes
 	domain.CodeCredentialSubmitSuccess:       http.StatusOK,

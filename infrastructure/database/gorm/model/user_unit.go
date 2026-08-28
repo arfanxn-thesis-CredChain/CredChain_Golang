@@ -10,6 +10,7 @@ type UserUnit struct {
 	Id        string     `gorm:"primaryKey;type:char(26);column:id"`
 	ParentId  *string    `gorm:"type:char(26);column:parent_id;index"`
 	Name      string     `gorm:"type:varchar(256);column:name;not null"`
+	Active    bool       `gorm:"type:boolean;column:active;not null"`
 	CreatedAt time.Time  `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt *time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
@@ -21,6 +22,7 @@ func (m UserUnit) ToDomain() domain.UserUnit {
 		Id:        m.Id,
 		ParentId:  m.ParentId,
 		Name:      m.Name,
+		Active:    m.Active,
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
 	}
@@ -31,6 +33,7 @@ func FromDomainUserUnit(u domain.UserUnit) UserUnit {
 		Id:        u.Id,
 		ParentId:  u.ParentId,
 		Name:      u.Name,
+		Active:    u.Active,
 		CreatedAt: u.CreatedAt,
 		UpdatedAt: u.UpdatedAt,
 	}

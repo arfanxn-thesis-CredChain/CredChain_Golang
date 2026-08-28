@@ -36,16 +36,16 @@ func (m *mockCredentialIssuerOrganizationService) Find(ctx context.Context, id s
 	return nil, args.Error(1)
 }
 
-func (m *mockCredentialIssuerOrganizationService) Store(ctx context.Context, name string) (*domain.CredentialIssuerOrganization, error) {
-	args := m.Called(ctx, name)
+func (m *mockCredentialIssuerOrganizationService) Store(ctx context.Context, name string, active *bool) (*domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, name, active)
 	if v := args.Get(0); v != nil {
 		return v.(*domain.CredentialIssuerOrganization), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCredentialIssuerOrganizationService) Update(ctx context.Context, id string, name *string) (*domain.CredentialIssuerOrganization, error) {
-	args := m.Called(ctx, id, name)
+func (m *mockCredentialIssuerOrganizationService) Update(ctx context.Context, id string, name *string, active *bool) (*domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, id, name, active)
 	if v := args.Get(0); v != nil {
 		return v.(*domain.CredentialIssuerOrganization), args.Error(1)
 	}

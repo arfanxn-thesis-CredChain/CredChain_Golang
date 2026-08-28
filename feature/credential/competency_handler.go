@@ -78,7 +78,7 @@ func (h *competencyHandler) Store(c *gin.Context) {
 		responder.SendValidationError(c, err)
 		return
 	}
-	created, err := h.competencySvc.Store(c.Request.Context(), req.Name)
+	created, err := h.competencySvc.Store(c.Request.Context(), req.Name, req.Active)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
@@ -99,7 +99,7 @@ func (h *competencyHandler) Update(c *gin.Context) {
 		responder.SendValidationError(c, err)
 		return
 	}
-	updated, err := h.competencySvc.Update(c.Request.Context(), id, req.Name)
+	updated, err := h.competencySvc.Update(c.Request.Context(), id, req.Name, req.Active)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)

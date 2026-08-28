@@ -35,16 +35,16 @@ func (m *mockCompetencyService) Find(ctx context.Context, id string) (*domain.Co
 	return nil, args.Error(1)
 }
 
-func (m *mockCompetencyService) Store(ctx context.Context, name string) (*domain.Competency, error) {
-	args := m.Called(ctx, name)
+func (m *mockCompetencyService) Store(ctx context.Context, name string, active *bool) (*domain.Competency, error) {
+	args := m.Called(ctx, name, active)
 	if v := args.Get(0); v != nil {
 		return v.(*domain.Competency), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCompetencyService) Update(ctx context.Context, id string, name *string) (*domain.Competency, error) {
-	args := m.Called(ctx, id, name)
+func (m *mockCompetencyService) Update(ctx context.Context, id string, name *string, active *bool) (*domain.Competency, error) {
+	args := m.Called(ctx, id, name, active)
 	if v := args.Get(0); v != nil {
 		return v.(*domain.Competency), args.Error(1)
 	}

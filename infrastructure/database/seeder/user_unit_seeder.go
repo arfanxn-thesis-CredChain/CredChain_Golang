@@ -43,9 +43,12 @@ func (s *UserUnitSeeder) seedBuildUnits(rng *rand.Rand) []domain.UserUnit {
 		createdAt := baseTime.Add(time.Duration(rng.Int63n(365)) * 24 * time.Hour)
 		updatedAt := createdAt.Add(time.Duration(1+rng.Int63n(30)) * 24 * time.Hour)
 		return domain.UserUnit{
-			Id:        deterministicULID(seq),
-			ParentId:  parentId,
-			Name:      name,
+			Id:       deterministicULID(seq),
+			ParentId: parentId,
+			Name:     name,
+			// Explicit: the GORM tag omits `default:true`, so the zero value
+			// would insert every seeded row as inactive.
+			Active:    true,
 			CreatedAt: createdAt,
 			UpdatedAt: &updatedAt,
 		}

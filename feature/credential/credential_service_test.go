@@ -243,7 +243,7 @@ func newIssueRepos() (*mockCredentialTypeRepository, *mockCredentialIssuerOrgani
 		Return(&domain.CredentialType{Id: "type-1", Active: true}, nil)
 	orgRepo := &mockCredentialIssuerOrganizationRepository{}
 	orgRepo.On("Find", mock.Anything, mock.Anything).
-		Return(&domain.CredentialIssuerOrganization{Id: "org-1"}, nil)
+		Return(&domain.CredentialIssuerOrganization{Id: "org-1", Active: true}, nil)
 	compRepo := &mockCompetencyRepository{}
 	compRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.Competency{}, nil)
 	return typeRepo, orgRepo, compRepo
@@ -2242,7 +2242,7 @@ func TestIssue_CompetencyNotFound(t *testing.T) {
 	typeRepo, orgRepo, _ := newIssueRepos()
 	compRepo := &mockCompetencyRepository{}
 	compRepo.On("FindByIds", mock.Anything, mock.Anything).
-		Return([]domain.Competency{{Id: "comp-b"}}, nil)
+		Return([]domain.Competency{{Id: "comp-b", Active: true}}, nil)
 
 	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
 	svc := newTestCredentialService(m)
@@ -2261,6 +2261,81 @@ func TestIssue_CompetencyNotFound(t *testing.T) {
 	verrs, ok := err.(validation.Errors)
 	assert.True(t, ok)
 	assert.Contains(t, verrs, "credentials.0.competency_ids")
+}
+
+func TestIssue_OrgInactive(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, _, compRepo := newIssueRepos()
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, "org-off").
+		Return(&domain.CredentialIssuerOrganization{Id: "org-off", Active: false}, nil)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-off", Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	require.True(t, ok)
+	// Distinguishes inactive from not-found: both land on the same field key.
+	obj, ok := verrs["credentials.0.issuer_organization_id"].(validation.ErrorObject)
+	require.True(t, ok)
+	assert.Equal(t, "validation_issue_org_inactive", obj.Code())
+}
+
+func TestIssue_CompetencyInactive(t *testing.T) {
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithID("h"), fixtures.WithRole(domain.RoleHolder))
+	ctx := ctxWithAuth(&issuer)
+
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("GetCredentialHashStatuses", mock.Anything, mock.Anything).
+		Return([]contracts.CredentialRegistryCredentialHashStatus{{Status: 0}}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	userRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.User{holder}, nil)
+
+	typeRepo, orgRepo, _ := newIssueRepos()
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, mock.Anything).
+		Return([]domain.Competency{{Id: "comp-off", Active: false}}, nil)
+
+	m := &testCredentialMocks{regSvc: regSvc, credRepo: &mocks.MockCredentialRepository{}}
+	svc := newTestCredentialService(m)
+	svc.userRepo = userRepo
+	svc.cfg = testConfig()
+	svc.typeRepo = typeRepo
+	svc.orgRepo = orgRepo
+	svc.competencyRepo = compRepo
+
+	items := []CredentialIssuance{
+		{HolderUserID: "h", Name: "C", TypeID: "type-1", IssuerOrganizationID: "org-1", CompetencyIDs: []string{"comp-off"}, Filename: "a.pdf", MIMEType: "application/pdf", FileBytes: []byte("x")},
+	}
+
+	_, err := svc.Issue(ctx, items)
+	assert.Error(t, err)
+	verrs, ok := err.(validation.Errors)
+	require.True(t, ok)
+	obj, ok := verrs["credentials.0.competency_ids"].(validation.ErrorObject)
+	require.True(t, ok)
+	assert.Equal(t, "validation_issue_competency_inactive", obj.Code())
 }
 
 func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
@@ -2287,7 +2362,7 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 	typeRepo, orgRepo, _ := newIssueRepos()
 	compRepo := &mockCompetencyRepository{}
 	compRepo.On("FindByIds", mock.Anything, mock.Anything).
-		Return([]domain.Competency{{Id: "comp-a"}, {Id: "comp-b"}}, nil)
+		Return([]domain.Competency{{Id: "comp-a", Active: true}, {Id: "comp-b", Active: true}}, nil)
 
 	credRepo := &mocks.MockCredentialRepository{}
 	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
@@ -2387,7 +2462,7 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 	if _, err := typeRepo.Store(ctx, domain.CredentialType{Id: "t1", Name: "Degree", Active: true}); err != nil {
 		t.Fatalf("seed type: %v", err)
 	}
-	if _, err := orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI"}); err != nil {
+	if _, err := orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI", Active: true}); err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
 
@@ -2792,7 +2867,7 @@ func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
 	typeRepo := &mockCredentialTypeRepository{}
 	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: true}, nil)
 	orgRepo := &mockCredentialIssuerOrganizationRepository{}
-	orgRepo.On("Find", mock.Anything, "org-2").Return(&domain.CredentialIssuerOrganization{Id: "org-2"}, nil)
+	orgRepo.On("Find", mock.Anything, "org-2").Return(&domain.CredentialIssuerOrganization{Id: "org-2", Active: true}, nil)
 	svc := &credentialService{repo: credRepo, typeRepo: typeRepo, orgRepo: orgRepo, logger: zap.NewNop()}
 
 	got, err := svc.Update(ctx, updated)
@@ -2865,6 +2940,24 @@ func TestCredentialUpdate_OrgNotFoundRejected(t *testing.T) {
 	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
 
+func TestCredentialUpdate_OrgInactiveRejected(t *testing.T) {
+	ctx := context.Background()
+	target := domain.Credential{
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
+	}
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
+	orgRepo := &mockCredentialIssuerOrganizationRepository{}
+	orgRepo.On("Find", mock.Anything, "org-off").Return(&domain.CredentialIssuerOrganization{Id: "org-off", Active: false}, nil)
+	svc := &credentialService{repo: credRepo, orgRepo: orgRepo, logger: zap.NewNop()}
+
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: "org-off"})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialIssueOrganizationInactive, domErr.Code)
+	credRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 func TestCredentialUpdate_NumberDuplicateRejected(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
@@ -2908,7 +3001,7 @@ func TestLinkCompetencies_HappyPathReplacesSet(t *testing.T) {
 
 	compRepo := &mockCompetencyRepository{}
 	compRepo.On("FindByIds", mock.Anything, []string{"comp-a", "comp-b"}).
-		Return([]domain.Competency{{Id: "comp-a"}, {Id: "comp-b"}}, nil)
+		Return([]domain.Competency{{Id: "comp-a", Active: true}, {Id: "comp-b", Active: true}}, nil)
 
 	var storedLinks []domain.CompetencyCredential
 	compCredRepo := &mockCompetencyCredentialRepository{}
@@ -2965,7 +3058,7 @@ func TestLinkCompetencies_CompetencyNotFound(t *testing.T) {
 
 	compRepo := &mockCompetencyRepository{}
 	compRepo.On("FindByIds", mock.Anything, []string{"comp-a", "comp-x"}).
-		Return([]domain.Competency{{Id: "comp-a"}}, nil)
+		Return([]domain.Competency{{Id: "comp-a", Active: true}}, nil)
 
 	compCredRepo := &mockCompetencyCredentialRepository{}
 	uow := mocks.NewPropagatingUnitOfWork()
@@ -2979,6 +3072,32 @@ func TestLinkCompetencies_CompetencyNotFound(t *testing.T) {
 	require.ErrorAs(t, err, &domErr)
 	assert.Equal(t, domain.CodeCredentialCompetencyLinkCompetencyNotFound, domErr.Code)
 	assert.Equal(t, []string{"comp-x"}, domErr.Metadata["competency_ids"])
+	compCredRepo.AssertNotCalled(t, "DestroyByCredentialId", mock.Anything, mock.Anything)
+}
+
+func TestLinkCompetencies_CompetencyInactive(t *testing.T) {
+	ctx := context.Background()
+
+	credRepo := &mocks.MockCredentialRepository{}
+	credRepo.On("Find", mock.Anything, "cred-1", (*domainQuery.Query)(nil)).
+		Return(&domain.Credential{ID: "cred-1"}, nil)
+
+	compRepo := &mockCompetencyRepository{}
+	compRepo.On("FindByIds", mock.Anything, []string{"comp-a", "comp-off"}).
+		Return([]domain.Competency{{Id: "comp-a", Active: true}, {Id: "comp-off", Active: false}}, nil)
+
+	compCredRepo := &mockCompetencyCredentialRepository{}
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(credRepo)
+	uow.On("CompetencyCredential").Return(compCredRepo)
+
+	svc := &credentialService{uow: uow, competencyRepo: compRepo}
+	err := svc.LinkCompetencies(ctx, "cred-1", []string{"comp-a", "comp-off"})
+
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialIssueCompetencyInactive, domErr.Code)
+	assert.Equal(t, []string{"comp-off"}, domErr.Metadata["competency_ids"])
 	compCredRepo.AssertNotCalled(t, "DestroyByCredentialId", mock.Anything, mock.Anything)
 }
 

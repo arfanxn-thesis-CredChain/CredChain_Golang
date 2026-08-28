@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"gorm.io/gorm"
 )
 
 func mkAuthCfg() *config.Config {
@@ -63,9 +64,9 @@ func TestAuthMiddleware_InvalidJWT_401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestAuthMiddleware_UserNotFound_404(t *testing.T) {
+func TestAuthMiddleware_UserNotFound_401(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	repo.On("Find", mock.Anything, "u1").Return(nil, errors.New("not found"))
+	repo.On("Find", mock.Anything, "u1").Return(nil, gorm.ErrRecordNotFound)
 
 	mw := NewAuthMiddleware(AuthMiddlewareParams{Config: mkAuthCfg(), UserRepo: repo})
 
@@ -76,7 +77,23 @@ func TestAuthMiddleware_UserNotFound_404(t *testing.T) {
 	c.Request.Header.Set("Authorization", "Bearer "+tok)
 	mw(c)
 
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_FindError_500(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	repo.On("Find", mock.Anything, "u1").Return(nil, errors.New("db down"))
+
+	mw := NewAuthMiddleware(AuthMiddlewareParams{Config: mkAuthCfg(), UserRepo: repo})
+
+	tok, _ := security.GenerateJWT("u1", []byte(*mkAuthCfg().JWTSecret), time.Hour)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Request.Header.Set("Authorization", "Bearer "+tok)
+	mw(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestAuthMiddleware_Success_SetsUserInContext(t *testing.T) {

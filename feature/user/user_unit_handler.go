@@ -115,7 +115,7 @@ func (h *userUnitHandler) Update(c *gin.Context) {
 	var raw map[string]json.RawMessage
 	_ = c.ShouldBindBodyWith(&raw, binding.JSON)
 	_, setParent := raw["parent_id"]
-	updated, err := h.userUnitSvc.Update(c.Request.Context(), id, req.Name, req.ParentID, setParent)
+	updated, err := h.userUnitSvc.Update(c.Request.Context(), id, req.Name, req.ParentID, setParent, req.Active)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)
