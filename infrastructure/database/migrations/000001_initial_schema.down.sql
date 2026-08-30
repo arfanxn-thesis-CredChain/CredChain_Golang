@@ -3,6 +3,7 @@ DROP TABLE IF EXISTS competency_credential;
 
 -- Drop credentials (FKs reference users, credential_issuer_organizations, credential_types)
 DROP INDEX IF EXISTS idx_credentials_file_hash_active;
+DROP INDEX IF EXISTS uq_credentials_issuer_org_number;
 DROP INDEX IF EXISTS idx_credentials_file_hash;
 DROP INDEX IF EXISTS idx_credentials_extract_status;
 DROP INDEX IF EXISTS idx_credentials_revoked_at;
@@ -36,3 +37,5 @@ DROP TABLE IF EXISTS user_units;
 
 DROP TYPE IF EXISTS role;
 DROP TYPE IF EXISTS gender;
+
+DROP EXTENSION IF EXISTS pg_trgm;
