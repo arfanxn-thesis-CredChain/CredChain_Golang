@@ -102,3 +102,59 @@ func TestGormCredentialTypeRepository_Get_TotalIgnoresPagination(t *testing.T) {
 	assert.Equal(t, 3, total)
 	assert.Len(t, got, 2)
 }
+
+func TestGormCredentialTypeRepositoryFindByNames(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialTypeRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.CredentialType{Name: "Diploma", Active: true},
+		domain.CredentialType{Name: "Certificate of Completion", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Case-insensitive, whitespace-trimmed, batch — one query for many names.
+	got, err := repo.FindByNames(ctx, "  diploma ", "CERTIFICATE OF COMPLETION", "Nonexistent")
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2: %+v", len(got), got)
+	}
+}
+
+func TestGormCredentialTypeRepositoryFindByNamesEmpty(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialTypeRepository(d)
+
+	got, err := repo.FindByNames(context.Background())
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d rows, want 0", len(got))
+	}
+}
+
+func TestGormCredentialTypeSuggestByName(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialTypeRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.CredentialType{Name: "Diploma", Active: true},
+		domain.CredentialType{Name: "Certificate of Completion", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := repo.SuggestByName(ctx, "Diplo", 5)
+	if err != nil {
+		t.Fatalf("SuggestByName: %v", err)
+	}
+	if len(got) == 0 || got[0].Name != "Diploma" {
+		t.Fatalf("want Diploma first, got %+v", got)
+	}
+}

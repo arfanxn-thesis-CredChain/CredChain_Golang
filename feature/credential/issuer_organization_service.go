@@ -8,7 +8,6 @@ import (
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
 
-	"github.com/samber/lo"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 )
@@ -71,14 +70,12 @@ func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name st
 	}
 	trimmed := strings.TrimSpace(name)
 
-	existing, _, err := s.orgRepo.Get(ctx, nil)
+	matches, err := s.orgRepo.FindByNames(ctx, trimmed)
 	if err != nil {
 		return nil, err
 	}
-	if found, ok := lo.Find(existing, func(o domain.CredentialIssuerOrganization) bool {
-		return strings.EqualFold(o.Name, trimmed)
-	}); ok {
-		return &found, nil
+	if len(matches) > 0 {
+		return &matches[0], nil
 	}
 
 	stored, err := s.orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Name: trimmed, Active: activeVal})
@@ -93,14 +90,14 @@ func (s *credentialIssuerOrganizationService) Store(ctx context.Context, name st
 }
 
 func (s *credentialIssuerOrganizationService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, _, err := s.orgRepo.Get(ctx, nil)
+	matches, err := s.orgRepo.FindByNames(ctx, name)
 	if err != nil {
 		return err
 	}
-	if lo.ContainsBy(existing, func(o domain.CredentialIssuerOrganization) bool {
-		return strings.EqualFold(o.Name, strings.TrimSpace(name)) && o.Id != excludeId
-	}) {
-		return domain.NewError(domain.CodeIssuerOrganizationNameDuplicate, domain.WithMetadata("name", name))
+	for _, o := range matches {
+		if o.Id != excludeId {
+			return domain.NewError(domain.CodeIssuerOrganizationNameDuplicate, domain.WithMetadata("name", name))
+		}
 	}
 	return nil
 }

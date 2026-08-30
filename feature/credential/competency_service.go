@@ -8,7 +8,6 @@ import (
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
 
-	"github.com/samber/lo"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 )
@@ -70,14 +69,12 @@ func (s *competencyService) Store(ctx context.Context, name string, active *bool
 	}
 	trimmed := strings.TrimSpace(name)
 
-	existing, _, err := s.competencyRepo.Get(ctx, nil)
+	matches, err := s.competencyRepo.FindByNames(ctx, trimmed)
 	if err != nil {
 		return nil, err
 	}
-	if found, ok := lo.Find(existing, func(c domain.Competency) bool {
-		return strings.EqualFold(c.Name, trimmed)
-	}); ok {
-		return &found, nil
+	if len(matches) > 0 {
+		return &matches[0], nil
 	}
 
 	stored, err := s.competencyRepo.Store(ctx, domain.Competency{Name: trimmed, Active: activeVal})
@@ -92,14 +89,14 @@ func (s *competencyService) Store(ctx context.Context, name string, active *bool
 }
 
 func (s *competencyService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, _, err := s.competencyRepo.Get(ctx, nil)
+	matches, err := s.competencyRepo.FindByNames(ctx, name)
 	if err != nil {
 		return err
 	}
-	if lo.ContainsBy(existing, func(c domain.Competency) bool {
-		return strings.EqualFold(c.Name, strings.TrimSpace(name)) && c.Id != excludeId
-	}) {
-		return domain.NewError(domain.CodeCompetencyNameDuplicate, domain.WithMetadata("name", name))
+	for _, c := range matches {
+		if c.Id != excludeId {
+			return domain.NewError(domain.CodeCompetencyNameDuplicate, domain.WithMetadata("name", name))
+		}
 	}
 	return nil
 }

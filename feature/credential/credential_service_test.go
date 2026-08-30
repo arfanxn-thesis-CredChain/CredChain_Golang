@@ -100,6 +100,16 @@ func (m *mockCredentialTypeRepository) Get(ctx context.Context, query *domainQue
 	return args.Get(0).([]domain.CredentialType), 0, args.Error(1)
 }
 
+func (m *mockCredentialTypeRepository) FindByNames(ctx context.Context, names ...string) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, names)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
+func (m *mockCredentialTypeRepository) SuggestByName(ctx context.Context, name string, limit int) ([]domain.CredentialType, error) {
+	args := m.Called(ctx, name, limit)
+	return args.Get(0).([]domain.CredentialType), args.Error(1)
+}
+
 func (m *mockCredentialTypeRepository) Update(ctx context.Context, types ...domain.CredentialType) ([]domain.CredentialType, error) {
 	args := m.Called(ctx, types)
 	return args.Get(0).([]domain.CredentialType), args.Error(1)
@@ -138,6 +148,16 @@ func (m *mockCredentialIssuerOrganizationRepository) Get(ctx context.Context, qu
 	return args.Get(0).([]domain.CredentialIssuerOrganization), 0, args.Error(1)
 }
 
+func (m *mockCredentialIssuerOrganizationRepository) FindByNames(ctx context.Context, names ...string) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, names)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
+func (m *mockCredentialIssuerOrganizationRepository) SuggestByName(ctx context.Context, name string, limit int) ([]domain.CredentialIssuerOrganization, error) {
+	args := m.Called(ctx, name, limit)
+	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
+}
+
 func (m *mockCredentialIssuerOrganizationRepository) Update(ctx context.Context, orgs ...domain.CredentialIssuerOrganization) ([]domain.CredentialIssuerOrganization, error) {
 	args := m.Called(ctx, orgs)
 	return args.Get(0).([]domain.CredentialIssuerOrganization), args.Error(1)
@@ -174,6 +194,16 @@ func (m *mockCompetencyRepository) FindByIds(ctx context.Context, ids ...string)
 func (m *mockCompetencyRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Competency, int, error) {
 	args := m.Called(ctx, query)
 	return args.Get(0).([]domain.Competency), 0, args.Error(1)
+}
+
+func (m *mockCompetencyRepository) FindByNames(ctx context.Context, names ...string) ([]domain.Competency, error) {
+	args := m.Called(ctx, names)
+	return args.Get(0).([]domain.Competency), args.Error(1)
+}
+
+func (m *mockCompetencyRepository) SuggestByName(ctx context.Context, name string, limit int) ([]domain.Competency, error) {
+	args := m.Called(ctx, name, limit)
+	return args.Get(0).([]domain.Competency), args.Error(1)
 }
 
 func (m *mockCompetencyRepository) Update(ctx context.Context, competencies ...domain.Competency) ([]domain.Competency, error) {

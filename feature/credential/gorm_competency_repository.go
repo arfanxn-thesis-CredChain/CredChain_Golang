@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
@@ -61,6 +62,68 @@ func (r *gormCompetencyRepository) FindByIds(ctx context.Context, ids ...string)
 	}
 	var rows []model.Competency
 	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.Competency, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// FindByNames resolves names case-insensitively in a single query. Names are
+// trimmed and lowercased before matching, mirroring uq_competencies_lower_name.
+func (r *gormCompetencyRepository) FindByNames(ctx context.Context, names ...string) ([]domain.Competency, error) {
+	if len(names) == 0 {
+		return []domain.Competency{}, nil
+	}
+	needles := make([]string, 0, len(names))
+	for _, n := range names {
+		trimmed := strings.TrimSpace(n)
+		if trimmed == "" {
+			continue
+		}
+		needles = append(needles, strings.ToLower(trimmed))
+	}
+	if len(needles) == 0 {
+		return []domain.Competency{}, nil
+	}
+	var rows []model.Competency
+	if err := r.db.WithContext(ctx).
+		Where("LOWER(name) IN ?", needles).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.Competency, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// SuggestByName ranks rows by trigram similarity on Postgres. Repository tests
+// run on SQLite, which has no pg_trgm, so a substring match stands in there —
+// the ordering guarantee is only meaningful on Postgres.
+func (r *gormCompetencyRepository) SuggestByName(ctx context.Context, name string, limit int) ([]domain.Competency, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return []domain.Competency{}, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+
+	db := r.db.WithContext(ctx).Model(&model.Competency{}).Limit(limit)
+	if r.db.Dialector.Name() == "postgres" {
+		db = db.Where("similarity(name, ?) > 0.1", trimmed).
+			Order(gorm.Expr("similarity(name, ?) DESC", trimmed))
+	} else {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(trimmed)+"%").
+			Order("LENGTH(name) ASC")
+	}
+
+	var rows []model.Competency
+	if err := db.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.Competency, len(rows))

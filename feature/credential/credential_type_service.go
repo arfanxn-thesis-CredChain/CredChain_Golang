@@ -8,7 +8,6 @@ import (
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
 
-	"github.com/samber/lo"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 )
@@ -70,14 +69,12 @@ func (s *credentialTypeService) Store(ctx context.Context, name string, active *
 	}
 	trimmed := strings.TrimSpace(name)
 
-	existing, _, err := s.typeRepo.Get(ctx, nil)
+	matches, err := s.typeRepo.FindByNames(ctx, trimmed)
 	if err != nil {
 		return nil, err
 	}
-	if found, ok := lo.Find(existing, func(t domain.CredentialType) bool {
-		return strings.EqualFold(t.Name, trimmed)
-	}); ok {
-		return &found, nil
+	if len(matches) > 0 {
+		return &matches[0], nil
 	}
 
 	stored, err := s.typeRepo.Store(ctx, domain.CredentialType{Name: trimmed, Active: activeVal})
@@ -92,14 +89,14 @@ func (s *credentialTypeService) Store(ctx context.Context, name string, active *
 }
 
 func (s *credentialTypeService) checkNameUnique(ctx context.Context, name string, excludeId string) error {
-	existing, _, err := s.typeRepo.Get(ctx, nil)
+	matches, err := s.typeRepo.FindByNames(ctx, name)
 	if err != nil {
 		return err
 	}
-	if lo.ContainsBy(existing, func(t domain.CredentialType) bool {
-		return strings.EqualFold(t.Name, strings.TrimSpace(name)) && t.Id != excludeId
-	}) {
-		return domain.NewError(domain.CodeCredentialTypeNameDuplicate, domain.WithMetadata("name", name))
+	for _, t := range matches {
+		if t.Id != excludeId {
+			return domain.NewError(domain.CodeCredentialTypeNameDuplicate, domain.WithMetadata("name", name))
+		}
 	}
 	return nil
 }

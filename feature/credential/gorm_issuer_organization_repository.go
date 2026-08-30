@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
@@ -61,6 +62,69 @@ func (r *gormIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ..
 	}
 	var rows []model.CredentialIssuerOrganization
 	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CredentialIssuerOrganization, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// FindByNames resolves names case-insensitively in a single query. Names are
+// trimmed and lowercased before matching, mirroring
+// uq_credential_issuer_organizations_lower_name.
+func (r *gormIssuerOrganizationRepository) FindByNames(ctx context.Context, names ...string) ([]domain.CredentialIssuerOrganization, error) {
+	if len(names) == 0 {
+		return []domain.CredentialIssuerOrganization{}, nil
+	}
+	needles := make([]string, 0, len(names))
+	for _, n := range names {
+		trimmed := strings.TrimSpace(n)
+		if trimmed == "" {
+			continue
+		}
+		needles = append(needles, strings.ToLower(trimmed))
+	}
+	if len(needles) == 0 {
+		return []domain.CredentialIssuerOrganization{}, nil
+	}
+	var rows []model.CredentialIssuerOrganization
+	if err := r.db.WithContext(ctx).
+		Where("LOWER(name) IN ?", needles).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CredentialIssuerOrganization, len(rows))
+	for i, m := range rows {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// SuggestByName ranks rows by trigram similarity on Postgres. Repository tests
+// run on SQLite, which has no pg_trgm, so a substring match stands in there —
+// the ordering guarantee is only meaningful on Postgres.
+func (r *gormIssuerOrganizationRepository) SuggestByName(ctx context.Context, name string, limit int) ([]domain.CredentialIssuerOrganization, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return []domain.CredentialIssuerOrganization{}, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+
+	db := r.db.WithContext(ctx).Model(&model.CredentialIssuerOrganization{}).Limit(limit)
+	if r.db.Dialector.Name() == "postgres" {
+		db = db.Where("similarity(name, ?) > 0.1", trimmed).
+			Order(gorm.Expr("similarity(name, ?) DESC", trimmed))
+	} else {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(trimmed)+"%").
+			Order("LENGTH(name) ASC")
+	}
+
+	var rows []model.CredentialIssuerOrganization
+	if err := db.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CredentialIssuerOrganization, len(rows))

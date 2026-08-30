@@ -101,3 +101,59 @@ func TestGormCompetencyRepository_Get_TotalIgnoresPagination(t *testing.T) {
 	assert.Equal(t, 3, total)
 	assert.Len(t, got, 2)
 }
+
+func TestGormCompetencyRepositoryFindByNames(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCompetencyRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.Competency{Name: "Discrete Mathematics", Active: true},
+		domain.Competency{Name: "Linear Algebra", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Case-insensitive, whitespace-trimmed, batch — one query for many names.
+	got, err := repo.FindByNames(ctx, "  discrete mathematics ", "LINEAR ALGEBRA", "Nonexistent")
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2: %+v", len(got), got)
+	}
+}
+
+func TestGormCompetencyRepositoryFindByNamesEmpty(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCompetencyRepository(d)
+
+	got, err := repo.FindByNames(context.Background())
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d rows, want 0", len(got))
+	}
+}
+
+func TestGormCompetencySuggestByName(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCompetencyRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.Competency{Name: "Discrete Mathematics", Active: true},
+		domain.Competency{Name: "Database Systems", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := repo.SuggestByName(ctx, "Discrete Math", 5)
+	if err != nil {
+		t.Fatalf("SuggestByName: %v", err)
+	}
+	if len(got) == 0 || got[0].Name != "Discrete Mathematics" {
+		t.Fatalf("want Discrete Mathematics first, got %+v", got)
+	}
+}

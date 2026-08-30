@@ -100,3 +100,59 @@ func TestGormIssuerOrganizationRepository_Get_TotalIgnoresPagination(t *testing.
 	assert.Equal(t, 3, total)
 	assert.Len(t, got, 2)
 }
+
+func TestGormIssuerOrganizationRepositoryFindByNames(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialIssuerOrganizationRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.CredentialIssuerOrganization{Name: "Universitas Harkat Negeri", Active: true},
+		domain.CredentialIssuerOrganization{Name: "BNSP", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Case-insensitive, whitespace-trimmed, batch — one query for many names.
+	got, err := repo.FindByNames(ctx, "  universitas harkat negeri ", "bnsp", "Nonexistent")
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2: %+v", len(got), got)
+	}
+}
+
+func TestGormIssuerOrganizationRepositoryFindByNamesEmpty(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialIssuerOrganizationRepository(d)
+
+	got, err := repo.FindByNames(context.Background())
+	if err != nil {
+		t.Fatalf("FindByNames: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d rows, want 0", len(got))
+	}
+}
+
+func TestGormIssuerOrganizationSuggestByName(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	repo := NewGormCredentialIssuerOrganizationRepository(d)
+	ctx := context.Background()
+
+	if _, err := repo.Store(ctx,
+		domain.CredentialIssuerOrganization{Name: "Universitas Harkat Negeri", Active: true},
+		domain.CredentialIssuerOrganization{Name: "BNSP", Active: true},
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := repo.SuggestByName(ctx, "Universitas Harkat", 5)
+	if err != nil {
+		t.Fatalf("SuggestByName: %v", err)
+	}
+	if len(got) == 0 || got[0].Name != "Universitas Harkat Negeri" {
+		t.Fatalf("want Universitas Harkat Negeri first, got %+v", got)
+	}
+}
