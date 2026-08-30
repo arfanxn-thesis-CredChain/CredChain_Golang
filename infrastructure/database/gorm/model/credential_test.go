@@ -17,8 +17,8 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 		HolderUserID:         "h1",
 		SubmitterUserID:      "s1",
 		IssuerUserID:         "i1",
-		IssuerOrganizationID: "org-1",
-		TypeID:               "type-1",
+		IssuerOrganizationID: strPtrModel("org-1"),
+		TypeID:               strPtrModel("type-1"),
 		Number:               &num,
 		Name:                 "Degree",
 		FileHash:             "0xabc",
@@ -30,8 +30,8 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 
 	m := FromDomainCredential(c)
 	assert.Equal(t, "s1", m.SubmitterUserId)
-	assert.Equal(t, "org-1", m.IssuerOrganizationId)
-	assert.Equal(t, "type-1", m.TypeId)
+	assert.Equal(t, "org-1", *m.IssuerOrganizationId)
+	assert.Equal(t, "type-1", *m.TypeId)
 	assert.Equal(t, &num, m.Number)
 	assert.Equal(t, &now, m.ExpiresAt)
 	assert.Equal(t, &now, m.ApprovedAt)
@@ -39,8 +39,8 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 
 	d := m.ToDomain()
 	assert.Equal(t, "s1", d.SubmitterUserID)
-	assert.Equal(t, "org-1", d.IssuerOrganizationID)
-	assert.Equal(t, "type-1", d.TypeID)
+	assert.Equal(t, "org-1", *d.IssuerOrganizationID)
+	assert.Equal(t, "type-1", *d.TypeID)
 	assert.Equal(t, num, *d.Number)
 	assert.Equal(t, now, *d.ApprovedAt)
 	assert.Equal(t, now, *d.ExpiresAt)

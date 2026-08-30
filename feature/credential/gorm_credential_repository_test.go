@@ -31,9 +31,9 @@ func TestGormCredentialRepository_CountByTypeAndOrganizationIds(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-a", TypeID: "type-a", Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-a", TypeID: "type-b", Name: "B", FileHash: "0x2"},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "org-b", TypeID: "type-b", Name: "C", FileHash: "0x3"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-a"), Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-b"), Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-b"), TypeID: strPtr("type-b"), Name: "C", FileHash: "0x3"},
 	)
 	require.NoError(t, err)
 
@@ -1110,8 +1110,8 @@ func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
 	require.NoError(t, repo.db.Create(&holder).Error)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "o1", TypeID: "t1", Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: "o1", TypeID: "t1", Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "B", FileHash: "0x2"},
 	)
 	require.NoError(t, err)
 	require.NoError(t, repo.db.Create(&[]model.CompetencyCredential{

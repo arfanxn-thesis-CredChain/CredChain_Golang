@@ -6,6 +6,7 @@ import (
 
 	"CredChain_Golang/domain"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/samber/lo"
 )
 
 var allowedMIMETypes = map[string]bool{
@@ -64,8 +65,8 @@ func (n CredentialIssueInput) ToDomain() domain.Credential {
 	}
 	return domain.Credential{
 		HolderUserID:         n.HolderUserID,
-		IssuerOrganizationID: n.IssuerOrganizationID,
-		TypeID:               n.TypeID,
+		IssuerOrganizationID: lo.ToPtr(n.IssuerOrganizationID),
+		TypeID:               lo.ToPtr(n.TypeID),
 		Number:               n.Number,
 		Name:                 n.Name,
 		Meta:                 n.Meta,
@@ -133,10 +134,10 @@ func (n CredentialUpdateInput) ToDomain() domain.Credential {
 		c.Number = n.Number
 	}
 	if n.TypeID != nil {
-		c.TypeID = *n.TypeID
+		c.TypeID = n.TypeID
 	}
 	if n.IssuerOrganizationID != nil {
-		c.IssuerOrganizationID = *n.IssuerOrganizationID
+		c.IssuerOrganizationID = n.IssuerOrganizationID
 	}
 	if t := parseDatePtr(n.IssuedAt); t != nil {
 		c.IssuedAt = *t

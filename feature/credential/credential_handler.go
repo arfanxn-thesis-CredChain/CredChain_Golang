@@ -337,8 +337,8 @@ func (h *credentialHandler) Submit(c *gin.Context) {
 		}
 		serviceItems[i] = CredentialSubmission{
 			Name:                 it.Name,
-			TypeID:               it.TypeID,
-			IssuerOrganizationID: it.IssuerOrganizationID,
+			TypeID:               lo.ToPtr(it.TypeID),
+			IssuerOrganizationID: lo.ToPtr(it.IssuerOrganizationID),
 			Number:               it.Number,
 			IssuedAt:             parseDatePtr(it.IssuedAt),
 			ExpiresAt:            parseDatePtr(it.ExpiresAt),
