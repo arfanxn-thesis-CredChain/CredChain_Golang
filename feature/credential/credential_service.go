@@ -154,10 +154,10 @@ type StagedNameSuggestion struct {
 // this?" payload. A nil Type or Organization means that kind is already
 // resolved; Competencies lists only the still-unresolved staged entries.
 type CredentialMetadataSuggestions struct {
-	CredentialID string                   `json:"credential_id"`
-	Type         *StagedNameSuggestion    `json:"type"`
-	Organization *StagedNameSuggestion    `json:"organization"`
-	Competencies []StagedNameSuggestion   `json:"competencies"`
+	CredentialID string                 `json:"credential_id"`
+	Type         *StagedNameSuggestion  `json:"type"`
+	Organization *StagedNameSuggestion  `json:"organization"`
+	Competencies []StagedNameSuggestion `json:"competencies"`
 }
 
 // metadataSuggestionLimit caps the "did you mean" list per staged name. Five
@@ -1496,7 +1496,12 @@ func (s *credentialService) SuggestMetadataMatches(
 			domain.WithMetadata("credential_id", credentialID))
 	}
 
-	out := &CredentialMetadataSuggestions{CredentialID: target.ID}
+	out := &CredentialMetadataSuggestions{
+		CredentialID: target.ID,
+		// Keep the slice non-nil so the JSON field is `[]`, not `null`, when
+		// nothing is staged — the reviewer UI reads `.competencies.length`.
+		Competencies: []StagedNameSuggestion{},
+	}
 
 	if target.TypeID == nil && target.SubmittedTypeName != nil {
 		rows, err := s.typeRepo.SuggestByName(ctx, *target.SubmittedTypeName, metadataSuggestionLimit)
