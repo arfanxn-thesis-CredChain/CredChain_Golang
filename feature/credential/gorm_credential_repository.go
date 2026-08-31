@@ -522,6 +522,16 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return string(b), true
 	})
+	addCol("submitted_competencies", func(c domain.Credential) (interface{}, bool) {
+		if c.SubmittedCompetencies == nil {
+			return nil, false
+		}
+		b, err := json.Marshal(c.SubmittedCompetencies)
+		if err != nil {
+			return nil, false
+		}
+		return string(b), true
+	})
 	addCol("token_id", func(c domain.Credential) (interface{}, bool) {
 		if c.TokenID == nil {
 			return nil, false

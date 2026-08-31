@@ -2481,6 +2481,7 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 	typeRepo := NewGormCredentialTypeRepository(d)
 	orgRepo := NewGormCredentialIssuerOrganizationRepository(d)
 	compRepo := NewGormCompetencyRepository(d)
+	compCredRepo := NewGormCompetencyCredentialRepository(d)
 	uow := gormInfra.NewGormUnitOfWork(d,
 		user.NewGormUserRepository,
 		NewGormCredentialRepository,
@@ -2511,6 +2512,10 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 		orgRepo:        orgRepo,
 		competencyRepo: compRepo,
 		logger:         zap.NewNop(),
+
+		typeService:       NewCredentialTypeService(CredentialTypeServiceParams{TypeRepo: typeRepo, CredentialRepo: credRepo}),
+		orgService:        NewCredentialIssuerOrganizationService(CredentialIssuerOrganizationServiceParams{OrgRepo: orgRepo, CredentialRepo: credRepo}),
+		competencyService: NewCompetencyService(CompetencyServiceParams{CompetencyRepo: compRepo, CompetencyCredentialRepo: compCredRepo}),
 	}
 	return svc, credRepo
 }
@@ -3281,4 +3286,149 @@ func TestLinkCompetencies_EmptySetClearsLinks(t *testing.T) {
 	require.NoError(t, err)
 	compCredRepo.AssertCalled(t, "DestroyByCredentialId", mock.Anything, "cred-1")
 	compCredRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+// ── ResolveMetadata / Approve unresolved-metadata guard ───────────────────
+
+func TestResolveMetadataLinksExistingRows(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	_, err := svc.typeRepo.Store(context.Background(), domain.CredentialType{Id: "t2", Name: "Diploma", Active: true})
+	require.NoError(t, err)
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xlink1", IssuedAt: time.Now(),
+		SubmittedTypeName:               strPtr("Micro-credential"),
+		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
+		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID: stored[0].ID,
+		TypeID:       strPtr("t2"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.TypeID)
+	assert.Equal(t, "t2", *out.TypeID)
+	// The staged name survives resolution — audit trail.
+	require.NotNil(t, out.SubmittedTypeName)
+	assert.Equal(t, "Micro-credential", *out.SubmittedTypeName)
+	// The other two are still unresolved.
+	assert.Len(t, out.UnresolvedMetadata(), 2)
+}
+
+func TestResolveMetadataCreatesNewRows(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xnew1", IssuedAt: time.Now(),
+		SubmittedTypeName:               strPtr("Micro-credential"),
+		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
+		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID:           stored[0].ID,
+		CreateTypeName:         strPtr("Micro-credential"),
+		CreateOrganizationName: strPtr("Cyfrin Updraft"),
+		CreateCompetencyNames:  []string{"Discrete Math"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.UnresolvedMetadata())
+
+	require.Len(t, out.SubmittedCompetencies, 1)
+	require.NotNil(t, out.SubmittedCompetencies[0].ResolvedID)
+	compID := *out.SubmittedCompetencies[0].ResolvedID
+
+	// The created competency became a real join row, not just a resolved_id.
+	rows, total, err := repo.Get(context.Background(), &domainQuery.Query{
+		Filters: []domainQuery.Filter{domainQuery.NewFilter("competency_id", domainQuery.OperatorEqual, compID)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, out.ID, rows[0].ID)
+}
+
+func TestResolveMetadataRejectsNonPending(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	now := time.Now()
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xapproved1", IssuedAt: time.Now(),
+		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+		ApprovedAt: &now,
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	_, err = svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID: stored[0].ID,
+		TypeID:       strPtr("t1"),
+	})
+	require.Error(t, err)
+	var derr *domain.Error
+	require.ErrorAs(t, err, &derr)
+	assert.Equal(t, domain.CodeCredentialMetadataResolveNotPending, derr.Code)
+}
+
+func TestApproveBlocksUnresolvedMetadata(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	pending := reviewPendingCredential()
+	pending.TypeID = nil
+	pending.SubmittedTypeName = strPtr("Micro-credential")
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{pending}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	regSvc := new(mocks.MockRegistryService)
+
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	_, err := svc.Approve(ctx, "c1")
+	var derr *domain.Error
+	require.ErrorAs(t, err, &derr)
+	assert.Equal(t, domain.CodeCredentialApproveUnresolvedMetadata, derr.Code)
+	innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestApproveAllowsResolvedMetadata(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	compID := "comp1"
+	pending := reviewPendingCredential()
+	pending.SubmittedCompetencies = domain.SubmittedCompetencies{{Name: "Discrete Math", ResolvedID: &compID}}
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{pending}, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{pending}, nil)
+
+	regSvc := new(mocks.MockRegistryService)
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).Return([]*big.Int{big.NewInt(1)}, nil)
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	out, err := svc.Approve(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	innerCredRepo.AssertCalled(t, "Update", mock.Anything, mock.Anything)
+	regSvc.AssertCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
 }

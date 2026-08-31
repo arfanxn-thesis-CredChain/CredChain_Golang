@@ -46,6 +46,11 @@ type CredentialService interface {
 	Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error)
 	Approve(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error)
+	// ResolveMetadata links or creates taxonomy rows for a pending credential's
+	// staged free-text metadata names. Pending-only; the staged names are
+	// preserved for audit. This is deliberately a separate call from Approve so
+	// a failed on-chain mint can never half-create taxonomy rows.
+	ResolveMetadata(ctx context.Context, in CredentialMetadataResolution) (*domain.Credential, error)
 	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
 	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
@@ -105,6 +110,28 @@ type CredentialRejection struct {
 	Reason string
 }
 
+// CredentialMetadataResolution is the service-layer input for resolving one
+// pending credential's staged free-text metadata. Every field is optional —
+// a reviewer may resolve one kind at a time. For each kind, at most one of
+// the link-existing field and the create-new field may be set.
+//
+// Competencies are resolved as a set: CompetencyIDs links existing rows and
+// CreateCompetencyNames creates new ones; between them they must cover every
+// staged name whose resolved_id is still null, or the credential simply stays
+// partially resolved (not an error — the reviewer may come back).
+type CredentialMetadataResolution struct {
+	CredentialID string
+
+	TypeID         *string // link an existing credential_types row
+	CreateTypeName *string // create a new one from the staged name
+
+	OrganizationID         *string
+	CreateOrganizationName *string
+
+	CompetencyIDs         []string
+	CreateCompetencyNames []string
+}
+
 // ── Implementation struct & constructor ───────────────────────────────────
 
 type credentialService struct {
@@ -123,6 +150,10 @@ type credentialService struct {
 	competencyRepo   domain.CompetencyRepository
 	logger           *zap.Logger
 	enqueuer         jobs.Enqueuer
+
+	typeService       CredentialTypeService
+	orgService        CredentialIssuerOrganizationService
+	competencyService CompetencyService
 }
 
 type CredentialServiceParams struct {
@@ -142,6 +173,10 @@ type CredentialServiceParams struct {
 	CompetencyRepo   domain.CompetencyRepository
 	Logger           *zap.Logger
 	Enqueuer         jobs.Enqueuer
+
+	TypeService       CredentialTypeService
+	OrgService        CredentialIssuerOrganizationService
+	CompetencyService CompetencyService
 }
 
 // NewCredentialService is the exported factory for FX injection.
@@ -162,6 +197,10 @@ func NewCredentialService(p CredentialServiceParams) CredentialService {
 		competencyRepo:   p.CompetencyRepo,
 		logger:           p.Logger,
 		enqueuer:         p.Enqueuer,
+
+		typeService:       p.TypeService,
+		orgService:        p.OrgService,
+		competencyService: p.CompetencyService,
 	}
 }
 
@@ -1135,6 +1174,10 @@ func derefString(s *string) string {
 // mint trigger: the approval update and the mint run in the SAME unit of
 // work, so a failed mint rolls the approval back and the rows stay pending.
 // No queue, no background worker, no deferred mint.
+//
+// Approval refuses any credential with unresolved staged metadata — a
+// reviewer must call ResolveMetadata first. Rejection has no such guard:
+// rejected rows keep their unresolved names as an audit trail.
 func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domain.Credential, error) {
 	authUser := httpContext.MustGetUser(ctx)
 	now := time.Now()
@@ -1158,6 +1201,14 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
 			case domain.CredentialLifecycleStatusRevoked:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
+			}
+			// An approved credential must never carry dangling metadata: the DB
+			// CHECK covers type + organization, this covers the JSONB
+			// competency half and gives a usable error either way.
+			if unresolved := t.UnresolvedMetadata(); len(unresolved) > 0 {
+				return domain.NewError(domain.CodeCredentialApproveUnresolvedMetadata,
+					domain.WithMetadata("credential_id", t.ID),
+					domain.WithMetadata("unresolved", unresolved))
 			}
 		}
 
@@ -1192,6 +1243,196 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		return nil
 	})
 	return approved, err
+}
+
+// ── Metadata resolution ───────────────────────────────────────────────────
+
+// ResolveMetadata links or creates taxonomy rows for a pending credential's
+// staged free-text metadata (type, issuer organization, competencies). It is
+// idempotent per field and deliberately separate from Approve: a failed
+// on-chain mint can never half-create taxonomy rows.
+func (s *credentialService) ResolveMetadata(
+	ctx context.Context,
+	in CredentialMetadataResolution,
+) (*domain.Credential, error) {
+	var out *domain.Credential
+
+	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
+		target, err := uow.Credential().Find(ctx, in.CredentialID, nil)
+		if err != nil || target == nil {
+			return domain.NewError(domain.CodeCredentialMetadataResolveNotFound,
+				domain.WithMetadata("credential_id", in.CredentialID))
+		}
+		// Same immutability rule as Update: only pending rows are mutable.
+		if target.LifecycleStatus() != domain.CredentialLifecycleStatusPending {
+			return domain.NewError(domain.CodeCredentialMetadataResolveNotPending,
+				domain.WithMetadata("credential_id", in.CredentialID))
+		}
+		if len(target.UnresolvedMetadata()) == 0 {
+			return domain.NewError(domain.CodeCredentialMetadataResolveNothingStaged,
+				domain.WithMetadata("credential_id", in.CredentialID))
+		}
+
+		update := domain.Credential{ID: target.ID}
+
+		// ── Type ───────────────────────────────────────────────────────────
+		switch {
+		case in.TypeID != nil:
+			t, err := s.typeRepo.Find(ctx, *in.TypeID)
+			if err != nil || t == nil {
+				return domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
+					domain.WithMetadata("type_id", *in.TypeID))
+			}
+			if !t.Active {
+				return domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
+					domain.WithMetadata("type_id", *in.TypeID))
+			}
+			update.TypeID = &t.Id
+		case in.CreateTypeName != nil:
+			// Upsert-by-name: a concurrent reviewer may have just created it.
+			t, err := s.typeService.Store(ctx, *in.CreateTypeName, nil)
+			if err != nil {
+				return err
+			}
+			update.TypeID = &t.Id
+		}
+
+		// ── Issuer organization ────────────────────────────────────────────
+		switch {
+		case in.OrganizationID != nil:
+			o, err := s.orgRepo.Find(ctx, *in.OrganizationID)
+			if err != nil || o == nil {
+				return domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
+					domain.WithMetadata("issuer_organization_id", *in.OrganizationID))
+			}
+			if !o.Active {
+				return domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
+					domain.WithMetadata("issuer_organization_id", *in.OrganizationID))
+			}
+			update.IssuerOrganizationID = &o.Id
+		case in.CreateOrganizationName != nil:
+			o, err := s.orgService.Store(ctx, *in.CreateOrganizationName, nil)
+			if err != nil {
+				return err
+			}
+			update.IssuerOrganizationID = &o.Id
+		}
+
+		// Number uniqueness was skipped at submit time for a staged org —
+		// enforce it now that the credential finally has an org scope.
+		if update.IssuerOrganizationID != nil && target.Number != nil && *target.Number != "" {
+			rows, _, err := uow.Credential().Get(ctx, &domainQuery.Query{
+				Filters: []domainQuery.Filter{
+					domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, *update.IssuerOrganizationID),
+					domainQuery.NewFilter("number", domainQuery.OperatorEqual, *target.Number),
+				},
+			})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				if r.ID != target.ID {
+					return domain.NewError(domain.CodeCredentialMetadataResolveNumberDuplicate,
+						domain.WithMetadata("number", *target.Number))
+				}
+			}
+		}
+
+		// ── Competencies ───────────────────────────────────────────────────
+		resolvedComps, err := s.resolveStagedCompetencies(ctx, in)
+		if err != nil {
+			return err
+		}
+		if len(resolvedComps) > 0 {
+			staged := append(domain.SubmittedCompetencies{}, target.SubmittedCompetencies...)
+			var newLinks []domain.CompetencyCredential
+			for _, c := range resolvedComps {
+				id := c.Id
+				matched := false
+				for i := range staged {
+					if staged[i].ResolvedID == nil &&
+						normalizeMetadataName(staged[i].Name) == normalizeMetadataName(c.Name) {
+						staged[i].ResolvedID = &id
+						matched = true
+						break
+					}
+				}
+				// A reviewer may link a competency the submitter never named
+				// (e.g. "Discrete Math" -> the existing "Discrete Mathematics"
+				// row). Stamp the first still-unresolved entry instead.
+				if !matched {
+					for i := range staged {
+						if staged[i].ResolvedID == nil {
+							staged[i].ResolvedID = &id
+							matched = true
+							break
+						}
+					}
+				}
+				newLinks = append(newLinks, domain.CompetencyCredential{
+					CompetencyId: c.Id, CredentialId: target.ID,
+				})
+			}
+			update.SubmittedCompetencies = staged
+			if len(newLinks) > 0 {
+				if _, err := uow.CompetencyCredential().Store(ctx, newLinks...); err != nil {
+					return err
+				}
+			}
+		}
+
+		updated, err := uow.Credential().Update(ctx, update)
+		if err != nil {
+			return err
+		}
+		if len(updated) == 0 {
+			return domain.NewError(domain.CodeSystemInternal)
+		}
+		c := updated[0]
+		out = &c
+		return nil
+	})
+
+	return out, err
+}
+
+// resolveStagedCompetencies turns the resolution's link-existing ids and
+// create-new names into concrete competency rows. Creation goes through the
+// service's idempotent upsert-by-name, so two reviewers racing on the same
+// name converge on one row.
+func (s *credentialService) resolveStagedCompetencies(
+	ctx context.Context,
+	in CredentialMetadataResolution,
+) ([]domain.Competency, error) {
+	var out []domain.Competency
+
+	if len(in.CompetencyIDs) > 0 {
+		found, err := s.competencyRepo.FindByIds(ctx, in.CompetencyIDs...)
+		if err != nil {
+			return nil, err
+		}
+		if len(found) != len(lo.Uniq(in.CompetencyIDs)) {
+			return nil, domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
+				domain.WithMetadata("competency_ids", in.CompetencyIDs))
+		}
+		for _, c := range found {
+			if !c.Active {
+				return nil, domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
+					domain.WithMetadata("competency_id", c.Id))
+			}
+		}
+		out = append(out, found...)
+	}
+
+	for _, name := range in.CreateCompetencyNames {
+		c, err := s.competencyService.Store(ctx, name, nil)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *c)
+	}
+
+	return out, nil
 }
 
 // Reject batch-rejects pending submissions with per-credential reasons.
