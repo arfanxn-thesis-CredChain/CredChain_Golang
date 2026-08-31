@@ -115,6 +115,8 @@ func RegisterRoutes(p RouteParams) {
 				creds.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Paginate)
 				creds.GET("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Find)
 				creds.PUT("/:id/competencies", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.LinkCompetencies)
+				creds.GET("/:id/metadata/suggestions", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.SuggestMetadata)
+				creds.PUT("/:id/metadata", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.ResolveMetadata)
 				creds.POST("/batch/issue", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Issue)
 				creds.POST("/batch/submit", p.CredentialHandler.Submit)
 				creds.POST("/batch/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Approve)
@@ -123,26 +125,31 @@ func RegisterRoutes(p RouteParams) {
 				creds.POST("/batch/revoke", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Revoke)
 				creds.POST("/batch/reextract", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.ReExtract)
 			}
+			// Taxonomy lookups: GET is open to every authenticated user (a
+			// holder needs to pick a type/organization/competency when
+			// submitting). Writes are Issuer+ — a holder who needs a row that
+			// does not exist stages a free-text name instead, resolved by a
+			// reviewer.
 			credentialTypes := secure.Group("/credential-types")
 			{
 				credentialTypes.GET("", p.CredentialTypeHandler.Paginate)
-				credentialTypes.POST("", p.CredentialTypeHandler.Store)
-				credentialTypes.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Update)
-				credentialTypes.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialTypeHandler.Destroy)
+				credentialTypes.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Store)
+				credentialTypes.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Update)
+				credentialTypes.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Destroy)
 			}
 			issuerOrganizations := secure.Group("/issuer-organizations")
 			{
 				issuerOrganizations.GET("", p.CredentialIssuerOrganizationHandler.Paginate)
-				issuerOrganizations.POST("", p.CredentialIssuerOrganizationHandler.Store)
-				issuerOrganizations.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Update)
-				issuerOrganizations.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CredentialIssuerOrganizationHandler.Destroy)
+				issuerOrganizations.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Store)
+				issuerOrganizations.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Update)
+				issuerOrganizations.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Destroy)
 			}
 			competencies := secure.Group("/competencies")
 			{
 				competencies.GET("", p.CompetencyHandler.Paginate)
-				competencies.POST("", p.CompetencyHandler.Store)
-				competencies.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Update)
-				competencies.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.CompetencyHandler.Destroy)
+				competencies.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Store)
+				competencies.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Update)
+				competencies.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Destroy)
 			}
 			userUnits := secure.Group("/user-units")
 			{

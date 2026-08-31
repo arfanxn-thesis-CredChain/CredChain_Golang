@@ -202,22 +202,25 @@ func (r CredentialReExtractRequest) Validate() error {
 
 // CredentialSubmitInput is one item in a batch self-submission request.
 type CredentialSubmitInput struct {
-	Name                 string         `form:"name"`
-	TypeID               string         `form:"type_id"`
-	IssuerOrganizationID string         `form:"issuer_organization_id"`
-	Number               *string        `form:"number"`
-	IssuedAt             *string        `form:"issued_at"`
-	ExpiresAt            *string        `form:"expires_at"`
-	CompetencyIDs        []string       `form:"-"`
-	Meta                 map[string]any `form:"meta"`
-	File                 *multipart.FileHeader
+	Name                            string         `form:"name"`
+	TypeID                          *string        `form:"type_id"`
+	SubmittedTypeName               *string        `form:"submitted_type_name"`
+	IssuerOrganizationID            *string        `form:"issuer_organization_id"`
+	SubmittedIssuerOrganizationName *string        `form:"submitted_issuer_organization_name"`
+	Number                          *string        `form:"number"`
+	IssuedAt                        *string        `form:"issued_at"`
+	ExpiresAt                       *string        `form:"expires_at"`
+	CompetencyIDs                   []string       `form:"-"`
+	SubmittedCompetencyNames        []string       `form:"submitted_competency_names"`
+	Meta                            map[string]any `form:"meta"`
+	File                            *multipart.FileHeader
 }
 
 func (n CredentialSubmitInput) Validate() error {
 	return validation.ValidateStruct(&n,
 		validation.Field(&n.Name, validation.Required, validation.Length(1, 256)),
-		validation.Field(&n.TypeID, validation.Required),
-		validation.Field(&n.IssuerOrganizationID, validation.Required),
+		// Type and organization are id-or-name; submitValidate enforces the
+		// "exactly one of" rule because it needs the taxonomy lookup anyway.
 		validation.Field(&n.IssuedAt, validation.Required, validation.Date("2006-01-02")),
 		validation.Field(&n.ExpiresAt, validation.Date("2006-01-02")),
 		validation.Field(&n.Number, validation.Length(0, 256)),
@@ -241,6 +244,41 @@ func (r CredentialSubmitRequest) Validate() error {
 			})),
 		),
 	)
+}
+
+// CredentialResolveMetadataRequest is the reviewer's resolution payload for
+// PUT /api/credentials/:id/metadata. Every field is optional; per kind, at
+// most one of the link-existing and create-new fields may be set.
+type CredentialResolveMetadataRequest struct {
+	TypeID         *string `json:"type_id"`
+	CreateTypeName *string `json:"create_type_name"`
+
+	IssuerOrganizationID   *string `json:"issuer_organization_id"`
+	CreateOrganizationName *string `json:"create_organization_name"`
+
+	CompetencyIDs         []string `json:"competency_ids"`
+	CreateCompetencyNames []string `json:"create_competency_names"`
+}
+
+func (n CredentialResolveMetadataRequest) Validate() error {
+	return validation.ValidateStruct(&n,
+		validation.Field(&n.TypeID,
+			validation.When(n.CreateTypeName != nil, validation.Nil.Error("validation_resolve_type_id_and_name"))),
+		validation.Field(&n.IssuerOrganizationID,
+			validation.When(n.CreateOrganizationName != nil, validation.Nil.Error("validation_resolve_org_id_and_name"))),
+	)
+}
+
+func (n CredentialResolveMetadataRequest) ToResolution(credentialID string) CredentialMetadataResolution {
+	return CredentialMetadataResolution{
+		CredentialID:           credentialID,
+		TypeID:                 n.TypeID,
+		CreateTypeName:         n.CreateTypeName,
+		OrganizationID:         n.IssuerOrganizationID,
+		CreateOrganizationName: n.CreateOrganizationName,
+		CompetencyIDs:          n.CompetencyIDs,
+		CreateCompetencyNames:  n.CreateCompetencyNames,
+	}
 }
 
 // CredentialApproveRequest is the JSON body for POST /api/credentials/batch/approve.

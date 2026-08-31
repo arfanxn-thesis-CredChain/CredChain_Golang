@@ -2,16 +2,21 @@ package credential
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"strings"
 	"testing"
 
 	"CredChain_Golang/domain"
+	httpContext "CredChain_Golang/infrastructure/http/context"
+	"CredChain_Golang/infrastructure/http/middleware"
 	"CredChain_Golang/tests/fixtures"
 	"CredChain_Golang/tests/gintest"
+	"CredChain_Golang/tests/mocks"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
@@ -135,8 +140,8 @@ func TestBuildSubmitItems_ParsesExtendedFields_NoHolderKey(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, items, 1)
 	it := items[0]
-	assert.Equal(t, "type-1", it.TypeID)
-	assert.Equal(t, "org-1", it.IssuerOrganizationID)
+	assert.Equal(t, "type-1", *it.TypeID)
+	assert.Equal(t, "org-1", *it.IssuerOrganizationID)
 	assert.Equal(t, &number, it.Number)
 	assert.Equal(t, "2026-08-01", *it.IssuedAt)
 	assert.Equal(t, "2026-09-01", *it.ExpiresAt)
@@ -596,4 +601,101 @@ func TestCredentialHandler_LinkCompetencies_CredentialNotFound(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.Equal(t, domain.CodeCredentialCompetencyLinkCredentialNotFound, resp.Code)
 	svc.AssertExpectations(t)
+}
+
+// newTestRouter mirrors the router.go wiring for the routes under test:
+// taxonomy GET is open, taxonomy writes and the credential metadata routes are
+// guarded by IssuerRoleMiddleware. AuthMiddleware (JWT + DB) is stood in for by
+// withHolderAuth, which injects the holder user straight into the context.
+func newTestRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	auth := &mocks.MockAuthorityService{}
+	auth.On("HasRoleOrAbove", mock.Anything, mock.Anything, domain.RoleIssuer).Return(false)
+	issuer := gin.HandlerFunc(middleware.NewIssuerRoleMiddleware(middleware.RoleMiddlewareParams{AuthorityService: auth}))
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+
+	r := gin.New()
+	api := r.Group("/api")
+	{
+		creds := api.Group("/credentials")
+		{
+			creds.PUT("/:id/metadata", issuer, ok)
+		}
+		credentialTypes := api.Group("/credential-types")
+		{
+			credentialTypes.GET("", ok)
+			credentialTypes.POST("", issuer, ok)
+		}
+		issuerOrganizations := api.Group("/issuer-organizations")
+		{
+			issuerOrganizations.GET("", ok)
+			issuerOrganizations.POST("", issuer, ok)
+		}
+		competencies := api.Group("/competencies")
+		{
+			competencies.GET("", ok)
+			competencies.POST("", issuer, ok)
+		}
+	}
+	return r
+}
+
+// withHolderAuth injects a holder user into the request context, mirroring what
+// AuthMiddleware does after validating a JWT. Mutates req in place.
+func withHolderAuth(t *testing.T, req *http.Request) {
+	t.Helper()
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	*req = *req.WithContext(context.WithValue(req.Context(), httpContext.UserKey, &user))
+}
+
+func TestResolveMetadataRouteRequiresIssuer(t *testing.T) {
+	r := newTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/credentials/01JCRED000000000000000000/metadata",
+		strings.NewReader(`{"type_id":"01JTYPE00000000000000000"}`))
+	req.Header.Set("Content-Type", "application/json")
+	withHolderAuth(t, req)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("holder got %d, want 403", w.Code)
+	}
+}
+
+func TestTaxonomyStoreRequiresIssuer(t *testing.T) {
+	r := newTestRouter(t)
+
+	for _, path := range []string{"/api/competencies", "/api/credential-types", "/api/issuer-organizations"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"name":"Sneaky"}`))
+		req.Header.Set("Content-Type", "application/json")
+		withHolderAuth(t, req)
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s: holder got %d, want 403", path, w.Code)
+		}
+	}
+}
+
+func TestTaxonomyListStaysOpenToHolders(t *testing.T) {
+	r := newTestRouter(t)
+
+	for _, path := range []string{"/api/competencies", "/api/credential-types", "/api/issuer-organizations"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		withHolderAuth(t, req)
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: holder got %d, want 200", path, w.Code)
+		}
+	}
 }

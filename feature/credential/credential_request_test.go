@@ -258,7 +258,7 @@ func TestCredentialRevokeRequest_Validate(t *testing.T) {
 func TestCredentialSubmitInput_Validate(t *testing.T) {
 	issued := "2026-08-01"
 	valid := func() CredentialSubmitInput {
-		return CredentialSubmitInput{Name: "Degree", TypeID: "type-1", IssuerOrganizationID: "org-1", IssuedAt: &issued}
+		return CredentialSubmitInput{Name: "Degree", TypeID: strPtr("type-1"), IssuerOrganizationID: strPtr("org-1"), IssuedAt: &issued}
 	}
 	t.Run("valid", func(t *testing.T) {
 		assert.NoError(t, valid().Validate())
@@ -268,15 +268,15 @@ func TestCredentialSubmitInput_Validate(t *testing.T) {
 		in.Name = ""
 		assert.Error(t, in.Validate())
 	})
-	t.Run("missing type", func(t *testing.T) {
+	t.Run("nil type allowed", func(t *testing.T) {
 		in := valid()
-		in.TypeID = ""
-		assert.Error(t, in.Validate())
+		in.TypeID = nil
+		assert.NoError(t, in.Validate())
 	})
-	t.Run("missing org", func(t *testing.T) {
+	t.Run("nil org allowed", func(t *testing.T) {
 		in := valid()
-		in.IssuerOrganizationID = ""
-		assert.Error(t, in.Validate())
+		in.IssuerOrganizationID = nil
+		assert.NoError(t, in.Validate())
 	})
 	t.Run("missing issued_at", func(t *testing.T) {
 		in := valid()
@@ -299,7 +299,7 @@ func TestCredentialSubmitInput_Validate(t *testing.T) {
 func TestCredentialSubmitRequest_Validate(t *testing.T) {
 	issued := "2026-08-01"
 	validItem := func() CredentialSubmitInput {
-		return CredentialSubmitInput{Name: "Degree", TypeID: "type-1", IssuerOrganizationID: "org-1", IssuedAt: &issued}
+		return CredentialSubmitInput{Name: "Degree", TypeID: strPtr("type-1"), IssuerOrganizationID: strPtr("org-1"), IssuedAt: &issued}
 	}
 	t.Run("valid", func(t *testing.T) {
 		r := CredentialSubmitRequest{Credentials: []CredentialSubmitInput{validItem()}}
