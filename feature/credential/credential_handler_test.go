@@ -621,22 +621,29 @@ func newTestRouter(t *testing.T) *gin.Engine {
 	{
 		creds := api.Group("/credentials")
 		{
+			creds.GET("/:id/metadata/suggestions", issuer, ok)
 			creds.PUT("/:id/metadata", issuer, ok)
 		}
 		credentialTypes := api.Group("/credential-types")
 		{
 			credentialTypes.GET("", ok)
 			credentialTypes.POST("", issuer, ok)
+			credentialTypes.PUT("/:id", issuer, ok)
+			credentialTypes.DELETE("/:id", issuer, ok)
 		}
 		issuerOrganizations := api.Group("/issuer-organizations")
 		{
 			issuerOrganizations.GET("", ok)
 			issuerOrganizations.POST("", issuer, ok)
+			issuerOrganizations.PUT("/:id", issuer, ok)
+			issuerOrganizations.DELETE("/:id", issuer, ok)
 		}
 		competencies := api.Group("/competencies")
 		{
 			competencies.GET("", ok)
 			competencies.POST("", issuer, ok)
+			competencies.PUT("/:id", issuer, ok)
+			competencies.DELETE("/:id", issuer, ok)
 		}
 	}
 	return r
@@ -664,6 +671,40 @@ func TestResolveMetadataRouteRequiresIssuer(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("holder got %d, want 403", w.Code)
+	}
+}
+
+func TestSuggestMetadataRouteRequiresIssuer(t *testing.T) {
+	r := newTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/credentials/01JCRED000000000000000000/metadata/suggestions", nil)
+	withHolderAuth(t, req)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("holder got %d, want 403", w.Code)
+	}
+}
+
+func TestTaxonomyUpdateDestroyRequiresIssuer(t *testing.T) {
+	r := newTestRouter(t)
+
+	for _, path := range []string{"/api/competencies/x", "/api/credential-types/x", "/api/issuer-organizations/x"} {
+		for _, method := range []string{http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, path, strings.NewReader(`{"name":"Sneaky"}`))
+			req.Header.Set("Content-Type", "application/json")
+			withHolderAuth(t, req)
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("%s %s: holder got %d, want 403", method, path, w.Code)
+			}
+		}
 	}
 }
 
