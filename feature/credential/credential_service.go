@@ -629,7 +629,7 @@ func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmis
 		return nil, err
 	}
 
-	creds, err := s.submitPrepareCredentials(ctx, authUser.Id, items, resolved)
+	creds, err := s.submitPrepareCredentials(authUser.Id, items, resolved)
 	if err != nil {
 		s.cleanupOrphanCredentialFiles(creds)
 		return nil, err
@@ -965,7 +965,6 @@ func (s *credentialService) submitValidate(
 // stamped at approval). Returns *domain.Error on encryption or storage
 // failure (caller cleans up orphan files).
 func (s *credentialService) submitPrepareCredentials(
-	ctx context.Context,
 	holderID string,
 	items []CredentialSubmission,
 	resolved *resolvedSubmissionMetadata,
@@ -1344,10 +1343,25 @@ func (s *credentialService) ResolveMetadata(
 			return err
 		}
 		if len(resolvedComps) > 0 {
+			// Skip competencies already linked: a re-resolve, a submit that
+			// resolved a name to this row, or two create-names converging on
+			// one row would otherwise collide on the join table's composite PK.
+			existing, err := uow.CompetencyCredential().FindByCredentialId(ctx, target.ID)
+			if err != nil {
+				return err
+			}
+			linkedIDs := lo.SliceToMap(existing, func(l domain.CompetencyCredential) (string, struct{}) {
+				return l.CompetencyId, struct{}{}
+			})
+
 			staged := append(domain.SubmittedCompetencies{}, target.SubmittedCompetencies...)
 			var newLinks []domain.CompetencyCredential
 			for _, c := range resolvedComps {
 				id := c.Id
+				if _, already := linkedIDs[id]; already {
+					continue
+				}
+				linkedIDs[id] = struct{}{}
 				matched := false
 				for i := range staged {
 					if staged[i].ResolvedID == nil &&

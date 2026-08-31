@@ -3358,6 +3358,35 @@ func TestResolveMetadataCreatesNewRows(t *testing.T) {
 	assert.Equal(t, out.ID, rows[0].ID)
 }
 
+func TestResolveMetadataDedupesConvergingCreates(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	if _, err := svc.competencyService.Store(context.Background(), "Discrete Math", nil); err != nil {
+		t.Fatalf("seed competency: %v", err)
+	}
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xdup1", IssuedAt: time.Now(),
+		SubmittedTypeName:               strPtr("Micro-credential"),
+		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
+		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	// Two create-names that normalize to the same row: before the dedupe
+	// guard this inserted two identical join rows and blew the composite PK.
+	_, err = svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID:           stored[0].ID,
+		CreateTypeName:         strPtr("Micro-credential"),
+		CreateOrganizationName: strPtr("Cyfrin Updraft"),
+		CreateCompetencyNames:  []string{"Discrete Math", "DISCRETE math"},
+	})
+	require.NoError(t, err)
+}
+
 func TestResolveMetadataRejectsNonPending(t *testing.T) {
 	svc, repo := newCredentialServiceWithSQLite(t)
 	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
