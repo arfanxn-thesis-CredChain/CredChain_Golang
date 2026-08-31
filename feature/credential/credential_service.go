@@ -51,6 +51,10 @@ type CredentialService interface {
 	// preserved for audit. This is deliberately a separate call from Approve so
 	// a failed on-chain mint can never half-create taxonomy rows.
 	ResolveMetadata(ctx context.Context, in CredentialMetadataResolution) (*domain.Credential, error)
+	// SuggestMetadataMatches proposes existing taxonomy rows for a pending
+	// credential's still-unresolved staged names, so a reviewer can link
+	// instead of creating near-duplicates. Read-only; confirm via ResolveMetadata.
+	SuggestMetadataMatches(ctx context.Context, credentialID string) (*CredentialMetadataSuggestions, error)
 	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
 	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
@@ -131,6 +135,35 @@ type CredentialMetadataResolution struct {
 	CompetencyIDs         []string
 	CreateCompetencyNames []string
 }
+
+// MetadataMatch is one candidate taxonomy row for a staged free-text name.
+type MetadataMatch struct {
+	Id     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+// StagedNameSuggestion pairs one unresolved submitted name with its closest
+// existing rows, so the reviewer can link instead of creating a near-duplicate.
+type StagedNameSuggestion struct {
+	SubmittedName string          `json:"submitted_name"`
+	Matches       []MetadataMatch `json:"matches"`
+}
+
+// CredentialMetadataSuggestions is the reviewer's whole "what do I do with
+// this?" payload. A nil Type or Organization means that kind is already
+// resolved; Competencies lists only the still-unresolved staged entries.
+type CredentialMetadataSuggestions struct {
+	CredentialID string                   `json:"credential_id"`
+	Type         *StagedNameSuggestion    `json:"type"`
+	Organization *StagedNameSuggestion    `json:"organization"`
+	Competencies []StagedNameSuggestion   `json:"competencies"`
+}
+
+// metadataSuggestionLimit caps the "did you mean" list per staged name. Five
+// is enough to surface a near-duplicate without turning the review into a
+// browsing exercise.
+const metadataSuggestionLimit = 5
 
 // ── Implementation struct & constructor ───────────────────────────────────
 
@@ -1444,6 +1477,67 @@ func (s *credentialService) resolveStagedCompetencies(
 			return nil, err
 		}
 		out = append(out, *c)
+	}
+
+	return out, nil
+}
+
+// SuggestMetadataMatches proposes existing taxonomy rows (type, issuer
+// organization, competencies) for a pending credential's still-unresolved
+// staged names. It never mutates — the reviewer confirms by calling
+// ResolveMetadata.
+func (s *credentialService) SuggestMetadataMatches(
+	ctx context.Context,
+	credentialID string,
+) (*CredentialMetadataSuggestions, error) {
+	target, err := s.repo.Find(ctx, credentialID, nil)
+	if err != nil || target == nil {
+		return nil, domain.NewError(domain.CodeCredentialMetadataResolveNotFound,
+			domain.WithMetadata("credential_id", credentialID))
+	}
+
+	out := &CredentialMetadataSuggestions{CredentialID: target.ID}
+
+	if target.TypeID == nil && target.SubmittedTypeName != nil {
+		rows, err := s.typeRepo.SuggestByName(ctx, *target.SubmittedTypeName, metadataSuggestionLimit)
+		if err != nil {
+			return nil, err
+		}
+		out.Type = &StagedNameSuggestion{
+			SubmittedName: *target.SubmittedTypeName,
+			Matches: lo.Map(rows, func(r domain.CredentialType, _ int) MetadataMatch {
+				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
+			}),
+		}
+	}
+
+	if target.IssuerOrganizationID == nil && target.SubmittedIssuerOrganizationName != nil {
+		rows, err := s.orgRepo.SuggestByName(ctx, *target.SubmittedIssuerOrganizationName, metadataSuggestionLimit)
+		if err != nil {
+			return nil, err
+		}
+		out.Organization = &StagedNameSuggestion{
+			SubmittedName: *target.SubmittedIssuerOrganizationName,
+			Matches: lo.Map(rows, func(r domain.CredentialIssuerOrganization, _ int) MetadataMatch {
+				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
+			}),
+		}
+	}
+
+	for _, sc := range target.SubmittedCompetencies {
+		if sc.ResolvedID != nil {
+			continue
+		}
+		rows, err := s.competencyRepo.SuggestByName(ctx, sc.Name, metadataSuggestionLimit)
+		if err != nil {
+			return nil, err
+		}
+		out.Competencies = append(out.Competencies, StagedNameSuggestion{
+			SubmittedName: sc.Name,
+			Matches: lo.Map(rows, func(r domain.Competency, _ int) MetadataMatch {
+				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
+			}),
+		})
 	}
 
 	return out, nil

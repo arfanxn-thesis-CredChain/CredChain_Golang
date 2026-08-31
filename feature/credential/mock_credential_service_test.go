@@ -116,3 +116,11 @@ func (m *mockCredentialService) ResolveMetadata(ctx context.Context, in Credenti
 	}
 	return args.Get(0).(*domain.Credential), args.Error(1)
 }
+
+func (m *mockCredentialService) SuggestMetadataMatches(ctx context.Context, credentialID string) (*CredentialMetadataSuggestions, error) {
+	args := m.Called(ctx, credentialID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*CredentialMetadataSuggestions), args.Error(1)
+}

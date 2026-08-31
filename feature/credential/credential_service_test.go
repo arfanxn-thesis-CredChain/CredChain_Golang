@@ -3411,6 +3411,52 @@ func TestResolveMetadataRejectsNonPending(t *testing.T) {
 	assert.Equal(t, domain.CodeCredentialMetadataResolveNotPending, derr.Code)
 }
 
+func TestSuggestMetadataMatches(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	if _, err := svc.competencyService.Store(context.Background(), "Discrete Mathematics", nil); err != nil {
+		t.Fatalf("seed competency: %v", err)
+	}
+	if _, err := svc.competencyService.Store(context.Background(), "Database Systems", nil); err != nil {
+		t.Fatalf("seed competency: %v", err)
+	}
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xsug1", IssuedAt: time.Now(),
+		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	out, err := svc.SuggestMetadataMatches(ctx, stored[0].ID)
+	require.NoError(t, err)
+
+	require.Len(t, out.Competencies, 1)
+	assert.Equal(t, "Discrete Math", out.Competencies[0].SubmittedName)
+	require.NotEmpty(t, out.Competencies[0].Matches)
+	assert.Equal(t, "Discrete Mathematics", out.Competencies[0].Matches[0].Name)
+}
+
+func TestSuggestMetadataMatchesSkipsResolved(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xsug2", IssuedAt: time.Now(),
+		TypeID:            strPtr("t1"),
+		SubmittedTypeName: strPtr("Diploma"),
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	out, err := svc.SuggestMetadataMatches(ctx, stored[0].ID)
+	require.NoError(t, err)
+	assert.Nil(t, out.Type)
+}
+
 func TestApproveBlocksUnresolvedMetadata(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
