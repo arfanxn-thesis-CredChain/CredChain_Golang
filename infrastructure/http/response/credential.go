@@ -69,7 +69,7 @@ func FromDomainCredential(c domain.Credential) Credential {
 		SubmittedTypeName:               c.SubmittedTypeName,
 		TypeID:                          c.TypeID,
 		SubmittedCompetencies:           c.SubmittedCompetencies,
-		UnresolvedMetadata:              c.UnresolvedMetadata(),
+		UnresolvedMetadata:              normalizeUnresolvedMetadata(c.UnresolvedMetadata()),
 		Number:                          c.Number,
 		RevokerUserID:                   c.RevokerUserID,
 		Name:                            c.Name,
@@ -105,6 +105,15 @@ func FromDomainCredential(c domain.Credential) Credential {
 		out.Revoker = &r
 	}
 	return out
+}
+
+// normalizeUnresolvedMetadata guarantees the JSON field is `[]` rather than
+// `null` when nothing blocks approval — the UI reads `.length` to gate Approve.
+func normalizeUnresolvedMetadata(u []string) []string {
+	if u == nil {
+		return []string{}
+	}
+	return u
 }
 
 // CredentialVerify is the response payload for POST /api/credentials/verify.
