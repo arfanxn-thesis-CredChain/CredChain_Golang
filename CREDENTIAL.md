@@ -4,28 +4,43 @@
 
 ## Entity Definitions
 
-### `domain.Credential` (`domain/credential.go:37-58`)
+### `domain.Credential` (`domain/credential.go:67-115`)
 
 | Field | DB Type | Purpose |
 |-------|---------|---------|
 | `ID` | `CHAR(26)` PK | ULID primary key |
-| `HolderUserID` | `CHAR(26)` FK → `users.id` | Credential owner |
-| `IssuerUserID` | `CHAR(26)` FK → `users.id` | Who issued it |
+| `HolderUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Credential owner |
+| `SubmitterUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Who submitted it (self-submission: submitter == holder) |
+| `IssuerUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Who minted it on-chain (stamped at approval for self-submissions) |
+| `SubmittedIssuerOrganizationName` | `VARCHAR(256)`, nullable | Free-text issuer org name staged when no taxonomy row matched at submit |
+| `IssuerOrganizationID` | `CHAR(26)` FK → `credential_issuer_organizations.id`, nullable | Resolved org; nil until a reviewer resolves the staged name |
+| `SubmittedTypeName` | `VARCHAR(256)`, nullable | Free-text credential-type name staged when no taxonomy row matched at submit |
+| `TypeID` | `CHAR(26)` FK → `credential_types.id`, nullable | Resolved type; nil until a reviewer resolves the staged name |
+| `Number` | `VARCHAR(256)`, nullable | Credential number; unique within an issuer organization (partial unique index) |
 | `RevokerUserID` | `CHAR(26)` FK → `users.id`, nullable | Who revoked it |
-| `Name` | `VARCHAR(256)` | Human-readable label (e.g. "Bachelor's Degree") |
+| `Name` | `VARCHAR(256)`, NOT NULL | Human-readable label (e.g. "Bachelor's Degree") |
 | `Meta` | `JSONB` | Arbitrary metadata (institution, grade, etc.) |
-| `TokenID` | `VARCHAR(256)`, unique | On-chain ERC-721 token ID (decimal string) |
-| `FileHash` | `CHAR(66)` | `0x`-prefixed keccak256 of raw file bytes |
+| `SubmittedCompetencies` | `JSONB` | Staged competency names, `[{name, resolved_id}]`; the name survives resolution for audit |
+| `TokenID` | `VARCHAR(256)`, unique, nullable | On-chain ERC-721 token ID (decimal string) |
+| `FileHash` | `CHAR(66)`, NOT NULL | `0x`-prefixed keccak256 of raw file bytes |
 | `FileURI` | `TEXT`, nullable | Storage path (e.g. `local:///uploads/...`) |
-| `ExtractStatus` | `credential_extract_status` ENUM | Async extraction job state |
+| `ExtractStatus` | `credential_extract_status` ENUM, NOT NULL | Async extraction job state |
 | `ExtractError` | `TEXT`, nullable | Error message if extraction failed |
 | `ExtractedAt` | `TIMESTAMP`, nullable | When extraction completed |
-| `IssuedAt` | `TIMESTAMP` | When credential was created (default `CURRENT_TIMESTAMP`) |
+| `IssuedAt` | `TIMESTAMP`, NOT NULL | When credential was created (minted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
+| `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
+| `ApproverUserID` | `CHAR(26)` FK → `users.id`, nullable | Who approved it |
+| `ApprovedAt` | `TIMESTAMP`, nullable | When approved (mint time); drives `approved` lifecycle |
+| `RejecterUserID` | `CHAR(26)` FK → `users.id`, nullable | Who rejected it |
+| `RejectedAt` | `TIMESTAMP`, nullable | When rejected; drives `rejected` lifecycle |
+| `RejectionReason` | `TEXT`, nullable | Why rejected |
+| `CreatedAt` | `TIMESTAMP`, NOT NULL | Row creation time |
+| `UpdatedAt` | `TIMESTAMP`, nullable | Row update time |
 
-**Sources:** Go `domain/credential.go`, Postgres migration `000001_initial_schema.up.sql:39-57`, GORM model `model/credential.go:20-43`.
+**Sources:** Go `domain/credential.go:67-115`, GORM model `infrastructure/database/gorm/model/credential.go:27-70`, Postgres migration `000001_initial_schema.up.sql:100-156`.
 
-Embeds `Holder`, `Issuer`, `Revoker` (`*domain.User`, `gorm:"-" json:"-"`) populated by GORM Preload when query.Includes contains the corresponding key. Never serialized to JSON — response DTO maps them explicitly.
+Embeds `Holder`, `Issuer`, `Revoker` (`*domain.User`, `gorm:"-" json:"-"`) populated by GORM Preload when query.Includes contains the corresponding key, and `Competencies` (`[]domain.Competency`, `gorm:"-" json:"-"`) populated from the `competency_credential` join table when Includes contains `"competencies"`. None are serialized to JSON — the response DTO maps them explicitly.
 
 ### `response.Credential` (`response/credential.go:15-33`)
 
@@ -64,12 +79,12 @@ Plain JSON `{"ids": [...]}`, 1-100 items per batch.
 
 ## Extract Status Lifecycle
 
-Three-value `ExtractStatus` ENUM (`credential_extract_status` in Postgres):
+Four-value `ExtractStatus` ENUM (`credential_extract_status` in Postgres):
 
 ```
-pending ──→ succeeded
-  │
-  └──→ failed ──→ pending (via ReExtract)
+unextracted ──→ pending ──→ succeeded
+                │
+                └──→ failed ──→ pending (via ReExtract)
 ```
 
 | Status | Go Constant | Meaning |
@@ -77,10 +92,11 @@ pending ──→ succeeded
 | `pending` | `ExtractStatusPending` | Awaiting OCR by Python River worker |
 | `succeeded` | `ExtractStatusSucceeded` | Text/IDs/embedding extracted and stored in Mongo |
 | `failed` | `ExtractStatusFailed` | Extraction failed; retryable via ReExtract |
+| `unextracted` | `ExtractStatusUnextracted` | No extraction performed — the state self-submitted credentials start in |
 
-**Sources:** `domain/credential.go:16-22`, migration `000001_initial_schema.up.sql:33-37`.
+**Sources:** `domain/credential.go:16-27`, migration `000001_initial_schema.up.sql:93-98`.
 
-New credentials are created with `extract_status=pending`. On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
+Directly-issued credentials are created with `extract_status=pending`; the extraction job is enqueued at approval. Self-submitted credentials instead start at `unextracted` — extraction runs **after approval**, not at submit — and flip to `pending` only when a reviewer approves them. On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
 
 **ReExtract flow** (`credential_service.go:628-677`):
 1. Validates all targets exist, are `failed`, and have `file_uri`
@@ -145,6 +161,8 @@ RegistryService.RevokeCredentials:
 5. Contract sets `credentialHashToStatus[hash] = Revoked`
 6. Token remains soulbound (no transfer/burn allowed — `_update()` reverts)
 
+**Known revocation gap:** `CredentialRegistry.sol:205` (`batchRevokeCredentialsWithSignature`) gates revocation only on the revoker holding the Issuer role (`onlyRoleOrAbove(params.revoker, CredentialAuthority.Role.Issuer)`, line 209) — `_revokeCredential` (line 375) never checks that the revoker is the credential's issuing organization. Any address holding the Issuer role can revoke any credential, not only ones it issued. Accepted within the current single-institution deployment; revisit before multi-tenant.
+
 ### FindCredentialByHash (Exact-Hash Verify Path — Planned)
 
 Uses Postgres bridge:
@@ -157,37 +175,63 @@ Uses Postgres bridge:
 
 ---
 
-## Credential Status Enum (DB-level)
+## Credential Lifecycle Status (timestamp-derived)
 
-Derived from `RevokedAt`:
+There is no separate DB status column. `Credential.LifecycleStatus()` (`domain/credential.go:126-137`) derives the workflow lifecycle purely from timestamps, in this precedence order:
 
 | Status | Condition | Meaning |
 |--------|-----------|---------|
-| Active | `revoked_at IS NULL` | Credential is live and verifiable |
-| Revoked | `revoked_at IS NOT NULL` | Credential was revoked by an Issuer+ |
+| `pending` | no approval/rejection/revocation timestamp | Submitted, awaiting Issuer review |
+| `approved` | `approved_at IS NOT NULL` | Reviewed and minted on-chain |
+| `rejected` | `rejected_at IS NOT NULL` | Reviewed and refused |
+| `revoked` | `revoked_at IS NOT NULL` | Previously approved, later invalidated |
 
-No separate DB status column — revocation is timestamp-driven. The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
+Notes:
+
+- `chk_credentials_approved_xor_rejected` makes approve/reject mutually exclusive at the DB level.
+- Directly-issued credentials are stamped `approved_at` at creation (never `pending`).
+- Expiry is deliberately NOT part of this derivation — `expires_at` is evaluated only on the verification path.
+- The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
 
 ---
 
 ## API Routes
 
-**Source:** `infrastructure/http/router.go:79-109`
+**Source:** `infrastructure/http/router.go:113-161`
 
 | Route | Method | Auth | Handler | Notes |
 |---|---|---|---|---|
 | `/api/credentials/verify` | POST | None (public) | `Verify` | Rate-limited by global ApiRateLimitMiddleware |
 | `/api/credentials` | GET | Issuer+ (on-chain) | `Paginate` | Search, filters, sorts, includes (holder/issuer/revoker) |
 | `/api/credentials/:id` | GET | Issuer+ (on-chain) | `Find` | Single credential with optional Preload |
-| `/api/credentials/:id/file` | GET | Authenticated (no role gate) | `DownloadFile` | Download decrypted credential file; authorization via policy (holder OR Issuer+) |
-| `/api/credentials/batch/issue` | POST | Issuer+ (on-chain) | `Issue` | Multipart form, 1-100 items |
+| `/api/credentials/:id/competencies` | PUT | Issuer+ (on-chain) | `LinkCompetencies` | Replace-set of resolved competency links |
+| `/api/credentials/:id/metadata/suggestions` | GET | Issuer+ (on-chain) | `SuggestMetadata` | Top-5 pg_trgm similarity suggestions per staged name |
+| `/api/credentials/:id/metadata` | PUT | Issuer+ (on-chain) | `ResolveMetadata` | Link existing or create new taxonomy rows for staged names |
+| `/api/credentials/batch/issue` | POST | Issuer+ (on-chain) | `Issue` | Multipart form, 1-100 items; stamped approved at creation |
+| `/api/credentials/batch/submit` | POST | Authenticated (no role gate) | `Submit` | Self-submission; id-or-name, unmatched names staged |
+| `/api/credentials/batch/approve` | POST | Issuer+ (on-chain) | `Approve` | JSON body `{"ids": [...]}`; blocked while metadata unresolved |
+| `/api/credentials/batch/reject` | POST | Issuer+ (on-chain) | `Reject` | JSON body `{"ids": [...]}`; keeps unresolved names as audit |
+| `/api/credentials/batch` | PUT | Issuer+ (on-chain) | `Update` | Batch update |
 | `/api/credentials/batch/revoke` | POST | Issuer+ (on-chain) | `Revoke` | JSON body `{"ids": [...]}` |
 | `/api/credentials/batch/reextract` | POST | Issuer+ (on-chain) | `ReExtract` | JSON body `{"ids": [...]}` |
+| `/api/credentials/:id/file` | GET | Authenticated (no role gate) | `DownloadFile` | Download decrypted credential file; authorization via policy (holder OR Issuer+) |
+| `/api/credential-types` | GET | Authenticated (no role gate) | `Paginate` | Taxonomy lookup — open to any authenticated user |
+| `/api/credential-types` | POST | Issuer+ (on-chain) | `Store` | Create a credential type |
+| `/api/credential-types/:id` | PUT | Issuer+ (on-chain) | `Update` | Rename / deactivate a credential type |
+| `/api/credential-types/:id` | DELETE | Issuer+ (on-chain) | `Destroy` | Delete a credential type |
+| `/api/issuer-organizations` | GET | Authenticated (no role gate) | `Paginate` | Taxonomy lookup — open to any authenticated user |
+| `/api/issuer-organizations` | POST | Issuer+ (on-chain) | `Store` | Create an issuer organization |
+| `/api/issuer-organizations/:id` | PUT | Issuer+ (on-chain) | `Update` | Rename / deactivate an issuer organization |
+| `/api/issuer-organizations/:id` | DELETE | Issuer+ (on-chain) | `Destroy` | Delete an issuer organization |
+| `/api/competencies` | GET | Authenticated (no role gate) | `Paginate` | Taxonomy lookup — open to any authenticated user |
+| `/api/competencies` | POST | Issuer+ (on-chain) | `Store` | Create a competency |
+| `/api/competencies/:id` | PUT | Issuer+ (on-chain) | `Update` | Rename / deactivate a competency |
+| `/api/competencies/:id` | DELETE | Issuer+ (on-chain) | `Destroy` | Delete a competency |
 | `/api/users/self/credentials` | GET | Authenticated | `SelfPaginate` | Scoped to `holder_user_id == auth_user.id` |
 | `/api/users/self/credentials/:id` | GET | Authenticated | `SelfFind` | 404 if not owned (no ID leak) |
 | `/api/overview` | GET | Authenticated (no role gate) | `Get` | Role-conditional dashboard: credential_counts + recents (Holder: own, Issuer+: system-wide). Optional `?limit=N` controls recent items per category (default 5). |
 
-**Route middleware chain:** `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `IssuerRoleMiddleware` (for credential management routes).
+**Route middleware chain:** `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `IssuerRoleMiddleware` (for credential management and taxonomy-write routes).
 
 Credential policy checks use **DB-stored role rank**, not on-chain.
 
@@ -261,6 +305,42 @@ Architecture: sync chain, async embeddings.
 1. Role enforcement via `IssuerRoleMiddleware` (route-level, on-chain check) — no policy gate
 2. UoW: `FindByIds` targets → validate all exist + are failed + have file_uri → CASE batch UPDATE (extract_status=pending, extract_error="") → enqueue River jobs
 3. On enqueue failure: **compensate** — stamp back to failed with `"reenqueue failed"` error
+
+### Submit / Resolve / Approve (`credential_service.go:649-1544`)
+
+Self-submission pipeline: a holder submits a credential (possibly naming taxonomy rows that do not exist yet), a reviewer resolves the staged names, then approves (mints). Direct issue (`/batch/issue`) bypasses this — those rows are stamped approved at creation.
+
+**Submit** (`Submit`, `credential_service.go:649`) — `POST /api/credentials/batch/submit`, any authenticated user:
+
+1. Type and issuer organization are **id-or-name**; competency IDs are strict, competency names follow the same name rules.
+2. An unknown ID is a **client bug** — it errors (the row must exist and be active).
+3. A name matching an existing **active** row resolves immediately (the row's ID is stamped).
+4. A name matching an **inactive** row errors — a reviewer could only link it to a deliberately retired row.
+5. A name matching nothing is **staged** on the credential row (`submitted_type_name` / `submitted_issuer_organization_name` / `submitted_competencies` JSONB) with the paired FK left NULL. Nothing is silently created.
+6. Name lookups are batched: exactly one query per taxonomy table per batch (`resolveSubmissionNames`, `credential_service.go:722`) — no N+1.
+7. Number uniqueness is **skipped** for a staged (unresolved) organization at submit — there is no org scope to be unique within yet; it is re-checked at resolution time.
+
+**Resolve metadata** (`ResolveMetadata`, `credential_service.go:1286`) — `PUT /api/credentials/:id/metadata`:
+
+1. Pending-only: a non-pending credential returns `CodeCredentialMetadataResolveNotPending` (401541, HTTP 422) — the same immutability rule as batch Update.
+2. Idempotent upsert-by-name creation: creating a taxonomy row by name routes through the taxonomy service's `Store`, so two concurrent reviewers racing on the same name converge on one row (backstopped by the `LOWER(name)` unique index).
+3. A resolved competency becomes a real `competency_credential` join row; the submitted name's `resolved_id` is stamped in place.
+4. Staged names are **never erased** — the free text survives resolution (and rejection) as an audit trail.
+5. Number uniqueness is re-checked once the credential finally has an org scope (`CodeCredentialMetadataResolveNumberDuplicate` 401545, HTTP 409).
+
+**Suggestions** (`SuggestMetadataMatches`, `credential_service.go:1489`) — `GET /api/credentials/:id/metadata/suggestions`:
+
+- Top 5 per staged name (`metadataSuggestionLimit = 5`), ranked by Postgres `pg_trgm` trigram similarity (`similarity(name, ?) > 0.1`).
+
+**Approve** (`Approve`, `credential_service.go:1213`) — `POST /api/credentials/batch/approve`:
+
+1. Refuses any credential with unresolved staged metadata — `CodeCredentialApproveUnresolvedMetadata` (401546, HTTP 422).
+2. The DB CHECK `chk_credentials_approved_metadata_resolved` backstops the type + organization half; the service enforces the JSONB competency half (`UnresolvedMetadata`, `domain/credential.go:143-158`) so the error is usable either way.
+3. Approval and on-chain mint run in the **same unit of work** — a failed mint rolls the approval back and the rows stay pending.
+
+**Reject** (`Reject`, `credential_service.go:1554`) — `POST /api/credentials/batch/reject`:
+
+- No unresolved-metadata guard: rejected rows keep their unresolved names as an audit trail.
 
 ---
 
@@ -453,6 +533,20 @@ Verdict codes (400401-400412) deliberately avoid CC 01-12 for other credential c
 | 400641 | `CodeCredentialFileDownloadForbidden` | 403 | Not authorized (not holder, not Issuer+) |
 | 400642 | `CodeCredentialFileDownloadDecryptionFailed` | 500 | File decryption error |
 | 400643 | `CodeCredentialFileDownloadNoFile` | 404 | Credential has no stored file |
+
+### Credential Metadata Resolve / Approve (40-15)
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401500 | `CodeCredentialMetadataResolveSuccess` | 200 | Metadata resolved |
+| 401501 | `CodeCredentialMetadataSuggestSuccess` | 200 | Suggestions fetched |
+| 401540 | `CodeCredentialMetadataResolveNotFound` | 404 | Credential not found |
+| 401541 | `CodeCredentialMetadataResolveNotPending` | 422 | Credential not pending (immutable) |
+| 401542 | `CodeCredentialMetadataResolveNothingStaged` | 422 | Nothing staged to resolve |
+| 401543 | `CodeCredentialMetadataResolveTargetNotFound` | 404 | Target taxonomy row not found |
+| 401544 | `CodeCredentialMetadataResolveTargetInactive` | 422 | Target taxonomy row inactive |
+| 401545 | `CodeCredentialMetadataResolveNumberDuplicate` | 409 | Credential number already used within the org |
+| 401546 | `CodeCredentialApproveUnresolvedMetadata` | 422 | Approval blocked — unresolved staged metadata |
 
 ---
 

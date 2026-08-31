@@ -438,10 +438,13 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 - Migration logic is inlined in `cmd/migrate.go` (no separate `infrastructure/database/migrate.go`)
 - DSN: `POSTGRES_DSN=postgres://...?sslmode=disable`
 - Repository search uses dialect-agnostic `LOWER(name) LIKE LOWER(?)` (not Postgres-only `ILIKE`); works on both Postgres and SQLite
+- `pg_trgm` extension enabled (`000001_initial_schema.up.sql`); trigram GIN indexes on taxonomy `name` columns back the reviewer's metadata suggestions (`similarity(name, ?)`)
 
 **SQLite (testing only):** GORM repository tests run against in-memory SQLite via `github.com/glebarez/sqlite` (pure Go, no CGO). Not used in production.
 
 **Credentials schema note:** the `credentials.embeddings` column is removed. Extraction data (text, ids, embedding) now lives in MongoDB `credential_extractions`.
+
+**Credential metadata staging:** a submitted credential may carry free-text `submitted_type_name` / `submitted_issuer_organization_name` / `submitted_competencies` names with NULL FKs — the unmatched text is staged on the row, not silently created, and a reviewer resolves it via `PUT /api/credentials/:id/metadata` before approval (approval is blocked while unresolved, `CodeCredentialApproveUnresolvedMetadata` 401546).
 
 **MongoDB:** Actively used. Two collections: `credential_extractions` (text, ids, embedding, file_hash) and `credential_verifications` (TTL-bounded verify cache keyed by uploaded_file_hash). Migration runs inside `make local-up` / `make dev-up`; standalone via `go run main.go migrate-mongo up` / `migrate-mongo down --env .env`. `infrastructure/database/mongo/client.go` provides FX providers.
 

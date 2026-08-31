@@ -79,10 +79,29 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/users/batch/restore` | PUT | Authenticated | Admin+ |
 | `/api/credentials` | GET | Authenticated | Issuer+ |
 | `/api/credentials/:id` | GET | Authenticated | Issuer+ |
+| `/api/credentials/:id/competencies` | PUT | Authenticated | Issuer+ — replace-set of resolved competency links |
+| `/api/credentials/:id/metadata/suggestions` | GET | Authenticated | Issuer+ — top-5 pg_trgm suggestions per staged name |
+| `/api/credentials/:id/metadata` | PUT | Authenticated | Issuer+ — resolve staged names (link existing or create new) |
 | `/api/credentials/batch/issue` | POST | Authenticated | Issuer+ |
+| `/api/credentials/batch/submit` | POST | Authenticated | Any — self-submit; unmatched names staged, not created |
+| `/api/credentials/batch/approve` | POST | Authenticated | Issuer+ — blocked while metadata unresolved |
+| `/api/credentials/batch/reject` | POST | Authenticated | Issuer+ |
+| `/api/credentials/batch` | PUT | Authenticated | Issuer+ |
 | `/api/credentials/batch/revoke` | POST | Authenticated | Issuer+ |
 | `/api/credentials/batch/reextract` | POST | Authenticated | Issuer+ |
 | `/api/credentials/verify` | POST | **None (public)** | None — used by external verifiers (HR, employers); returns verdict 400401-400412 including party-disabled (400410-400412) for trashed holder/issuer |
+| `/api/credential-types` | GET | Authenticated | Any — taxonomy lookup |
+| `/api/credential-types` | POST | Authenticated | Issuer+ |
+| `/api/credential-types/:id` | PUT | Authenticated | Issuer+ |
+| `/api/credential-types/:id` | DELETE | Authenticated | Issuer+ |
+| `/api/issuer-organizations` | GET | Authenticated | Any — taxonomy lookup |
+| `/api/issuer-organizations` | POST | Authenticated | Issuer+ |
+| `/api/issuer-organizations/:id` | PUT | Authenticated | Issuer+ |
+| `/api/issuer-organizations/:id` | DELETE | Authenticated | Issuer+ |
+| `/api/competencies` | GET | Authenticated | Any — taxonomy lookup |
+| `/api/competencies` | POST | Authenticated | Issuer+ |
+| `/api/competencies/:id` | PUT | Authenticated | Issuer+ |
+| `/api/competencies/:id` | DELETE | Authenticated | Issuer+ |
 | `/api/overview` | GET | Authenticated | Any — role-conditional response (Holder: own data; Issuer+: system-wide) |
 
 **Role middlewares** (`infrastructure/http/middleware/auth.go:94-146`):
@@ -240,6 +259,11 @@ Find credential                 —      —       ✓       ✓       ✓
 Issue credentials               —      —       ✓       ✓       ✓
 Revoke credentials              —      —       ✓       ✓       ✓
 Re-extract credential           —      —       ✓       ✓       ✓
+Submit own credentials          —      ✓       ✓       ✓       ✓
+Approve/reject submissions      —      —       ✓       ✓       ✓
+Resolve staged metadata         —      —       ✓       ✓       ✓
+Read taxonomy lookups           —      ✓       ✓       ✓       ✓
+Create/update taxonomy rows     —      —       ✓       ✓       ✓
 Verify credential (public)      ✓      ✓       ✓       ✓       ✓
 ```
 
@@ -281,6 +305,11 @@ Verify credential (public)      ✓      ✓       ✓       ✓       ✓
 | Update SuperAdmin's profile | Admin+ (SuperAdmin can self-edit; cannot change own email via batch) | `CodeUserUpdateSuperAdminForbidden` (300843) |
 | Same-role update | Admin+ | `CodeUserRoleSameRoleUpdateForbidden` (300543) |
 | Below-Admin accesses Admin+ endpoint | Holder, Issuer | `CodeUserRoleSignerAdminRequiredForbidden` (300542) / `CodeAuthForbidden` (200142) |
+| Create a taxonomy row (credential type / issuer org / competency) | Holder | `CodeAuthForbidden` (200142) — submit a free-text name instead; a reviewer resolves it |
+| Approve a submission with unresolved metadata | Everyone (incl. Issuer+) | `CodeCredentialApproveUnresolvedMetadata` (401546) — resolve staged names first |
+| Resolve metadata on a non-pending credential | Everyone | `CodeCredentialMetadataResolveNotPending` (401541) |
+
+**Taxonomy writes are Issuer+ by design, not Admin+.** The metadata resolver is an Issuer, so a reviewer who could create a taxonomy row but not rename a typo'd one would be stuck. `POST` was previously unguarded — any authenticated holder could create globally-visible taxonomy rows — so the write role was deliberately lowered from Admin+ to Issuer+ (still above Holder) rather than left open.
 
 ---
 
