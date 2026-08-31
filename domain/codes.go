@@ -227,4 +227,18 @@ const (
 	CodeCredentialUpdateSuccess    = 401400
 	CodeCredentialUpdateNotFound   = 401440
 	CodeCredentialUpdateNotPending = 401441
+
+	// ── Metadata Resolution (15) ────────────────────────────────────────────
+	// A submitted credential may carry free-text metadata names that had no
+	// taxonomy row at submit time. A reviewer resolves each name — linking an
+	// existing row or creating one — before the credential can be approved.
+	CodeCredentialMetadataResolveSuccess         = 401500
+	CodeCredentialMetadataSuggestSuccess         = 401501
+	CodeCredentialMetadataResolveNotFound        = 401540
+	CodeCredentialMetadataResolveNotPending      = 401541
+	CodeCredentialMetadataResolveNothingStaged   = 401542
+	CodeCredentialMetadataResolveTargetNotFound  = 401543
+	CodeCredentialMetadataResolveTargetInactive  = 401544
+	CodeCredentialMetadataResolveNumberDuplicate = 401545
+	CodeCredentialApproveUnresolvedMetadata      = 401546
 )

@@ -200,5 +200,14 @@
     "error_credential_competency_link_competency_not_found": "Satu atau lebih kompetensi tidak ditemukan.",
     "success_credential_update": "Kredensial berhasil diperbarui.",
     "error_credential_update_not_found": "Kredensial tidak ditemukan.",
-    "error_credential_update_not_pending": "Hanya kredensial berstatus pending yang dapat diperbarui."
+    "error_credential_update_not_pending": "Hanya kredensial berstatus pending yang dapat diperbarui.",
+    "success_credential_metadata_resolve": "Metadata kredensial berhasil diselesaikan.",
+    "success_credential_metadata_suggest": "Saran metadata berhasil diambil.",
+    "error_credential_metadata_resolve_not_found": "Kredensial tidak ditemukan.",
+    "error_credential_metadata_resolve_not_pending": "Hanya kredensial berstatus pending yang metadatanya dapat diselesaikan.",
+    "error_credential_metadata_resolve_nothing_staged": "Kredensial ini tidak memiliki metadata yang belum terselesaikan.",
+    "error_credential_metadata_resolve_target_not_found": "Satu atau lebih entri taksonomi yang dirujuk tidak ditemukan.",
+    "error_credential_metadata_resolve_target_inactive": "Satu atau lebih entri taksonomi yang dirujuk tidak aktif.",
+    "error_credential_metadata_resolve_number_duplicate": "Nomor sudah digunakan untuk organisasi penerbit ini.",
+    "error_credential_approve_unresolved_metadata": "Kredensial ini memiliki metadata yang belum terselesaikan dan tidak dapat disetujui."
 }

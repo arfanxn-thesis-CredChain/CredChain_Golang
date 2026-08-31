@@ -200,5 +200,14 @@
     "error_credential_competency_link_competency_not_found": "One or more competencies were not found.",
     "success_credential_update": "Credential updated successfully.",
     "error_credential_update_not_found": "Credential not found.",
-    "error_credential_update_not_pending": "Only pending credentials can be updated."
+    "error_credential_update_not_pending": "Only pending credentials can be updated.",
+    "success_credential_metadata_resolve": "Credential metadata resolved successfully.",
+    "success_credential_metadata_suggest": "Metadata suggestions retrieved successfully.",
+    "error_credential_metadata_resolve_not_found": "Credential not found.",
+    "error_credential_metadata_resolve_not_pending": "Only pending credentials can have their metadata resolved.",
+    "error_credential_metadata_resolve_nothing_staged": "This credential has no unresolved metadata.",
+    "error_credential_metadata_resolve_target_not_found": "One or more referenced taxonomy rows were not found.",
+    "error_credential_metadata_resolve_target_inactive": "One or more referenced taxonomy rows are inactive.",
+    "error_credential_metadata_resolve_number_duplicate": "Number already in use for this issuer organization.",
+    "error_credential_approve_unresolved_metadata": "This credential has unresolved metadata and cannot be approved."
 }

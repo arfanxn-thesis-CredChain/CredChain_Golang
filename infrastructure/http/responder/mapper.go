@@ -209,6 +209,17 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialUpdateSuccess:    "success_credential_update",
 	domain.CodeCredentialUpdateNotFound:   "error_credential_update_not_found",
 	domain.CodeCredentialUpdateNotPending: "error_credential_update_not_pending",
+
+	// Credential Metadata Resolution codes
+	domain.CodeCredentialMetadataResolveSuccess:         "success_credential_metadata_resolve",
+	domain.CodeCredentialMetadataSuggestSuccess:         "success_credential_metadata_suggest",
+	domain.CodeCredentialMetadataResolveNotFound:        "error_credential_metadata_resolve_not_found",
+	domain.CodeCredentialMetadataResolveNotPending:      "error_credential_metadata_resolve_not_pending",
+	domain.CodeCredentialMetadataResolveNothingStaged:   "error_credential_metadata_resolve_nothing_staged",
+	domain.CodeCredentialMetadataResolveTargetNotFound:  "error_credential_metadata_resolve_target_not_found",
+	domain.CodeCredentialMetadataResolveTargetInactive:  "error_credential_metadata_resolve_target_inactive",
+	domain.CodeCredentialMetadataResolveNumberDuplicate: "error_credential_metadata_resolve_number_duplicate",
+	domain.CodeCredentialApproveUnresolvedMetadata:      "error_credential_approve_unresolved_metadata",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -404,6 +415,17 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialUpdateSuccess:    http.StatusOK,
 	domain.CodeCredentialUpdateNotFound:   http.StatusNotFound,
 	domain.CodeCredentialUpdateNotPending: http.StatusConflict,
+
+	// Credential Metadata Resolution codes
+	domain.CodeCredentialMetadataResolveSuccess:         http.StatusOK,
+	domain.CodeCredentialMetadataSuggestSuccess:         http.StatusOK,
+	domain.CodeCredentialMetadataResolveNotFound:        http.StatusNotFound,
+	domain.CodeCredentialMetadataResolveNotPending:      http.StatusUnprocessableEntity,
+	domain.CodeCredentialMetadataResolveNothingStaged:   http.StatusUnprocessableEntity,
+	domain.CodeCredentialMetadataResolveTargetNotFound:  http.StatusNotFound,
+	domain.CodeCredentialMetadataResolveTargetInactive:  http.StatusUnprocessableEntity,
+	domain.CodeCredentialMetadataResolveNumberDuplicate: http.StatusConflict,
+	domain.CodeCredentialApproveUnresolvedMetadata:      http.StatusUnprocessableEntity,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.
