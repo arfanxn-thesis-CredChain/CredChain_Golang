@@ -107,6 +107,11 @@ type Credential struct {
 	Holder  *User `gorm:"-" json:"-"`
 	Issuer  *User `gorm:"-" json:"-"`
 	Revoker *User `gorm:"-" json:"-"`
+
+	// Competencies are the resolved competency rows linked through the
+	// competency_credential join table. Populated by the repository when the
+	// query's Includes contains "competencies".
+	Competencies []Competency `gorm:"-" json:"-"`
 }
 
 // LifecycleStatus derives the workflow lifecycle from timestamps only:

@@ -86,6 +86,8 @@ func preloadByIncludes(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
 			db = db.Preload("RevokerUser", func(db *gorm.DB) *gorm.DB {
 				return db.Unscoped()
 			})
+		case "competencies":
+			db = db.Preload("Competencies")
 		}
 	}
 	return db

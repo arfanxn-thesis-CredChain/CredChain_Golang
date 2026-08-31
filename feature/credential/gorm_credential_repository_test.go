@@ -1158,3 +1158,35 @@ func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
 		require.Len(t, got, 2)
 	})
 }
+
+func TestGormCredentialRepositoryFindWithCompetencies(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	require.NoError(t, repo.db.Create(&model.User{
+		Id: "h1", Email: "h1@x.com", Name: lo.ToPtr("Holder"), Role: "holder",
+		WalletAddress: "0xa", EncryptedWalletPrivateKey: "k",
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-ai", Name: "Artificial Intelligence", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-db", Name: "Databases", Active: true}).Error)
+
+	_, err := repo.Store(ctx, domain.Credential{
+		ID: "c1", HolderUserID: "h1", IssuerUserID: "i1",
+		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
+		Name: "A", FileHash: "0x1",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, repo.db.Create(&[]model.CompetencyCredential{
+		{CompetencyId: "comp-ai", CredentialId: "c1"},
+		{CompetencyId: "comp-db", CredentialId: "c1"},
+	}).Error)
+
+	c, err := repo.Find(ctx, "c1", &domainQuery.Query{Includes: []string{"competencies"}})
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Len(t, c.Competencies, 2)
+
+	names := lo.Map(c.Competencies, func(x domain.Competency, _ int) string { return x.Name })
+	assert.ElementsMatch(t, []string{"Artificial Intelligence", "Databases"}, names)
+}

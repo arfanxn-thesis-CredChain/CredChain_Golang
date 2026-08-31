@@ -104,6 +104,9 @@ func FromDomainCredential(c domain.Credential) Credential {
 		r := FromDomainUser(*c.Revoker)
 		out.Revoker = &r
 	}
+	for _, comp := range c.Competencies {
+		out.Competencies = append(out.Competencies, FromDomainCompetency(comp))
+	}
 	return out
 }
 

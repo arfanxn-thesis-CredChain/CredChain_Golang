@@ -62,6 +62,11 @@ type Credential struct {
 	HolderUser  User `gorm:"foreignKey:Id;references:HolderUserId"`
 	IssuerUser  User `gorm:"foreignKey:Id;references:IssuerUserId"`
 	RevokerUser User `gorm:"foreignKey:Id;references:RevokerUserId"`
+
+	// Competencies are the competency rows linked through the
+	// competency_credential join table. Populated by Preload("Competencies")
+	// when the caller requests the "competencies" include.
+	Competencies []Competency `gorm:"many2many:competency_credential;"`
 }
 
 func (Credential) TableName() string { return "credentials" }
@@ -117,6 +122,9 @@ func (m Credential) ToDomain() domain.Credential {
 		u := m.RevokerUser.ToDomain()
 		c.Revoker = &u
 	}
+	for _, comp := range m.Competencies {
+		c.Competencies = append(c.Competencies, comp.ToDomain())
+	}
 	return c
 }
 
@@ -127,7 +135,7 @@ func FromDomainCredential(c domain.Credential) Credential {
 	if status == "" {
 		status = domain.ExtractStatusPending
 	}
-	return Credential{
+	m := Credential{
 		Id:                              c.ID,
 		HolderUserId:                    c.HolderUserID,
 		SubmitterUserId:                 c.SubmitterUserID,
@@ -158,4 +166,8 @@ func FromDomainCredential(c domain.Credential) Credential {
 		CreatedAt:                       c.CreatedAt,
 		UpdatedAt:                       c.UpdatedAt,
 	}
+	for _, comp := range c.Competencies {
+		m.Competencies = append(m.Competencies, FromDomainCompetency(comp))
+	}
+	return m
 }
