@@ -322,7 +322,7 @@ func (s *credentialService) issueValidate(
 
 	onChainActive := map[string]bool{}
 	for i, st := range statuses {
-		if st.Status == 1 {
+		if st.Status == chain.OnChainStatusIssued {
 			onChainActive[hashes[i]] = true
 		}
 	}

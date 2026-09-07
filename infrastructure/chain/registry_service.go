@@ -19,6 +19,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// On-chain hash status values, mirroring CredentialRegistry.sol's
+// CredentialStatus enum (None, Issued, Revoked).
+const (
+	OnChainStatusNone    = 0
+	OnChainStatusIssued  = 1
+	OnChainStatusRevoked = 2
+)
+
 // RegistryService provides access to the CredentialRegistry blockchain contract.
 // It is the infrastructure layer's interface for credential issuance and revocation.
 //
