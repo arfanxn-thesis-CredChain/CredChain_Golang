@@ -3395,6 +3395,75 @@ func TestResolveMetadataDedupesConvergingCreates(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestResolveMetadataStampsAlreadyLinkedCompetency(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	comp, err := svc.competencyService.Store(context.Background(), "Discrete Math", nil)
+	require.NoError(t, err)
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xalready1", IssuedAt: time.Now(),
+		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	// Reviewer links the competency directly (e.g. via LinkCompetencies)
+	// before resolving metadata — the join row already exists.
+	require.NoError(t, svc.LinkCompetencies(ctx, stored[0].ID, []string{comp.Id}))
+
+	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID:  stored[0].ID,
+		CompetencyIDs: []string{comp.Id},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.SubmittedCompetencies, 1)
+	require.NotNil(t, out.SubmittedCompetencies[0].ResolvedID, "staged entry must be stamped even though already linked")
+	assert.Equal(t, comp.Id, *out.SubmittedCompetencies[0].ResolvedID)
+	assert.NotContains(t, out.UnresolvedMetadata(), "competency")
+
+	// No duplicate join row was inserted for the already-linked competency.
+	rows, total, err := repo.Get(context.Background(), &domainQuery.Query{
+		Filters: []domainQuery.Filter{domainQuery.NewFilter("competency_id", domainQuery.OperatorEqual, comp.Id)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, rows, 1)
+}
+
+func TestResolveMetadataStampsCorrectEntryByName(t *testing.T) {
+	svc, repo := newCredentialServiceWithSQLite(t)
+	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
+
+	stored, err := repo.Store(context.Background(), domain.Credential{
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		Name: "Cert", FileHash: "0xcorrect1", IssuedAt: time.Now(),
+		SubmittedCompetencies: domain.SubmittedCompetencies{
+			{Name: "Discrete Math"},
+			{Name: "Database Systems"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+
+	// Resolve a competency whose name matches neither staged entry. The old
+	// fallback stamped the first unresolved entry regardless of name; the
+	// fix must leave both untouched instead of misattributing the link.
+	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
+		CredentialID:          stored[0].ID,
+		CreateCompetencyNames: []string{"Cloud Computing"},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.SubmittedCompetencies, 2)
+	assert.Nil(t, out.SubmittedCompetencies[0].ResolvedID, "Discrete Math must stay unresolved")
+	assert.Nil(t, out.SubmittedCompetencies[1].ResolvedID, "Database Systems must stay unresolved")
+	assert.Contains(t, out.UnresolvedMetadata(), "competency")
+}
+
 func TestResolveMetadataRejectsNonPending(t *testing.T) {
 	svc, repo := newCredentialServiceWithSQLite(t)
 	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})

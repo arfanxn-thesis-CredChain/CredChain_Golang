@@ -1392,31 +1392,20 @@ func (s *credentialService) ResolveMetadata(
 			var newLinks []domain.CompetencyCredential
 			for _, c := range resolvedComps {
 				id := c.Id
-				if _, already := linkedIDs[id]; already {
-					continue
-				}
-				linkedIDs[id] = struct{}{}
-				matched := false
+				// Stamp by normalized name first, even for a competency
+				// already linked (e.g. via LinkCompetencies) — otherwise
+				// UnresolvedMetadata() flags this entry forever.
 				for i := range staged {
 					if staged[i].ResolvedID == nil &&
 						normalizeMetadataName(staged[i].Name) == normalizeMetadataName(c.Name) {
 						staged[i].ResolvedID = &id
-						matched = true
 						break
 					}
 				}
-				// A reviewer may link a competency the submitter never named
-				// (e.g. "Discrete Math" -> the existing "Discrete Mathematics"
-				// row). Stamp the first still-unresolved entry instead.
-				if !matched {
-					for i := range staged {
-						if staged[i].ResolvedID == nil {
-							staged[i].ResolvedID = &id
-							matched = true
-							break
-						}
-					}
+				if _, already := linkedIDs[id]; already {
+					continue
 				}
+				linkedIDs[id] = struct{}{}
 				newLinks = append(newLinks, domain.CompetencyCredential{
 					CompetencyId: c.Id, CredentialId: target.ID,
 				})
