@@ -1356,14 +1356,37 @@ func TestRevoke_AlreadyRevoked(t *testing.T) {
 	}
 }
 
+func TestRevoke_NotApproved(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	innerCredRepo := &mocks.MockCredentialRepository{}
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "c1"}}, nil) // pending: no ApprovedAt/RejectedAt/RevokedAt
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := &credentialService{
+		uow:    uow,
+		policy: &credentialPolicy{},
+		logger: zap.NewNop(),
+	}
+	_, err := svc.Revoke(ctx, "c1")
+	var domErr *domain.Error
+	if assert.ErrorAs(t, err, &domErr) {
+		assert.Equal(t, domain.CodeCredentialRevokeNotApproved, domErr.Code)
+	}
+}
+
 func TestRevoke_ChainRollback(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
+	now := time.Now()
 	tokID := "1"
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "c1", TokenID: &tokID}}, nil)
+		[]domain.Credential{{ID: "c1", TokenID: &tokID, ApprovedAt: &now}}, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(
 		[]domain.Credential{{ID: "c1"}}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()

@@ -119,6 +119,7 @@
     "error_credential_revoke_failed": "Failed to revoke credential.",
     "error_credential_revoke_not_found": "One or more credentials were not found: {{.credential_ids}}",
     "error_credential_revoke_already_revoked": "One or more credentials are already revoked: {{.credential_ids}}",
+    "error_credential_revoke_not_approved": "Only approved credentials can be revoked. Reject pending credentials instead.",
     "error_credential_revoke_blockchain_sync_failed": "Failed to revoke credentials on the blockchain.",
     "error_credential_verify_failed": "Failed to verify credential.",
     "error_credential_verify_validation": "Invalid credential verify payload.",

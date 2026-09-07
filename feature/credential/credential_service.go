@@ -1639,6 +1639,17 @@ func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain
 				domain.WithMetadata("credential_ids", alreadyRevoked))
 		}
 
+		notApproved := []string{}
+		for _, t := range targets {
+			if t.Status() != domain.CredentialStatusApproved {
+				notApproved = append(notApproved, t.ID)
+			}
+		}
+		if len(notApproved) > 0 {
+			return domain.NewError(domain.CodeCredentialRevokeNotApproved,
+				domain.WithMetadata("credential_ids", notApproved))
+		}
+
 		if err := s.policy.RevokePostFetch(ctx, targets); err != nil {
 			return err
 		}

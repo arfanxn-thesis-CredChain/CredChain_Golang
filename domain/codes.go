@@ -114,6 +114,7 @@ const (
 	CodeCredentialRevokeNotFound             = 400341
 	CodeCredentialRevokeAlreadyRevoked       = 400342
 	CodeCredentialRevokeBlockchainSyncFailed = 400343
+	CodeCredentialRevokeNotApproved          = 400344
 
 	CodeCredentialVerifySuccess            = 400400
 	CodeCredentialVerifyFailed             = 400440

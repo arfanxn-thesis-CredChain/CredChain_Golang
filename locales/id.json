@@ -119,6 +119,7 @@
     "error_credential_revoke_failed": "Gagal mencabut kredensial.",
     "error_credential_revoke_not_found": "Satu atau lebih kredensial tidak ditemukan: {{.credential_ids}}",
     "error_credential_revoke_already_revoked": "Satu atau lebih kredensial sudah dicabut: {{.credential_ids}}",
+    "error_credential_revoke_not_approved": "Hanya kredensial yang telah disetujui yang dapat dicabut. Tolak kredensial yang masih menunggu tinjauan.",
     "error_credential_revoke_blockchain_sync_failed": "Gagal mencabut kredensial di blockchain.",
     "error_credential_verify_failed": "Gagal memverifikasi kredensial.",
     "error_credential_verify_validation": "Data verifikasi kredensial tidak valid.",
