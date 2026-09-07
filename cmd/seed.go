@@ -10,8 +10,10 @@ import (
 	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/feature/user"
 	gormInfra "CredChain_Golang/infrastructure/database/gorm"
+	mongoInfra "CredChain_Golang/infrastructure/database/mongo"
 	"CredChain_Golang/infrastructure/database/seeder"
 	infraLogger "CredChain_Golang/infrastructure/logger"
+	"CredChain_Golang/infrastructure/storage"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -48,17 +50,27 @@ Examples:
 			fx.Provide(
 				NewConfigFromCmd(cmd),
 				gormInfra.NewGorm,
+				storage.NewStorage,
+				mongoInfra.NewClient,
+				mongoInfra.NewDatabase,
 				user.NewGormUserRepository,
 				user.NewGormUserUnitRepository,
 				credential.NewGormCredentialTypeRepository,
 				credential.NewGormCredentialIssuerOrganizationRepository,
 				credential.NewGormCompetencyRepository,
+				credential.NewGormCredentialRepository,
+				credential.NewGormCompetencyCredentialRepository,
+				credential.NewMongoCredentialExtractionRepository,
 				func(
 					userRepo domain.UserRepository,
 					userUnitRepo domain.UserUnitRepository,
 					credentialTypeRepo domain.CredentialTypeRepository,
 					issuerOrgRepo domain.CredentialIssuerOrganizationRepository,
 					competencyRepo domain.CompetencyRepository,
+					credRepo domain.CredentialRepository,
+					compCredRepo domain.CompetencyCredentialRepository,
+					extractRepo domain.CredentialExtractionRepository,
+					stor *storage.Storage,
 					cfg *config.Config,
 				) *seeder.Registry {
 					return seeder.NewRegistry(
@@ -67,6 +79,17 @@ Examples:
 						seeder.NewCredentialTypeSeeder(credentialTypeRepo),
 						seeder.NewCredentialIssuerOrganizationSeeder(issuerOrgRepo),
 						seeder.NewCompetencySeeder(competencyRepo),
+						seeder.NewCredentialSeeder(
+							credRepo,
+							userRepo,
+							credentialTypeRepo,
+							issuerOrgRepo,
+							competencyRepo,
+							compCredRepo,
+							extractRepo,
+							stor,
+							cfg,
+						),
 					)
 				},
 			),
