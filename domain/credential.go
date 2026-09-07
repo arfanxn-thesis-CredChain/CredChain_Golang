@@ -7,35 +7,37 @@ import (
 	domainQuery "CredChain_Golang/domain/query"
 )
 
-// ExtractStatus is the lifecycle of the asynchronous Python /extract job
+// ExtractState is the lifecycle of the asynchronous Python /extract job
 // attached to a credential. On-chain issuance is synchronous (Go computes
 // keccak256 of raw file bytes immediately), but extraction (text, ids, embedding —
 // needed by /api/credentials/verify) requires a slow Python OCR+EmbeddingGemma
 // round-trip and is computed asynchronously via the River worker. Results are
 // stored in MongoDB (credential_extractions collection), not Postgres.
-type ExtractStatus string
+//
+// ExtractState is derived, not a column (see Credential.ExtractState) — it is
+// computed from ExtractEnqueuedAt / ExtractedAt / ExtractFailedAt.
+type ExtractState string
 
 const (
-	ExtractStatusPending   ExtractStatus = "pending"
-	ExtractStatusSucceeded ExtractStatus = "succeeded"
-	ExtractStatusFailed    ExtractStatus = "failed"
-	// ExtractStatusUnextracted marks rows for which no extraction has been
+	ExtractStatePending   ExtractState = "pending"
+	ExtractStateSucceeded ExtractState = "succeeded"
+	ExtractStateFailed    ExtractState = "failed"
+	// ExtractStateUnextracted marks rows for which no extraction has been
 	// performed (submitted rows, and rejected rows that never got approved).
 	// It is review-agnostic: the job is enqueued at approval, when the row
 	// flips to pending.
-	ExtractStatusUnextracted ExtractStatus = "unextracted"
+	ExtractStateUnextracted ExtractState = "unextracted"
 )
 
-// CredentialLifecycleStatus is the workflow lifecycle of a credential,
-// derived purely from timestamps (see Credential.LifecycleStatus). It is
-// NOT a database column.
-type CredentialLifecycleStatus string
+// CredentialStatus is the workflow lifecycle of a credential, derived purely
+// from timestamps (see Credential.Status). It is NOT a database column.
+type CredentialStatus string
 
 const (
-	CredentialLifecycleStatusPending  CredentialLifecycleStatus = "pending"
-	CredentialLifecycleStatusApproved CredentialLifecycleStatus = "approved"
-	CredentialLifecycleStatusRejected CredentialLifecycleStatus = "rejected"
-	CredentialLifecycleStatusRevoked  CredentialLifecycleStatus = "revoked"
+	CredentialStatusPending  CredentialStatus = "pending"
+	CredentialStatusApproved CredentialStatus = "approved"
+	CredentialStatusRejected CredentialStatus = "rejected"
+	CredentialStatusRevoked  CredentialStatus = "revoked"
 )
 
 // SubmittedCompetency is one entry of credentials.submitted_competencies.
@@ -87,9 +89,10 @@ type Credential struct {
 	TokenID               *string               `json:"token_id"`
 	FileHash              string                `json:"file_hash"`
 	FileURI               *string               `json:"file_uri"`
-	ExtractStatus         ExtractStatus         `json:"extract_status"`
-	ExtractError          *string               `json:"extract_error"`
+	ExtractEnqueuedAt     *time.Time            `json:"extract_enqueued_at"`
 	ExtractedAt           *time.Time            `json:"extracted_at"`
+	ExtractFailedAt       *time.Time            `json:"extract_failed_at"`
+	ExtractError          *string               `json:"extract_error"`
 	IssuedAt              time.Time             `json:"issued_at"`
 	RevokedAt             *time.Time            `json:"revoked_at"`
 	ExpiresAt             *time.Time            `json:"expires_at"`
@@ -112,9 +115,14 @@ type Credential struct {
 	// competency_credential join table. Populated by the repository when the
 	// query's Includes contains "competencies".
 	Competencies []Competency `gorm:"-" json:"-"`
+
+	// Type / IssuerOrganization are populated by the repository when the
+	// query's Includes contains "type" / "issuer_organization".
+	Type               *CredentialType               `gorm:"-" json:"-"`
+	IssuerOrganization *CredentialIssuerOrganization `gorm:"-" json:"-"`
 }
 
-// LifecycleStatus derives the workflow lifecycle from timestamps only:
+// Status derives the workflow lifecycle from timestamps only:
 //
 //	revoked  when RevokedAt is set
 //	rejected when RejectedAt is set (and not revoked)
@@ -123,17 +131,33 @@ type Credential struct {
 //
 // Expiry is deliberately NOT part of this derivation — expiry is evaluated
 // only on the verification path (Task C1).
-func (c *Credential) LifecycleStatus() CredentialLifecycleStatus {
+func (c *Credential) Status() CredentialStatus {
 	if c.RevokedAt != nil {
-		return CredentialLifecycleStatusRevoked
+		return CredentialStatusRevoked
 	}
 	if c.RejectedAt != nil {
-		return CredentialLifecycleStatusRejected
+		return CredentialStatusRejected
 	}
 	if c.ApprovedAt != nil {
-		return CredentialLifecycleStatusApproved
+		return CredentialStatusApproved
 	}
-	return CredentialLifecycleStatusPending
+	return CredentialStatusPending
+}
+
+// ExtractState derives the extraction lifecycle from timestamps only.
+// Failure wins over success so a re-extract that fails again is not masked
+// by a stale ExtractedAt.
+func (c *Credential) ExtractState() ExtractState {
+	if c.ExtractFailedAt != nil {
+		return ExtractStateFailed
+	}
+	if c.ExtractedAt != nil {
+		return ExtractStateSucceeded
+	}
+	if c.ExtractEnqueuedAt != nil {
+		return ExtractStatePending
+	}
+	return ExtractStateUnextracted
 }
 
 // UnresolvedMetadata returns the metadata kinds still awaiting reviewer
@@ -198,6 +222,12 @@ type CredentialRepository interface {
 	// Only non-nil / non-zero fields are touched; unspecified columns fall
 	// through to ELSE column (preserving existing value).
 	Update(ctx context.Context, credentials ...Credential) ([]Credential, error)
+
+	// ClearExtractOutcome stamps a fresh extract attempt and clears the prior
+	// result. Separate from Update because Update's nil-means-skip semantics
+	// cannot write NULL (needed to clear extracted_at / extract_failed_at /
+	// extract_error on re-extract).
+	ClearExtractOutcome(ctx context.Context, enqueuedAt time.Time, ids ...string) error
 
 	// CountByTypeIds counts credentials referencing any of the given
 	// credential_type ids. Pure read primitive for the step-3 deletion guard.

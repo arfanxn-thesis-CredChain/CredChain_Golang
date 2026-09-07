@@ -90,13 +90,6 @@ CREATE INDEX idx_credential_issuer_organizations_name_trgm
 CREATE INDEX idx_competencies_name_trgm
     ON competencies USING GIN (name gin_trgm_ops);
 
-CREATE TYPE credential_extract_status AS ENUM (
-    'pending',
-    'succeeded',
-    'failed',
-    'unextracted'
-);
-
 CREATE TABLE credentials (
     id CHAR(26) PRIMARY KEY,
     holder_user_id CHAR(26) NOT NULL,
@@ -117,7 +110,8 @@ CREATE TABLE credentials (
     token_id VARCHAR(256) UNIQUE,
     file_hash CHAR(66) NOT NULL,
     file_uri TEXT,
-    extract_status credential_extract_status NOT NULL DEFAULT 'pending',
+    extract_enqueued_at TIMESTAMP WITH TIME ZONE,
+    extract_failed_at TIMESTAMP WITH TIME ZONE,
     extract_error TEXT,
     approver_user_id CHAR(26),
     rejecter_user_id CHAR(26),
@@ -160,7 +154,8 @@ CREATE INDEX idx_credentials_issuer_user_id ON credentials(issuer_user_id);
 CREATE INDEX idx_credentials_type_id        ON credentials(type_id);
 CREATE INDEX idx_credentials_expires_at     ON credentials(expires_at);
 CREATE INDEX idx_credentials_revoked_at     ON credentials(revoked_at);
-CREATE INDEX idx_credentials_extract_status ON credentials(extract_status);
+CREATE INDEX idx_credentials_extract_enqueued_at ON credentials(extract_enqueued_at) WHERE extract_enqueued_at IS NOT NULL;
+CREATE INDEX idx_credentials_extract_failed_at   ON credentials(extract_failed_at)   WHERE extract_failed_at IS NOT NULL;
 CREATE INDEX idx_credentials_file_hash      ON credentials(file_hash);
 CREATE UNIQUE INDEX idx_credentials_file_hash_active ON credentials(file_hash) WHERE revoked_at IS NULL AND rejected_at IS NULL;
 CREATE UNIQUE INDEX uq_credentials_issuer_org_number

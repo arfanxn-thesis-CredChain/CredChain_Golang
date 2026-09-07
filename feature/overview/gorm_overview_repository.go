@@ -28,15 +28,15 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 			SELECT
 				(SELECT COUNT(*) FROM credentials WHERE issued_at BETWEEN ? AND ?) AS total,
 				(SELECT COUNT(*) FROM credentials
-				 WHERE revoked_at IS NULL AND extract_status IN ('pending', 'succeeded')
+				 WHERE revoked_at IS NULL AND extract_enqueued_at IS NOT NULL AND extract_failed_at IS NULL
 				 AND issued_at BETWEEN ? AND ?) AS active,
 				(SELECT COUNT(*) FROM credentials
-				 WHERE revoked_at IS NOT NULL AND extract_status IN ('pending', 'succeeded')
+				 WHERE revoked_at IS NOT NULL AND extract_enqueued_at IS NOT NULL AND extract_failed_at IS NULL
 				 AND issued_at BETWEEN ? AND ?) AS revoked,
 				(SELECT COUNT(*) FROM credentials
-				 WHERE extract_status = 'pending' AND issued_at BETWEEN ? AND ?) AS pending,
+				 WHERE extract_enqueued_at IS NOT NULL AND extracted_at IS NULL AND extract_failed_at IS NULL AND issued_at BETWEEN ? AND ?) AS pending,
 				(SELECT COUNT(*) FROM credentials
-				 WHERE extract_status = 'failed' AND issued_at BETWEEN ? AND ?) AS failed
+				 WHERE extract_failed_at IS NOT NULL AND issued_at BETWEEN ? AND ?) AS failed
 		`, dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo).Scan(&result).Error
 		if err != nil {
 			return nil, err
@@ -49,15 +49,15 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 		SELECT
 			(SELECT COUNT(*) FROM credentials WHERE holder_user_id = ? AND issued_at BETWEEN ? AND ?) AS total,
 			(SELECT COUNT(*) FROM credentials
-			 WHERE holder_user_id = ? AND revoked_at IS NULL AND extract_status IN ('pending', 'succeeded')
+			 WHERE holder_user_id = ? AND revoked_at IS NULL AND extract_enqueued_at IS NOT NULL AND extract_failed_at IS NULL
 			 AND issued_at BETWEEN ? AND ?) AS active,
 			(SELECT COUNT(*) FROM credentials
-			 WHERE holder_user_id = ? AND revoked_at IS NOT NULL AND extract_status IN ('pending', 'succeeded')
+			 WHERE holder_user_id = ? AND revoked_at IS NOT NULL AND extract_enqueued_at IS NOT NULL AND extract_failed_at IS NULL
 			 AND issued_at BETWEEN ? AND ?) AS revoked,
 			(SELECT COUNT(*) FROM credentials
-			 WHERE holder_user_id = ? AND extract_status = 'pending' AND issued_at BETWEEN ? AND ?) AS pending,
+			 WHERE holder_user_id = ? AND extract_enqueued_at IS NOT NULL AND extracted_at IS NULL AND extract_failed_at IS NULL AND issued_at BETWEEN ? AND ?) AS pending,
 			(SELECT COUNT(*) FROM credentials
-			 WHERE holder_user_id = ? AND extract_status = 'failed' AND issued_at BETWEEN ? AND ?) AS failed
+			 WHERE holder_user_id = ? AND extract_failed_at IS NOT NULL AND issued_at BETWEEN ? AND ?) AS failed
 	`,
 		*holderUserID, dateFrom, dateTo,
 		*holderUserID, dateFrom, dateTo,

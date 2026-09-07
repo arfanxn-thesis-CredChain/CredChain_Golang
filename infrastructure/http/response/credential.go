@@ -32,27 +32,31 @@ type Credential struct {
 	Competencies          []Competency                 `json:"competencies"`
 	// UnresolvedMetadata lists the metadata kinds blocking approval; empty
 	// means approvable. Mirrors domain.Credential.UnresolvedMetadata.
-	UnresolvedMetadata []string                         `json:"unresolved_metadata"`
-	TokenID            *string                          `json:"token_id"`
-	FileHash           string                           `json:"file_hash"`
-	FileURI            *string                          `json:"file_uri"`
-	ExtractStatus      domain.ExtractStatus             `json:"extract_status"`
-	ExtractError       *string                          `json:"extract_error"`
-	ExtractedAt        *time.Time                       `json:"extracted_at"`
-	IssuedAt           time.Time                        `json:"issued_at"`
-	RevokedAt          *time.Time                       `json:"revoked_at"`
-	ExpiresAt          *time.Time                       `json:"expires_at"`
-	LifecycleStatus    domain.CredentialLifecycleStatus `json:"lifecycle_status"`
-	ApproverUserID     *string                          `json:"approver_user_id"`
-	ApprovedAt         *time.Time                       `json:"approved_at"`
-	RejecterUserID     *string                          `json:"rejecter_user_id"`
-	RejectedAt         *time.Time                       `json:"rejected_at"`
-	RejectionReason    *string                          `json:"rejection_reason"`
-	CreatedAt          time.Time                        `json:"created_at"`
-	UpdatedAt          *time.Time                       `json:"updated_at"`
-	Holder             *User                            `json:"holder,omitempty"`
-	Issuer             *User                            `json:"issuer,omitempty"`
-	Revoker            *User                            `json:"revoker,omitempty"`
+	UnresolvedMetadata []string                `json:"unresolved_metadata"`
+	TokenID            *string                 `json:"token_id"`
+	FileHash           string                  `json:"file_hash"`
+	FileURI            *string                 `json:"file_uri"`
+	ExtractState       domain.ExtractState     `json:"extract_state"`
+	ExtractEnqueuedAt  *time.Time              `json:"extract_enqueued_at"`
+	ExtractFailedAt    *time.Time              `json:"extract_failed_at"`
+	ExtractError       *string                 `json:"extract_error"`
+	ExtractedAt        *time.Time              `json:"extracted_at"`
+	IssuedAt           time.Time               `json:"issued_at"`
+	RevokedAt          *time.Time              `json:"revoked_at"`
+	ExpiresAt          *time.Time              `json:"expires_at"`
+	Status             domain.CredentialStatus `json:"status"`
+	ApproverUserID     *string                 `json:"approver_user_id"`
+	ApprovedAt         *time.Time              `json:"approved_at"`
+	RejecterUserID     *string                 `json:"rejecter_user_id"`
+	RejectedAt         *time.Time              `json:"rejected_at"`
+	RejectionReason    *string                 `json:"rejection_reason"`
+	CreatedAt          time.Time               `json:"created_at"`
+	UpdatedAt          *time.Time              `json:"updated_at"`
+	Holder             *User                   `json:"holder,omitempty"`
+	Issuer             *User                   `json:"issuer,omitempty"`
+	Revoker            *User                   `json:"revoker,omitempty"`
+	Type               *CredentialType         `json:"type,omitempty"`
+	IssuerOrganization *IssuerOrganization     `json:"issuer_organization,omitempty"`
 }
 
 // FromDomainCredential converts a domain Credential entity to a response DTO.
@@ -77,13 +81,15 @@ func FromDomainCredential(c domain.Credential) Credential {
 		TokenID:                         c.TokenID,
 		FileHash:                        c.FileHash,
 		FileURI:                         c.FileURI,
-		ExtractStatus:                   c.ExtractStatus,
+		ExtractState:                    c.ExtractState(),
+		ExtractEnqueuedAt:               c.ExtractEnqueuedAt,
+		ExtractFailedAt:                 c.ExtractFailedAt,
 		ExtractError:                    c.ExtractError,
 		ExtractedAt:                     c.ExtractedAt,
 		IssuedAt:                        c.IssuedAt,
 		RevokedAt:                       c.RevokedAt,
 		ExpiresAt:                       c.ExpiresAt,
-		LifecycleStatus:                 c.LifecycleStatus(),
+		Status:                          c.Status(),
 		ApproverUserID:                  c.ApproverUserID,
 		ApprovedAt:                      c.ApprovedAt,
 		RejecterUserID:                  c.RejecterUserID,
@@ -103,6 +109,14 @@ func FromDomainCredential(c domain.Credential) Credential {
 	if c.Revoker != nil {
 		r := FromDomainUser(*c.Revoker)
 		out.Revoker = &r
+	}
+	if c.Type != nil {
+		ty := FromDomainCredentialType(*c.Type)
+		out.Type = &ty
+	}
+	if c.IssuerOrganization != nil {
+		o := FromDomainIssuerOrganization(*c.IssuerOrganization)
+		out.IssuerOrganization = &o
 	}
 	for _, comp := range c.Competencies {
 		out.Competencies = append(out.Competencies, FromDomainCompetency(comp))

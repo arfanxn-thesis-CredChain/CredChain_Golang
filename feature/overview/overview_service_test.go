@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
@@ -62,6 +63,9 @@ func (m *mockCredRepo) Store(ctx context.Context, creds ...domain.Credential) ([
 }
 func (m *mockCredRepo) Update(ctx context.Context, creds ...domain.Credential) ([]domain.Credential, error) {
 	return nil, nil
+}
+func (m *mockCredRepo) ClearExtractOutcome(ctx context.Context, enqueuedAt time.Time, ids ...string) error {
+	return nil
 }
 func (m *mockCredRepo) FindByFileHashes(ctx context.Context, hashes []string, q *domainQuery.Query) ([]domain.Credential, error) {
 	return nil, nil

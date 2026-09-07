@@ -541,21 +541,25 @@ func TestGormCredentialGet_SearchByRelatedUsers(t *testing.T) {
 	})
 }
 
-func TestGormCredentialGet_FilterByExtractStatus(t *testing.T) {
+func TestGormCredentialGet_FilterByExtractTimestamps(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 
+	t1 := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 1, 2, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2025, 1, 3, 10, 0, 0, 0, time.UTC)
+
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c100", HolderUserID: "h1", IssuerUserID: "iss1", Name: "Pending1", FileHash: "0xaa", ExtractStatus: domain.ExtractStatusPending},
-		domain.Credential{ID: "c101", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Pending2", FileHash: "0xbb", ExtractStatus: domain.ExtractStatusPending},
-		domain.Credential{ID: "c102", HolderUserID: "h3", IssuerUserID: "iss3", Name: "Failed1", FileHash: "0xcc", ExtractStatus: domain.ExtractStatusFailed},
+		domain.Credential{ID: "c100", HolderUserID: "h1", IssuerUserID: "iss1", Name: "Pending1", FileHash: "0xaa", ExtractEnqueuedAt: &t1},
+		domain.Credential{ID: "c101", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Pending2", FileHash: "0xbb", ExtractEnqueuedAt: &t2},
+		domain.Credential{ID: "c102", HolderUserID: "h3", IssuerUserID: "iss3", Name: "Failed1", FileHash: "0xcc", ExtractFailedAt: &t3},
 	)
 	require.NoError(t, err)
 
-	t.Run("filter_by_failed", func(t *testing.T) {
+	t.Run("filter_by_extract_failed_at_not_null", func(t *testing.T) {
 		q := &domainQuery.Query{
 			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorEqual, Values: []string{"failed"}},
+				{Column: "extract_failed_at", Operator: domainQuery.OperatorNotNull},
 			},
 		}
 		results, total, err := repo.Get(ctx, q)
@@ -565,10 +569,10 @@ func TestGormCredentialGet_FilterByExtractStatus(t *testing.T) {
 		assert.Equal(t, "Failed1", results[0].Name)
 	})
 
-	t.Run("filter_by_pending", func(t *testing.T) {
+	t.Run("filter_by_extract_enqueued_at_not_null", func(t *testing.T) {
 		q := &domainQuery.Query{
 			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorEqual, Values: []string{"pending"}},
+				{Column: "extract_enqueued_at", Operator: domainQuery.OperatorNotNull},
 			},
 		}
 		results, total, err := repo.Get(ctx, q)
@@ -577,10 +581,10 @@ func TestGormCredentialGet_FilterByExtractStatus(t *testing.T) {
 		assert.Len(t, results, 2)
 	})
 
-	t.Run("filter_by_succeeded_no_match", func(t *testing.T) {
+	t.Run("filter_by_extracted_at_not_null_no_match", func(t *testing.T) {
 		q := &domainQuery.Query{
 			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorEqual, Values: []string{"succeeded"}},
+				{Column: "extracted_at", Operator: domainQuery.OperatorNotNull},
 			},
 		}
 		results, total, err := repo.Get(ctx, q)
@@ -589,40 +593,15 @@ func TestGormCredentialGet_FilterByExtractStatus(t *testing.T) {
 		assert.Len(t, results, 0)
 	})
 
-	t.Run("filter_extract_status_combined_with_not_equal", func(t *testing.T) {
+	t.Run("filter_by_extract_failed_at_null", func(t *testing.T) {
 		q := &domainQuery.Query{
 			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorNotEqual, Values: []string{"pending"}},
+				{Column: "extract_failed_at", Operator: domainQuery.OperatorNull},
 			},
 		}
-		results, total, err := repo.Get(ctx, q)
+		_, total, err := repo.Get(ctx, q)
 		require.NoError(t, err)
-		assert.Equal(t, 1, total)
-		assert.Equal(t, "Failed1", results[0].Name)
-	})
-
-	t.Run("filter_extract_status_in", func(t *testing.T) {
-		q := &domainQuery.Query{
-			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorIn, Values: []string{"failed", "succeeded"}},
-			},
-		}
-		results, total, err := repo.Get(ctx, q)
-		require.NoError(t, err)
-		assert.Equal(t, 1, total)
-		assert.Equal(t, "Failed1", results[0].Name)
-	})
-
-	t.Run("filter_extract_status_not_in", func(t *testing.T) {
-		q := &domainQuery.Query{
-			Filters: []domainQuery.Filter{
-				{Column: "extract_status", Operator: domainQuery.OperatorNotIn, Values: []string{"pending"}},
-			},
-		}
-		results, total, err := repo.Get(ctx, q)
-		require.NoError(t, err)
-		assert.Equal(t, 1, total)
-		assert.Equal(t, "Failed1", results[0].Name)
+		assert.Equal(t, 2, total)
 	})
 }
 
@@ -1011,17 +990,21 @@ func TestGormCredentialGet_SearchFilterSortCombined(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 
+	t1 := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 6, 1, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
+
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Corp", FileHash: "0xa", ExtractStatus: domain.ExtractStatusPending, IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Inc", FileHash: "0xb", ExtractStatus: domain.ExtractStatusFailed, IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "iss", Name: "Beta Corp", FileHash: "0xc", ExtractStatus: domain.ExtractStatusPending, IssuedAt: time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Corp", FileHash: "0xa", ExtractEnqueuedAt: &t1, IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Inc", FileHash: "0xb", ExtractFailedAt: &t2, IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "iss", Name: "Beta Corp", FileHash: "0xc", ExtractEnqueuedAt: &t3, IssuedAt: time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)},
 	)
 	require.NoError(t, err)
 
 	q := &domainQuery.Query{
 		Search: "Alpha",
 		Filters: []domainQuery.Filter{
-			{Column: "extract_status", Operator: domainQuery.OperatorEqual, Values: []string{"pending"}},
+			{Column: "extract_enqueued_at", Operator: domainQuery.OperatorNotNull},
 		},
 		Sorts: []domainQuery.Sort{
 			{Column: "issued_at", Order: domainQuery.SortAsc},
@@ -1029,7 +1012,7 @@ func TestGormCredentialGet_SearchFilterSortCombined(t *testing.T) {
 	}
 	results, total, err := repo.Get(ctx, q)
 	require.NoError(t, err)
-	assert.Equal(t, 1, total, "search 'Alpha' + filter pending = only Alpha Corp")
+	assert.Equal(t, 1, total, "search 'Alpha' + filter extract_enqueued_at not null = only Alpha Corp")
 	assert.Len(t, results, 1)
 	assert.Equal(t, "Alpha Corp", results[0].Name)
 }
@@ -1189,4 +1172,29 @@ func TestGormCredentialRepositoryFindWithCompetencies(t *testing.T) {
 
 	names := lo.Map(c.Competencies, func(x domain.Competency, _ int) string { return x.Name })
 	assert.ElementsMatch(t, []string{"Artificial Intelligence", "Databases"}, names)
+}
+
+func TestGormCredentialRepositoryFindWithTypeAndIssuerOrganization(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	require.NoError(t, repo.db.Create(&model.CredentialType{Id: "t1", Name: "Diploma", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o1", Name: "University of Indonesia", Active: true,
+	}).Error)
+
+	_, err := repo.Store(ctx, domain.Credential{
+		ID: "c1", HolderUserID: "h1", IssuerUserID: "i1",
+		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
+		Name: "A", FileHash: "0x1",
+	})
+	require.NoError(t, err)
+
+	c, err := repo.Find(ctx, "c1", &domainQuery.Query{Includes: []string{"type", "issuer_organization"}})
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.NotNil(t, c.Type)
+	assert.Equal(t, "Diploma", c.Type.Name)
+	require.NotNil(t, c.IssuerOrganization)
+	assert.Equal(t, "University of Indonesia", c.IssuerOrganization.Name)
 }

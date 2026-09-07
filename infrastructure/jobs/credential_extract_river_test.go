@@ -50,7 +50,7 @@ func TestWorkExtract_Success(t *testing.T) {
 		}, nil)
 	extRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 	credRepo.On("Update", mock.Anything, mock.Anything).
-		Return([]domain.Credential{{ID: "cred-id", ExtractStatus: domain.ExtractStatusSucceeded}}, nil)
+		Return([]domain.Credential{{ID: "cred-id"}}, nil)
 
 	w := &CredentialExtractWorker{
 		credRepo:       credRepo,

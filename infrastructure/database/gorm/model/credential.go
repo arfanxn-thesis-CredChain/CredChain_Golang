@@ -11,8 +11,8 @@ import (
 // Meta uses serializer:json so SQLite tests round-trip JSONB columns through
 // TEXT (matching model.User.Meta). Extraction data (text, ids, embedding)
 // lives in MongoDB (credential_extractions), not on this row.
-// ExtractStatus is the credential_extract_status Postgres ENUM stored as
-// TEXT in SQLite.
+// Extract state is derived from ExtractEnqueuedAt / ExtractedAt /
+// ExtractFailedAt (see domain.Credential.ExtractState) — not a column.
 //
 // The partial unique index on file_hash mirrors the migration:
 // WHERE revoked_at IS NULL AND rejected_at IS NULL.
@@ -40,7 +40,8 @@ type Credential struct {
 	TokenID                         *string                      `gorm:"type:varchar(256);column:token_id;uniqueIndex"`
 	FileHash                        string                       `gorm:"type:char(66);column:file_hash;index:idx_credentials_file_hash_active,unique,where:revoked_at IS NULL AND rejected_at IS NULL"`
 	FileURI                         *string                      `gorm:"type:text;column:file_uri"`
-	ExtractStatus                   domain.ExtractStatus         `gorm:"type:credential_extract_status;column:extract_status;not null;default:pending"`
+	ExtractEnqueuedAt               *time.Time                   `gorm:"column:extract_enqueued_at"`
+	ExtractFailedAt                 *time.Time                   `gorm:"column:extract_failed_at"`
 	ExtractError                    *string                      `gorm:"type:text;column:extract_error"`
 	ApproverUserId                  *string                      `gorm:"type:char(26);column:approver_user_id"`
 	RejecterUserId                  *string                      `gorm:"type:char(26);column:rejecter_user_id"`
@@ -67,6 +68,14 @@ type Credential struct {
 	// competency_credential join table. Populated by Preload("Competencies")
 	// when the caller requests the "competencies" include.
 	Competencies []Competency `gorm:"many2many:competency_credential;"`
+
+	// Type / IssuerOrganization are pointer relations since TypeId /
+	// IssuerOrganizationId are nullable FKs: an un-preloaded or unresolved
+	// relation stays nil, no value-type zero-row guard needed. Populated by
+	// Preload("Type") / Preload("IssuerOrganization") when the caller
+	// requests the "type" / "issuer_organization" include.
+	Type               *CredentialType               `gorm:"foreignKey:Id;references:TypeId"`
+	IssuerOrganization *CredentialIssuerOrganization `gorm:"foreignKey:Id;references:IssuerOrganizationId"`
 }
 
 func (Credential) TableName() string { return "credentials" }
@@ -91,7 +100,8 @@ func (m Credential) ToDomain() domain.Credential {
 		TokenID:                         m.TokenID,
 		FileHash:                        m.FileHash,
 		FileURI:                         m.FileURI,
-		ExtractStatus:                   m.ExtractStatus,
+		ExtractEnqueuedAt:               m.ExtractEnqueuedAt,
+		ExtractFailedAt:                 m.ExtractFailedAt,
 		ExtractError:                    m.ExtractError,
 		ApproverUserID:                  m.ApproverUserId,
 		RejecterUserID:                  m.RejecterUserId,
@@ -125,16 +135,19 @@ func (m Credential) ToDomain() domain.Credential {
 	for _, comp := range m.Competencies {
 		c.Competencies = append(c.Competencies, comp.ToDomain())
 	}
+	if m.Type != nil {
+		t := m.Type.ToDomain()
+		c.Type = &t
+	}
+	if m.IssuerOrganization != nil {
+		o := m.IssuerOrganization.ToDomain()
+		c.IssuerOrganization = &o
+	}
 	return c
 }
 
 // FromDomainCredential converts a domain.Credential into a GORM model.
-// A zero-value ExtractStatus defaults to ExtractStatusPending.
 func FromDomainCredential(c domain.Credential) Credential {
-	status := c.ExtractStatus
-	if status == "" {
-		status = domain.ExtractStatusPending
-	}
 	m := Credential{
 		Id:                              c.ID,
 		HolderUserId:                    c.HolderUserID,
@@ -151,7 +164,8 @@ func FromDomainCredential(c domain.Credential) Credential {
 		TokenID:                         c.TokenID,
 		FileHash:                        c.FileHash,
 		FileURI:                         c.FileURI,
-		ExtractStatus:                   status,
+		ExtractEnqueuedAt:               c.ExtractEnqueuedAt,
+		ExtractFailedAt:                 c.ExtractFailedAt,
 		ExtractError:                    c.ExtractError,
 		ApproverUserId:                  c.ApproverUserID,
 		RejecterUserId:                  c.RejecterUserID,

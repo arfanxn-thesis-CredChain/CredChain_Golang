@@ -24,9 +24,10 @@
 | `TokenID` | `VARCHAR(256)`, unique, nullable | On-chain ERC-721 token ID (decimal string) |
 | `FileHash` | `CHAR(66)`, NOT NULL | `0x`-prefixed keccak256 of raw file bytes |
 | `FileURI` | `TEXT`, nullable | Storage path (e.g. `local:///uploads/...`) |
-| `ExtractStatus` | `credential_extract_status` ENUM, NOT NULL | Async extraction job state |
+| `ExtractEnqueuedAt` | `TIMESTAMP`, nullable | When OCR extract job was enqueued |
+| `ExtractFailedAt` | `TIMESTAMP`, nullable | When OCR extract job permanently failed |
 | `ExtractError` | `TEXT`, nullable | Error message if extraction failed |
-| `ExtractedAt` | `TIMESTAMP`, nullable | When extraction completed |
+| `ExtractedAt` | `TIMESTAMP`, nullable | When extraction completed successfully |
 | `IssuedAt` | `TIMESTAMP`, NOT NULL | When credential was created (minted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
 | `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
@@ -77,9 +78,9 @@ Plain JSON `{"ids": [...]}`, 1-100 items per batch.
 
 ---
 
-## Extract Status Lifecycle
+## Extract State Lifecycle (timestamp-derived)
 
-Four-value `ExtractStatus` ENUM (`credential_extract_status` in Postgres):
+Extraction status is derived from three timestamps (`extract_enqueued_at`, `extracted_at`, `extract_failed_at`) via `Credential.ExtractState()`. No extraction enum column exists in the database.
 
 ```
 unextracted ──→ pending ──→ succeeded
@@ -87,22 +88,24 @@ unextracted ──→ pending ──→ succeeded
                 └──→ failed ──→ pending (via ReExtract)
 ```
 
-| Status | Go Constant | Meaning |
-|--------|-------------|---------|
-| `pending` | `ExtractStatusPending` | Awaiting OCR by Python River worker |
-| `succeeded` | `ExtractStatusSucceeded` | Text/IDs/embedding extracted and stored in Mongo |
-| `failed` | `ExtractStatusFailed` | Extraction failed; retryable via ReExtract |
-| `unextracted` | `ExtractStatusUnextracted` | No extraction performed — the state self-submitted credentials start in |
+| State | Go Constant | Meaning | Condition |
+|-------|-------------|---------|-----------|
+| `pending` | `ExtractStatePending` | Awaiting OCR by Python River worker | `extract_enqueued_at IS NOT NULL` |
+| `succeeded` | `ExtractStateSucceeded` | Text/IDs/embedding extracted and stored in Mongo | `extracted_at IS NOT NULL` |
+| `failed` | `ExtractStateFailed` | Extraction failed; retryable via ReExtract | `extract_failed_at IS NOT NULL` |
+| `unextracted` | `ExtractStateUnextracted` | No extraction performed — self-submitted default | All three extract timestamps NULL |
 
-**Sources:** `domain/credential.go:16-27`, migration `000001_initial_schema.up.sql:93-98`.
+*Precedence:* `failed` wins over `succeeded` so a failed re-extract is not masked by a historical `extracted_at`.
 
-Directly-issued credentials are created with `extract_status=pending`; the extraction job is enqueued at approval. Self-submitted credentials instead start at `unextracted` — extraction runs **after approval**, not at submit — and flip to `pending` only when a reviewer approves them. On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
+**Sources:** `domain/credential.go:16-40`, migration `000001_initial_schema.up.sql`.
 
-**ReExtract flow** (`credential_service.go:628-677`):
-1. Validates all targets exist, are `failed`, and have `file_uri`
-2. Resets to `pending`, clears `extract_error` via CASE batch UPDATE
+Directly-issued credentials have `extract_enqueued_at` set at creation; the extraction job is enqueued at approval. Self-submitted credentials start with all extract timestamps nil (`unextracted`) — extraction runs **after approval**, not at submit — and have `extract_enqueued_at` set only when an officer approves them. On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
+
+**ReExtract flow** (`credential_service.go`):
+1. Validates all targets exist, are in `ExtractStateFailed`, and have `file_uri`
+2. Resets via `ClearExtractOutcome` (stamps fresh `extract_enqueued_at`, sets `extracted_at = NULL`, `extract_failed_at = NULL`, `extract_error = NULL`)
 3. Enqueues River jobs
-4. If enqueue fails, **compensates**: stamps credential back to `failed` with `"reenqueue failed"` error, preserving previous error if present
+4. If enqueue fails, **compensates**: stamps `extract_failed_at` with `"reenqueue failed"` error
 
 ---
 
@@ -175,9 +178,9 @@ Uses Postgres bridge:
 
 ---
 
-## Credential Lifecycle Status (timestamp-derived)
+## Credential Status (timestamp-derived)
 
-There is no separate DB status column. `Credential.LifecycleStatus()` (`domain/credential.go:126-137`) derives the workflow lifecycle purely from timestamps, in this precedence order:
+There is no separate DB status column. `Credential.Status()` (`domain/credential.go`) derives the workflow lifecycle purely from timestamps, in this precedence order:
 
 | Status | Condition | Meaning |
 |--------|-----------|---------|
@@ -282,7 +285,7 @@ Architecture: sync chain, async embeddings.
 
 1. Role enforcement via `IssuerRoleMiddleware` (route-level, on-chain check) — no policy gate
 2. `issueValidate` — pre-computed holder lookup + on-chain `GetCredentialHashStatuses` batch → holder existence + duplicate file hash checks
-3. `issuePrepareCredentials` — encrypt files, persist to storage, build domain entities with `extract_status=pending`
+3. `issuePrepareCredentials` — encrypt files, persist to storage, build domain entities with `ExtractEnqueuedAt: &now`
 4. `issueCommit` (within UoW): `Store` → check `file_uri` invariant → `syncBlockchainIssue` → `Update` token IDs → enqueue River extraction jobs
 5. Chain failure rolls back DB transaction; orphan files cleaned up via `issueCleanupOrphanFiles`
 
@@ -300,10 +303,10 @@ Architecture: sync chain, async embeddings.
 4. Missing targets: `CodeCredentialRevokeNotFound` (400341)
 5. Token IDs with non-nil value collected for on-chain sync
 
-### ReExtract (`credential_service.go:628-677`)
+### ReExtract (`credential_service.go:1950-2027`)
 
 1. Role enforcement via `IssuerRoleMiddleware` (route-level, on-chain check) — no policy gate
-2. UoW: `FindByIds` targets → validate all exist + are failed + have file_uri → CASE batch UPDATE (extract_status=pending, extract_error="") → enqueue River jobs
+2. UoW: `FindByIds` targets → validate all exist + are failed + have file_uri → `ClearExtractOutcome` (sets extract_enqueued_at = now, clears extracted_at, extract_failed_at, extract_error) → enqueue River jobs
 3. On enqueue failure: **compensate** — stamp back to failed with `"reenqueue failed"` error
 
 ### Submit / Resolve / Approve (`credential_service.go:649-1544`)
@@ -412,7 +415,8 @@ Primary store for credential metadata, file hash, token ID, status flags. Full m
 CREATE INDEX idx_credentials_holder_user_id ON credentials(holder_user_id);
 CREATE INDEX idx_credentials_issuer_user_id ON credentials(issuer_user_id);
 CREATE INDEX idx_credentials_revoked_at     ON credentials(revoked_at);
-CREATE INDEX idx_credentials_extract_status ON credentials(extract_status);
+CREATE INDEX idx_credentials_extract_enqueued_at ON credentials(extract_enqueued_at) WHERE extract_enqueued_at IS NOT NULL;
+CREATE INDEX idx_credentials_extract_failed_at   ON credentials(extract_failed_at)   WHERE extract_failed_at IS NOT NULL;
 CREATE INDEX idx_credentials_file_hash      ON credentials(file_hash);
 ```
 
@@ -583,7 +587,7 @@ Issue (sync chain, async embeddings)
          └── River worker (async)
               ├── 1. Call Python /extract (text, IDs, embedding)
               ├── 2. Store in Mongo credential_extractions
-              └── 3. DB UPDATE extract_status = succeeded/failed
+              └── 3. DB UPDATE extracted_at = now (or extract_failed_at on terminal failure)
 ```
 
 River jobs live in Postgres (`river_jobs` table) but use a separate `pgx` connection pool from GORM's (`database/sql` + `pgx`). They cannot share the GORM transaction. Mitigation: credentials stay in `pending` and ReExtract recovers failures.

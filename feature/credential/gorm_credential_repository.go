@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -41,7 +42,9 @@ var allowedFilterColumns = map[string]bool{
 	"revoked_at":             true,
 	"holder_user_id":         true,
 	"issuer_user_id":         true,
-	"extract_status":         true,
+	"extract_enqueued_at":    true,
+	"extract_failed_at":      true,
+	"extracted_at":           true,
 	"approved_at":            true,
 	"rejected_at":            true,
 	"type_id":                true,
@@ -66,8 +69,9 @@ var allowedSortColumns = map[string]bool{
 // ── Preload helper ────────────────────────────────────────────────────────
 
 // preloadByIncludes applies GORM Preload for each include key present in the
-// query. Supported keys: "holder", "issuer", "revoker". A single batch
-// IN-clause query runs per Preload regardless of result size (no N+1).
+// query. Supported keys: "holder", "issuer", "revoker", "competencies",
+// "type", "issuer_organization". A single batch IN-clause query runs per
+// Preload regardless of result size (no N+1).
 func preloadByIncludes(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
 	if query == nil {
 		return db
@@ -88,6 +92,10 @@ func preloadByIncludes(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
 			})
 		case "competencies":
 			db = db.Preload("Competencies")
+		case "type":
+			db = db.Preload("Type")
+		case "issuer_organization":
+			db = db.Preload("IssuerOrganization")
 		}
 	}
 	return db
@@ -369,8 +377,7 @@ func (r *gormCredentialRepository) FindByFileHashes(ctx context.Context, hashes 
 
 // ── Mutations ─────────────────────────────────────────────────────────────
 
-// Store batch-inserts new credentials. Generates ULIDs for any missing IDs
-// and defaults ExtractStatus to pending.
+// Store batch-inserts new credentials. Generates ULIDs for any missing IDs.
 func (r *gormCredentialRepository) Store(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error) {
 	if len(credentials) == 0 {
 		return []domain.Credential{}, nil
@@ -378,9 +385,6 @@ func (r *gormCredentialRepository) Store(ctx context.Context, credentials ...dom
 	for i := range credentials {
 		if credentials[i].ID == "" {
 			credentials[i].ID = ulid.Make().String()
-		}
-		if credentials[i].ExtractStatus == "" {
-			credentials[i].ExtractStatus = domain.ExtractStatusPending
 		}
 	}
 	rows := make([]model.Credential, len(credentials))
@@ -418,6 +422,25 @@ func (r *gormCredentialRepository) Update(ctx context.Context, credentials ...do
 		ids[i] = c.ID
 	}
 	return r.FindByIds(ctx, ids, nil)
+}
+
+// ClearExtractOutcome stamps a fresh extract attempt and clears the prior
+// result (extracted_at / extract_failed_at / extract_error all set to NULL).
+// Separate from Update because Update's nil-means-skip semantics cannot
+// write NULL.
+func (r *gormCredentialRepository) ClearExtractOutcome(ctx context.Context, enqueuedAt time.Time, ids ...string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&model.Credential{}).
+		Where("id IN ?", ids).
+		Updates(map[string]interface{}{
+			"extract_enqueued_at": enqueuedAt,
+			"extracted_at":        nil,
+			"extract_failed_at":   nil,
+			"extract_error":       nil,
+			"updated_at":          gorm.Expr("CURRENT_TIMESTAMP"),
+		}).Error
 }
 
 // updateBatchCase builds and executes a single UPDATE statement using CASE
@@ -558,11 +581,17 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return *c.RevokerUserID, true
 	})
-	addCol("extract_status", func(c domain.Credential) (interface{}, bool) {
-		if c.ExtractStatus == "" {
+	addCol("extract_enqueued_at", func(c domain.Credential) (interface{}, bool) {
+		if c.ExtractEnqueuedAt == nil {
 			return nil, false
 		}
-		return string(c.ExtractStatus), true
+		return *c.ExtractEnqueuedAt, true
+	})
+	addCol("extract_failed_at", func(c domain.Credential) (interface{}, bool) {
+		if c.ExtractFailedAt == nil {
+			return nil, false
+		}
+		return *c.ExtractFailedAt, true
 	})
 	addCol("extract_error", func(c domain.Credential) (interface{}, bool) {
 		if c.ExtractError == nil {

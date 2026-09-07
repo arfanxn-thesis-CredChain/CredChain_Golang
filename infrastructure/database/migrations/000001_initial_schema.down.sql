@@ -5,14 +5,14 @@ DROP TABLE IF EXISTS competency_credential;
 DROP INDEX IF EXISTS idx_credentials_file_hash_active;
 DROP INDEX IF EXISTS uq_credentials_issuer_org_number;
 DROP INDEX IF EXISTS idx_credentials_file_hash;
-DROP INDEX IF EXISTS idx_credentials_extract_status;
+DROP INDEX IF EXISTS idx_credentials_extract_enqueued_at;
+DROP INDEX IF EXISTS idx_credentials_extract_failed_at;
 DROP INDEX IF EXISTS idx_credentials_revoked_at;
 DROP INDEX IF EXISTS idx_credentials_expires_at;
 DROP INDEX IF EXISTS idx_credentials_type_id;
 DROP INDEX IF EXISTS idx_credentials_issuer_user_id;
 DROP INDEX IF EXISTS idx_credentials_holder_user_id;
 DROP TABLE IF EXISTS credentials;
-DROP TYPE IF EXISTS credential_extract_status;
 
 -- Drop credential taxonomy tables
 DROP TABLE IF EXISTS competencies;

@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
@@ -83,6 +84,11 @@ func (m *MockCredentialRepository) Update(ctx context.Context, credentials ...do
 		return v.([]domain.Credential), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *MockCredentialRepository) ClearExtractOutcome(ctx context.Context, enqueuedAt time.Time, ids ...string) error {
+	args := m.Called(ctx, enqueuedAt, ids)
+	return args.Error(0)
 }
 
 func (m *MockCredentialRepository) CountByTypeIds(ctx context.Context, typeIds ...string) (int64, error) {

@@ -1176,13 +1176,14 @@ func TestReExtract_HappyPath(t *testing.T) {
 	uow := &mocks.MockUnitOfWork{}
 
 	fileURI := "uploads/test.pdf"
+	now := time.Now()
 	targets := []domain.Credential{
-		{ID: "cred-1", ExtractStatus: domain.ExtractStatusFailed, FileURI: &fileURI},
-		{ID: "cred-2", ExtractStatus: domain.ExtractStatusFailed, FileURI: &fileURI},
+		{ID: "cred-1", ExtractFailedAt: &now, FileURI: &fileURI},
+		{ID: "cred-2", ExtractFailedAt: &now, FileURI: &fileURI},
 	}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, mock.Anything, mock.Anything).Return(targets, nil)
-	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return(targets, nil)
+	innerCredRepo.On("ClearExtractOutcome", mock.Anything, mock.Anything, []string{"cred-1", "cred-2"}).Return(nil)
 	uow.On("Credential").Return(innerCredRepo)
 	mocks.RunUnitOfWorkFn(uow, uow)
 	enq.On("EnqueueExtract", mock.Anything, mock.Anything).Return(nil)
@@ -1232,9 +1233,10 @@ func TestReExtract_NotFailed(t *testing.T) {
 	enq := &localMockEnqueuer{}
 	uow := mocks.NewPropagatingUnitOfWork()
 	fileURI := "uploads/test.pdf"
+	now := time.Now()
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"cred-1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "cred-1", ExtractStatus: domain.ExtractStatusSucceeded, FileURI: &fileURI}}, nil)
+		[]domain.Credential{{ID: "cred-1", ExtractedAt: &now, FileURI: &fileURI}}, nil)
 	uow.On("Credential").Return(innerCredRepo)
 
 	svc := &credentialService{
@@ -1286,8 +1288,9 @@ func TestRevoke_HappyPath(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
+	now := time.Now()
 	tokID := "1"
-	targets := []domain.Credential{{ID: "c1", TokenID: &tokID}}
+	targets := []domain.Credential{{ID: "c1", TokenID: &tokID, ApprovedAt: &now}}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(targets, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(targets, nil)
@@ -1383,10 +1386,11 @@ func TestRevoke_DeletesVerificationCache(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
+	now := time.Now()
 	tokID := "1"
 	targets := []domain.Credential{
-		{ID: "c1", TokenID: &tokID, FileHash: "0xabc"},
-		{ID: "c2", TokenID: &tokID, FileHash: "0xdef"},
+		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ApprovedAt: &now},
+		{ID: "c2", TokenID: &tokID, FileHash: "0xdef", ApprovedAt: &now},
 	}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1", "c2"}, (*domainQuery.Query)(nil)).Return(targets, nil)
@@ -1418,9 +1422,10 @@ func TestRevoke_VerificationCacheDeleteFailureIsNonFatal(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
+	now := time.Now()
 	tokID := "1"
 	targets := []domain.Credential{
-		{ID: "c1", TokenID: &tokID, FileHash: "0xabc"},
+		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ApprovedAt: &now},
 	}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(targets, nil)
@@ -2541,7 +2546,7 @@ func TestSubmit_DuplicateFileRejectedAtSubmission(t *testing.T) {
 	assert.Contains(t, verrs, "credentials.0.file", "duplicate file must be rejected at submission, not approval")
 }
 
-func TestSubmit_SetsUnextractedExtractStatus(t *testing.T) {
+func TestSubmit_LeavesExtractTimestampsNil(t *testing.T) {
 	svc, repo := newCredentialServiceWithSQLite(t)
 
 	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
@@ -2560,7 +2565,10 @@ func TestSubmit_SetsUnextractedExtractStatus(t *testing.T) {
 
 	stored, err := repo.Find(ctx, submitted[0].ID, nil)
 	require.NoError(t, err)
-	assert.Equal(t, domain.ExtractStatusUnextracted, stored.ExtractStatus)
+	assert.Nil(t, stored.ExtractEnqueuedAt)
+	assert.Nil(t, stored.ExtractedAt)
+	assert.Nil(t, stored.ExtractFailedAt)
+	assert.Equal(t, domain.ExtractStateUnextracted, stored.ExtractState())
 	assert.Nil(t, stored.ApprovedAt)
 	assert.Equal(t, authUser.Id, stored.SubmitterUserID)
 	assert.Equal(t, stored.HolderUserID, stored.SubmitterUserID)
@@ -2589,7 +2597,7 @@ func TestSubmit_HappyPathStoresPendingCredential(t *testing.T) {
 	stored, err := repo.Find(ctx, submitted[0].ID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "N-001", *stored.Number)
-	assert.Equal(t, domain.CredentialLifecycleStatusPending, stored.LifecycleStatus())
+	assert.Equal(t, domain.CredentialStatusPending, stored.Status())
 }
 
 func TestSubmit_TypeNotFound(t *testing.T) {
@@ -2751,8 +2759,8 @@ func TestSubmitRequiresTypeIdOrName(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	_, err := svc.Submit(ctx, []CredentialSubmission{
 		{
-			Name:      "Degree",
-			IssuedAt:  &issuedAt, FileBytes: []byte("required"),
+			Name:     "Degree",
+			IssuedAt: &issuedAt, FileBytes: []byte("required"),
 			Filename: "a.pdf", MIMEType: "application/pdf",
 		},
 	})
@@ -2797,7 +2805,6 @@ func reviewPendingCredential() domain.Credential {
 		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
 		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"), Name: "Degree", FileHash: "0x1",
 		FileURI: lo.ToPtr("f.pdf"), IssuedAt: time.Now(),
-		ExtractStatus: domain.ExtractStatusUnextracted,
 	}
 }
 
@@ -2867,7 +2874,8 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 	assert.Equal(t, user.Id, *u.ApproverUserID)
 	assert.Equal(t, user.Id, u.IssuerUserID)
 	assert.NotNil(t, u.ApprovedAt)
-	assert.Equal(t, domain.ExtractStatusPending, u.ExtractStatus)
+	assert.NotNil(t, u.ExtractEnqueuedAt)
+	assert.Equal(t, domain.ExtractStatePending, u.ExtractState())
 }
 
 func TestApprove_NotFound(t *testing.T) {
@@ -2926,8 +2934,8 @@ func TestReject_HappyPath(t *testing.T) {
 	ctx := ctxWithAuth(&user)
 
 	pending := []domain.Credential{
-		{ID: "c1", HolderUserID: "h1", ExtractStatus: domain.ExtractStatusUnextracted},
-		{ID: "c2", HolderUserID: "h1", ExtractStatus: domain.ExtractStatusUnextracted},
+		{ID: "c1", HolderUserID: "h1"},
+		{ID: "c2", HolderUserID: "h1"},
 	}
 
 	var updateArgs []domain.Credential

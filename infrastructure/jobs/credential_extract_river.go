@@ -65,7 +65,7 @@ func NewCredentialExtractWorker(p CredentialExtractWorkerParams) *CredentialExtr
 }
 
 // HandleError implements river.ErrorHandler. On terminal failure (max retries
-// exhausted), stamps the credential extract_status = failed so reextract can act.
+// exhausted), stamps extract_failed_at so reextract can act.
 func (w *CredentialExtractWorker) HandleError(ctx context.Context, job *rivertype.JobRow, err error) *river.ErrorHandlerResult {
 	w.handleTerminalFailure(ctx, job, err.Error())
 	return &river.ErrorHandlerResult{}
@@ -93,7 +93,7 @@ func (w *CredentialExtractWorker) handleTerminalFailure(ctx context.Context, job
 		zap.String("credential_id", args.CredentialID),
 		zap.String("error", errMsg))
 	if updateErr := w.workMarkFailed(ctx, args.CredentialID, errMsg); updateErr != nil {
-		w.logger.Error("failed to mark credential extract_status=failed", zap.Error(updateErr))
+		w.logger.Error("failed to mark credential extract_failed_at", zap.Error(updateErr))
 	}
 }
 
@@ -158,9 +158,8 @@ func (w *CredentialExtractWorker) workExtract(ctx context.Context, args Credenti
 	// Postgres lifecycle update
 	now := time.Now()
 	if _, err := w.credRepo.Update(ctx, domain.Credential{
-		ID:            args.CredentialID,
-		ExtractStatus: domain.ExtractStatusSucceeded,
-		ExtractedAt:   &now,
+		ID:          args.CredentialID,
+		ExtractedAt: &now,
 	}); err != nil {
 		return fmt.Errorf("update credential: %w", err)
 	}
@@ -172,10 +171,11 @@ func (w *CredentialExtractWorker) workExtract(ctx context.Context, args Credenti
 // workMarkFailed stamps the credential as failed with the given error message.
 // Used by HandleError when River permanently discards the job.
 func (w *CredentialExtractWorker) workMarkFailed(ctx context.Context, credentialID string, errMsg string) error {
+	now := time.Now()
 	_, updateErr := w.credRepo.Update(ctx, domain.Credential{
-		ID:            credentialID,
-		ExtractStatus: domain.ExtractStatusFailed,
-		ExtractError:  &errMsg,
+		ID:              credentialID,
+		ExtractFailedAt: &now,
+		ExtractError:    &errMsg,
 	})
 	return updateErr
 }

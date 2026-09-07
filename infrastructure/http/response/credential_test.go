@@ -34,24 +34,24 @@ func TestFromDomainCredential_MapsNewFields(t *testing.T) {
 	assert.Nil(t, out.RejectedAt)
 }
 
-func TestFromDomainCredential_LifecycleStatusDerivation(t *testing.T) {
+func TestFromDomainCredential_StatusDerivation(t *testing.T) {
 	now := time.Now()
 	ts := func(t time.Time) *time.Time { return &t }
 
 	tests := []struct {
 		name     string
 		cred     domain.Credential
-		expected domain.CredentialLifecycleStatus
+		expected domain.CredentialStatus
 	}{
-		{"pending when no timestamps", domain.Credential{}, domain.CredentialLifecycleStatusPending},
-		{"approved when approved_at set", domain.Credential{ApprovedAt: ts(now)}, domain.CredentialLifecycleStatusApproved},
-		{"rejected when rejected_at set", domain.Credential{RejectedAt: ts(now)}, domain.CredentialLifecycleStatusRejected},
-		{"revoked when revoked_at set", domain.Credential{RevokedAt: ts(now)}, domain.CredentialLifecycleStatusRevoked},
+		{"pending when no timestamps", domain.Credential{}, domain.CredentialStatusPending},
+		{"approved when approved_at set", domain.Credential{ApprovedAt: ts(now)}, domain.CredentialStatusApproved},
+		{"rejected when rejected_at set", domain.Credential{RejectedAt: ts(now)}, domain.CredentialStatusRejected},
+		{"revoked when revoked_at set", domain.Credential{RevokedAt: ts(now)}, domain.CredentialStatusRevoked},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := FromDomainCredential(tt.cred)
-			assert.Equal(t, tt.expected, out.LifecycleStatus)
+			assert.Equal(t, tt.expected, out.Status)
 		})
 	}
 }

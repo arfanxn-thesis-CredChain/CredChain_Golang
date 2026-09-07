@@ -441,10 +441,11 @@ func (s *credentialService) issueValidate(
 }
 
 // issuePrepareCredentials encrypts files, persists them to storage, and builds
-// domain.Credential entities with extract_status=pending. Direct issuance is
-// approved at creation: the submitting issuer stamps themselves as approver so
-// the row never sits in pending-review. Returns *domain.Error on encryption or
-// storage failure (caller cleans up orphan files).
+// domain.Credential entities with extraction enqueued (ExtractEnqueuedAt set).
+// Direct issuance is approved at creation: the submitting issuer stamps
+// themselves as approver so the row never sits in pending-review. Returns
+// *domain.Error on encryption or storage failure (caller cleans up orphan
+// files).
 func (s *credentialService) issuePrepareCredentials(
 	ctx context.Context,
 	items []CredentialIssuance,
@@ -457,6 +458,7 @@ func (s *credentialService) issuePrepareCredentials(
 		if it.IssuedAt != nil {
 			issuedAt = *it.IssuedAt
 		}
+		enqueuedAt := time.Now()
 		ext := strings.ToLower(filepath.Ext(it.Filename))
 		if ext == "" {
 			ext = ".bin"
@@ -485,7 +487,7 @@ func (s *credentialService) issuePrepareCredentials(
 			Meta:                 it.Meta,
 			FileHash:             hash,
 			FileURI:              &filename,
-			ExtractStatus:        domain.ExtractStatusPending,
+			ExtractEnqueuedAt:    &enqueuedAt,
 			IssuedAt:             issuedAt,
 			ExpiresAt:            it.ExpiresAt,
 			ApproverUserID:       &authUser.Id,
@@ -642,8 +644,8 @@ func (s *credentialService) Issue(ctx context.Context, items []CredentialIssuanc
 
 // ── Submit (self-submission) ──────────────────────────────────────────────
 
-// Submit stores holder-submitted credentials as pending rows with
-// ExtractStatus unextracted and no mint (no on-chain interaction). Holder
+// Submit stores holder-submitted credentials as pending rows, unextracted
+// (no extract timestamps set) and no mint (no on-chain interaction). Holder
 // and submitter are both the authenticated user. Submitted rows are rejected
 // at approval time or activated by an Issuer via the review flow (step 4).
 func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error) {
@@ -991,8 +993,8 @@ func (s *credentialService) submitValidate(
 }
 
 // submitPrepareCredentials encrypts files, persists them to storage, and
-// builds domain.Credential entities with ExtractStatus unextracted, holder
-// and submitter both equal to the auth user, and NO approver fields (the row
+// builds domain.Credential entities unextracted (no extract timestamps),
+// holder and submitter both equal to the auth user, and NO approver fields (the row
 // enters the pending-review pool). IssuerUserID is the auth user as a D5
 // placeholder (the submitting holder is not an issuer; the real issuer is
 // stamped at approval). Returns *domain.Error on encryption or storage
@@ -1067,7 +1069,6 @@ func (s *credentialService) submitPrepareCredentials(
 			Meta:                            it.Meta,
 			FileHash:                        hash,
 			FileURI:                         &filename,
-			ExtractStatus:                   domain.ExtractStatusUnextracted,
 			IssuedAt:                        *it.IssuedAt,
 			ExpiresAt:                       it.ExpiresAt,
 		}
@@ -1099,7 +1100,7 @@ func (s *credentialService) Update(ctx context.Context, credentials ...domain.Cr
 	for i := range credentials {
 		in := &credentials[i]
 		target := targetByID[in.ID]
-		if target.LifecycleStatus() != domain.CredentialLifecycleStatusPending {
+		if target.Status() != domain.CredentialStatusPending {
 			return nil, domain.NewError(domain.CodeCredentialUpdateNotPending,
 				domain.WithMetadata("credential_ids", []string{in.ID}))
 		}
@@ -1226,12 +1227,12 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 			return domain.NewError(domain.CodeCredentialReviewNotFound, domain.WithMetadata("credential_ids", missing))
 		}
 		for _, t := range targets {
-			switch t.LifecycleStatus() {
-			case domain.CredentialLifecycleStatusApproved:
+			switch t.Status() {
+			case domain.CredentialStatusApproved:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyApproved, domain.WithMetadata("credential_ids", []string{t.ID}))
-			case domain.CredentialLifecycleStatusRejected:
+			case domain.CredentialStatusRejected:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
-			case domain.CredentialLifecycleStatusRevoked:
+			case domain.CredentialStatusRevoked:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
 			}
 			// An approved credential must never carry dangling metadata: the DB
@@ -1254,11 +1255,11 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		updates := make([]domain.Credential, len(targets))
 		for i, t := range targets {
 			updates[i] = domain.Credential{
-				ID:             t.ID,
-				ApproverUserID: &approverID,
-				ApprovedAt:     &now,
-				IssuerUserID:   approverID,                  // the officer who writes to chain
-				ExtractStatus:  domain.ExtractStatusPending, // job enqueued below
+				ID:                t.ID,
+				ApproverUserID:    &approverID,
+				ApprovedAt:        &now,
+				IssuerUserID:      approverID, // the officer who writes to chain
+				ExtractEnqueuedAt: &now,       // job enqueued below
 			}
 		}
 		updated, err := uow.Credential().Update(ctx, updates...)
@@ -1296,7 +1297,7 @@ func (s *credentialService) ResolveMetadata(
 				domain.WithMetadata("credential_id", in.CredentialID))
 		}
 		// Same immutability rule as Update: only pending rows are mutable.
-		if target.LifecycleStatus() != domain.CredentialLifecycleStatusPending {
+		if target.Status() != domain.CredentialStatusPending {
 			return domain.NewError(domain.CodeCredentialMetadataResolveNotPending,
 				domain.WithMetadata("credential_id", in.CredentialID))
 		}
@@ -1570,12 +1571,12 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 			return domain.NewError(domain.CodeCredentialReviewNotFound, domain.WithMetadata("credential_ids", missing))
 		}
 		for _, t := range targets {
-			switch t.LifecycleStatus() {
-			case domain.CredentialLifecycleStatusApproved:
+			switch t.Status() {
+			case domain.CredentialStatusApproved:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyApproved, domain.WithMetadata("credential_ids", []string{t.ID}))
-			case domain.CredentialLifecycleStatusRejected:
+			case domain.CredentialStatusRejected:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
-			case domain.CredentialLifecycleStatusRevoked:
+			case domain.CredentialStatusRevoked:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
 			}
 		}
@@ -1600,7 +1601,8 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 // pool (pgx) from GORM's (database/sql + pgx). They cannot share a transaction.
 // This means a credential can be committed without its extraction job (rare:
 // server crash between Update and Insert). Mitigation: the credential stays in
-// extract_status=pending and the reextract endpoint can recover it.
+// extract_enqueued_at set with no extracted_at/extract_failed_at, stuck
+// pending until an operator intervenes.
 func (s *credentialService) issueEnqueueExtractJob(ctx context.Context, credentialID, fileURI string) error {
 	return s.enqueuer.EnqueueExtract(ctx, jobs.CredentialExtractArgs{
 		CredentialID: credentialID,
@@ -1639,7 +1641,7 @@ func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain
 
 		alreadyRevoked := []string{}
 		for _, t := range targets {
-			if t.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked {
+			if t.Status() == domain.CredentialStatusRevoked {
 				alreadyRevoked = append(alreadyRevoked, t.ID)
 			}
 		}
@@ -1707,7 +1709,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 		}
 		code := cached.VerdictCode
 		if code == domain.CodeCredentialVerifyAuthentic {
-			if cred != nil && cred.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked {
+			if cred != nil && cred.Status() == domain.CredentialStatusRevoked {
 				code = domain.CodeCredentialVerifyRevoked
 			} else if cred != nil {
 				code = s.verifyApplyExpiry(code, cred)
@@ -1888,8 +1890,8 @@ func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []do
 			best, bestCred, bestOK = t, tc, true
 			continue
 		}
-		bestRevoked := bestCred.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked
-		tRevoked := tc.LifecycleStatus() == domain.CredentialLifecycleStatusRevoked
+		bestRevoked := bestCred.Status() == domain.CredentialStatusRevoked
+		tRevoked := tc.Status() == domain.CredentialStatusRevoked
 		if bestRevoked && !tRevoked {
 			best, bestCred = t, tc
 		} else if bestRevoked == tRevoked && tc.IssuedAt.After(bestCred.IssuedAt) {
@@ -1950,6 +1952,7 @@ func (s *credentialService) verifyCacheVerdict(ctx context.Context, hash string,
 func (s *credentialService) ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error) {
 	var updated []domain.Credential
 	var toEnqueue []domain.Credential
+	now := time.Now()
 	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
 		targets, err := uow.Credential().FindByIds(ctx, ids, nil)
 		if err != nil {
@@ -1958,16 +1961,11 @@ func (s *credentialService) ReExtract(ctx context.Context, ids ...string) ([]dom
 		if err := s.reExtractValidate(ids, targets); err != nil {
 			return err
 		}
-		updates := make([]domain.Credential, len(targets))
-		for i, t := range targets {
-			emptyErr := ""
-			updates[i] = domain.Credential{
-				ID:            t.ID,
-				ExtractStatus: domain.ExtractStatusPending,
-				ExtractError:  &emptyErr,
-			}
+		targetIDs := lo.Map(targets, func(c domain.Credential, _ int) string { return c.ID })
+		if err := uow.Credential().ClearExtractOutcome(ctx, now, targetIDs...); err != nil {
+			return err
 		}
-		updated, err = uow.Credential().Update(ctx, updates...)
+		updated, err = uow.Credential().FindByIds(ctx, targetIDs, nil)
 		if err != nil {
 			return err
 		}
@@ -1995,17 +1993,18 @@ func (s *credentialService) ReExtract(ctx context.Context, ids ...string) ([]dom
 	return updated, nil
 }
 
-// reExtractCompensate restamps a credential back to ExtractStatusFailed after a
-// failed enqueue attempt so the operator can retry reextraction.
+// reExtractCompensate restamps a credential back to failed after a failed
+// enqueue attempt so the operator can retry reextraction.
 func (s *credentialService) reExtractCompensate(ctx context.Context, t domain.Credential) error {
 	errMsg := "reenqueue failed"
 	if t.ExtractError != nil {
 		errMsg = *t.ExtractError
 	}
+	now := time.Now()
 	_, err := s.repo.Update(ctx, domain.Credential{
-		ID:            t.ID,
-		ExtractStatus: domain.ExtractStatusFailed,
-		ExtractError:  &errMsg,
+		ID:              t.ID,
+		ExtractFailedAt: &now,
+		ExtractError:    &errMsg,
 	})
 	return err
 }
@@ -2020,7 +2019,7 @@ func (s *credentialService) reExtractValidate(ids []string, targets []domain.Cre
 	}
 	notFailed := []string{}
 	for _, t := range targets {
-		if t.ExtractStatus != domain.ExtractStatusFailed || t.FileURI == nil {
+		if t.ExtractState() != domain.ExtractStateFailed || t.FileURI == nil {
 			notFailed = append(notFailed, t.ID)
 		}
 	}
