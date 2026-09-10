@@ -201,6 +201,39 @@ func TestGormCredentialUpdate(t *testing.T) {
 	assert.WithinDuration(t, revokedAt, *updated[0].RevokedAt, time.Second)
 }
 
+// Approve reassigns issuer_user_id from the submitting holder to the reviewing
+// officer, who signs the on-chain mint. The column was missing from the batched
+// CASE update's allowlist, so the write was silently dropped and approved rows
+// kept the holder — a non-issuer wallet that reverts on chain.
+func TestGormCredentialUpdate_IssuerUserID(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1", Name: "a", FileHash: "0xaa"},
+	)
+	require.NoError(t, err)
+
+	_, err = repo.Update(ctx, domain.Credential{ID: "c1", IssuerUserID: "officer"})
+	require.NoError(t, err)
+
+	// Re-read from the database — asserting the returned struct would pass
+	// even when the column is never written.
+	got, err := repo.Find(ctx, "c1", &domainQuery.Query{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "officer", got.IssuerUserID)
+
+	// Empty means skip, so a partial update must not clobber the officer.
+	_, err = repo.Update(ctx, domain.Credential{ID: "c1", Name: "renamed"})
+	require.NoError(t, err)
+
+	got, err = repo.Find(ctx, "c1", &domainQuery.Query{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "officer", got.IssuerUserID)
+}
+
 func TestGormCredentialUpdate_IssuedAt(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
@@ -451,6 +484,73 @@ func TestGormCredentialGet_SearchCredentialColumns(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, total)
 		assert.Len(t, results, 0)
+	})
+}
+
+// TestGormCredentialGet_SearchByNumberAndTaxonomy covers the columns added to
+// free-text search: credentials.number, joined type/organization names, and
+// competency name via the many-to-many. Also asserts the new LEFT JOINs don't
+// inflate the paginated total.
+func TestGormCredentialGet_SearchByNumberAndTaxonomy(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	require.NoError(t, repo.db.Create(&model.CredentialType{Id: "t1", Name: "Diploma", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{Id: "o1", Name: "University of Indonesia", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-ai", Name: "Artificial Intelligence", Active: true}).Error)
+
+	_, err := repo.Store(ctx,
+		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: "iss1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "Alpha", FileHash: "0xaa", Number: strPtr("2024/ALPHA/001")},
+		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Beta", FileHash: "0xbb", Number: strPtr("2024/BETA/002")},
+	)
+	require.NoError(t, err)
+	require.NoError(t, repo.db.Create(&model.CompetencyCredential{CompetencyId: "comp-ai", CredentialId: "c001"}).Error)
+
+	t.Run("search_by_number", func(t *testing.T) {
+		q := &domainQuery.Query{Search: "ALPHA/001"}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		require.Len(t, results, 1)
+		assert.Equal(t, "c001", results[0].ID)
+	})
+
+	t.Run("search_by_type_name", func(t *testing.T) {
+		q := &domainQuery.Query{Search: "Diploma"}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		require.Len(t, results, 1)
+		assert.Equal(t, "c001", results[0].ID)
+	})
+
+	t.Run("search_by_organization_name", func(t *testing.T) {
+		q := &domainQuery.Query{Search: "University of Indonesia"}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		require.Len(t, results, 1)
+		assert.Equal(t, "c001", results[0].ID)
+	})
+
+	t.Run("search_by_competency_name", func(t *testing.T) {
+		q := &domainQuery.Query{Search: "Artificial"}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		require.Len(t, results, 1)
+		assert.Equal(t, "c001", results[0].ID)
+	})
+
+	t.Run("total_not_inflated_by_joins", func(t *testing.T) {
+		// "2024" matches both credentials' numbers; c001 also joins a type,
+		// an organization, and a competency row. If any LEFT JOIN multiplied
+		// rows, total/len would exceed 2.
+		q := &domainQuery.Query{Search: "2024"}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 2, total)
+		assert.Len(t, results, 2)
 	})
 }
 

@@ -122,6 +122,18 @@ func needsRevokerJoin(query *domainQuery.Query) bool {
 	return query != nil && query.HasSearch()
 }
 
+// needsTypeJoin / needsOrgJoin report whether we must LEFT JOIN the type /
+// issuer_organization taxonomy tables so search can match their name.
+// type_id and issuer_organization_id are nullable 1:1 FKs, so these LEFT
+// JOINs never multiply rows.
+func needsTypeJoin(query *domainQuery.Query) bool {
+	return query != nil && query.HasSearch()
+}
+
+func needsOrgJoin(query *domainQuery.Query) bool {
+	return query != nil && query.HasSearch()
+}
+
 // mapSortColumn translates a user-facing sort column into a DB-qualified
 // column expression (e.g. "holder_name" → "holder.name").
 func mapSortColumn(col string) string {
@@ -188,8 +200,11 @@ func (r *gormCredentialRepository) applyVirtualFilters(db *gorm.DB, query *domai
 
 // Get retrieves credentials with pagination, search, filters, sorts, and
 // optional includes. Search spans credentials identity fields (id, token_id,
-// file_hash, name, meta) plus the holder/issuer/revoker users' name/email/number
-// via LEFT JOINs (all activated when HasSearch is true).
+// file_hash, name, number, meta), the holder/issuer/revoker users'
+// name/email/number, the resolved type/organization name (LEFT JOINs), and
+// the resolved competency names (EXISTS subquery) — all activated when
+// HasSearch is true. Staged free-text names (submitted_*) are intentionally
+// excluded; reviewers reach those through the review queue, not free-text.
 //
 // When query.Includes contains "holder", "issuer", or "revoker", the
 // corresponding GORM Preload runs — a single batch IN-clause query per
@@ -209,6 +224,14 @@ func (r *gormCredentialRepository) Get(ctx context.Context, query *domainQuery.Q
 		db = db.Joins("LEFT JOIN users AS revoker ON revoker.id = credentials.revoker_user_id")
 	}
 
+	if needsTypeJoin(query) {
+		db = db.Joins("LEFT JOIN credential_types AS cred_type ON cred_type.id = credentials.type_id")
+	}
+
+	if needsOrgJoin(query) {
+		db = db.Joins("LEFT JOIN credential_issuer_organizations AS cred_org ON cred_org.id = credentials.issuer_organization_id")
+	}
+
 	if query != nil {
 		if query.HasSearch() {
 			needle := "%" + query.Search + "%"
@@ -218,6 +241,7 @@ func (r *gormCredentialRepository) Get(ctx context.Context, query *domainQuery.Q
 					"LOWER(credentials.id) LIKE LOWER(?) OR "+
 					"LOWER(credentials.token_id) LIKE LOWER(?) OR "+
 					"LOWER(credentials.file_hash) LIKE LOWER(?) OR "+
+					"LOWER(credentials.number) LIKE LOWER(?) OR "+
 					"LOWER(holder.name) LIKE LOWER(?) OR "+
 					"LOWER(holder.email) LIKE LOWER(?) OR "+
 					"LOWER(holder.number) LIKE LOWER(?) OR "+
@@ -226,11 +250,18 @@ func (r *gormCredentialRepository) Get(ctx context.Context, query *domainQuery.Q
 					"LOWER(issuer.number) LIKE LOWER(?) OR "+
 					"LOWER(revoker.name) LIKE LOWER(?) OR "+
 					"LOWER(revoker.email) LIKE LOWER(?) OR "+
-					"LOWER(revoker.number) LIKE LOWER(?)",
-				needle, needle, needle, needle, needle, // 5 credential cols
+					"LOWER(revoker.number) LIKE LOWER(?) OR "+
+					"LOWER(cred_type.name) LIKE LOWER(?) OR "+
+					"LOWER(cred_org.name) LIKE LOWER(?) OR "+
+					"EXISTS (SELECT 1 FROM competency_credential cc "+
+					"JOIN competencies comp ON comp.id = cc.competency_id "+
+					"WHERE cc.credential_id = credentials.id AND LOWER(comp.name) LIKE LOWER(?))",
+				needle, needle, needle, needle, needle, needle, // 6 credential cols
 				needle, needle, needle, // 3 holder cols
 				needle, needle, needle, // 3 issuer cols
 				needle, needle, needle, // 3 revoker cols
+				needle, needle, // type, organization
+				needle, // competency EXISTS
 			)
 		}
 
@@ -482,6 +513,15 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 			return nil, false
 		}
 		return c.SubmitterUserID, true
+	})
+	// issuer_user_id is updatable because Approve reassigns it from the
+	// submitting holder (a placeholder on the submit path) to the reviewing
+	// officer who actually writes the credential to chain.
+	addCol("issuer_user_id", func(c domain.Credential) (interface{}, bool) {
+		if c.IssuerUserID == "" {
+			return nil, false
+		}
+		return c.IssuerUserID, true
 	})
 	addCol("issuer_organization_id", func(c domain.Credential) (interface{}, bool) {
 		if c.IssuerOrganizationID == nil {
