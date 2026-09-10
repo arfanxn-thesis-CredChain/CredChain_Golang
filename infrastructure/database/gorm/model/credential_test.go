@@ -51,32 +51,39 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 // zero-value association — doing so surfaced a phantom blank avatar in the UI.
 func TestCredential_ToDomain_NoPhantomRelationsWhenUnpreloaded(t *testing.T) {
 	revokerID := "01REVOKER"
+	rejecterID := "01REJECTER"
 	m := Credential{
-		Id:            "01CRED",
-		HolderUserId:  "01HOLDER",
-		IssuerUserId:  "01ISSUER",
-		RevokerUserId: &revokerID,
-		// HolderUser / IssuerUser / RevokerUser left as zero User{} (not preloaded).
+		Id:             "01CRED",
+		HolderUserId:   "01HOLDER",
+		IssuerUserId:   "01ISSUER",
+		RevokerUserId:  &revokerID,
+		RejecterUserId: &rejecterID,
+		// HolderUser / IssuerUser / RevokerUser / RejecterUser left as zero User{} (not preloaded).
 	}
 
 	d := m.ToDomain()
 
 	assert.Equal(t, &revokerID, d.RevokerUserID, "FK still mapped")
+	assert.Equal(t, &rejecterID, d.RejecterUserID, "FK still mapped")
 	assert.Nil(t, d.Holder, "un-preloaded holder must be nil")
 	assert.Nil(t, d.Issuer, "un-preloaded issuer must be nil")
 	assert.Nil(t, d.Revoker, "un-preloaded revoker must be nil (no phantom empty user)")
+	assert.Nil(t, d.Rejecter, "un-preloaded rejecter must be nil (no phantom empty user)")
 }
 
 func TestCredential_ToDomain_MapsPreloadedRelations(t *testing.T) {
 	revokerID := "01REVOKER"
+	rejecterID := "01REJECTER"
 	m := Credential{
-		Id:            "01CRED",
-		HolderUserId:  "01HOLDER",
-		IssuerUserId:  "01ISSUER",
-		RevokerUserId: &revokerID,
-		HolderUser:    User{Id: "01HOLDER"},
-		IssuerUser:    User{Id: "01ISSUER"},
-		RevokerUser:   User{Id: "01REVOKER"},
+		Id:             "01CRED",
+		HolderUserId:   "01HOLDER",
+		IssuerUserId:   "01ISSUER",
+		RevokerUserId:  &revokerID,
+		RejecterUserId: &rejecterID,
+		HolderUser:     User{Id: "01HOLDER"},
+		IssuerUser:     User{Id: "01ISSUER"},
+		RevokerUser:    User{Id: "01REVOKER"},
+		RejecterUser:   User{Id: "01REJECTER"},
 	}
 
 	d := m.ToDomain()
@@ -85,6 +92,8 @@ func TestCredential_ToDomain_MapsPreloadedRelations(t *testing.T) {
 	assert.NotNil(t, d.Issuer)
 	assert.NotNil(t, d.Revoker)
 	assert.Equal(t, "01REVOKER", d.Revoker.Id)
+	assert.NotNil(t, d.Rejecter)
+	assert.Equal(t, "01REJECTER", d.Rejecter.Id)
 }
 
 func strPtrModel(s string) *string { return &s }

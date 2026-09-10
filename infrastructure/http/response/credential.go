@@ -55,6 +55,7 @@ type Credential struct {
 	Holder             *User                   `json:"holder,omitempty"`
 	Issuer             *User                   `json:"issuer,omitempty"`
 	Revoker            *User                   `json:"revoker,omitempty"`
+	Rejecter           *User                   `json:"rejecter,omitempty"`
 	Type               *CredentialType         `json:"type,omitempty"`
 	IssuerOrganization *IssuerOrganization     `json:"issuer_organization,omitempty"`
 }
@@ -109,6 +110,10 @@ func FromDomainCredential(c domain.Credential) Credential {
 	if c.Revoker != nil {
 		r := FromDomainUser(*c.Revoker)
 		out.Revoker = &r
+	}
+	if c.Rejecter != nil {
+		rej := FromDomainUser(*c.Rejecter)
+		out.Rejecter = &rej
 	}
 	if c.Type != nil {
 		ty := FromDomainCredentialType(*c.Type)

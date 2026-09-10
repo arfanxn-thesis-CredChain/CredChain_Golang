@@ -21,7 +21,7 @@ import (
 // (WHERE issuer_organization_id IS NOT NULL) because the FK is nullable
 // while a submitted organization name awaits reviewer resolution.
 //
-// HolderUser / IssuerUser / RevokerUser are GORM relationship fields.
+// HolderUser / IssuerUser / RevokerUser / RejecterUser are GORM relationship fields.
 // They are populated by Preload in the repository when the query's Includes
 // contains the corresponding key.
 type Credential struct {
@@ -58,11 +58,12 @@ type Credential struct {
 
 	// GORM relations — populated by db.Preload("HolderUser") etc. from the
 	// repository layer when the caller requests includes of "holder",
-	// "issuer", or "revoker". A single batch IN-clause query runs per
+	// "issuer", "revoker", or "rejecter". A single batch IN-clause query runs per
 	// Preload regardless of result size (no N+1).
-	HolderUser  User `gorm:"foreignKey:Id;references:HolderUserId"`
-	IssuerUser  User `gorm:"foreignKey:Id;references:IssuerUserId"`
-	RevokerUser User `gorm:"foreignKey:Id;references:RevokerUserId"`
+	HolderUser   User `gorm:"foreignKey:Id;references:HolderUserId"`
+	IssuerUser   User `gorm:"foreignKey:Id;references:IssuerUserId"`
+	RevokerUser  User `gorm:"foreignKey:Id;references:RevokerUserId"`
+	RejecterUser User `gorm:"foreignKey:Id;references:RejecterUserId"`
 
 	// Competencies are the competency rows linked through the
 	// competency_credential join table. Populated by Preload("Competencies")
@@ -131,6 +132,10 @@ func (m Credential) ToDomain() domain.Credential {
 	if m.RevokerUser.Id != "" {
 		u := m.RevokerUser.ToDomain()
 		c.Revoker = &u
+	}
+	if m.RejecterUser.Id != "" {
+		u := m.RejecterUser.ToDomain()
+		c.Rejecter = &u
 	}
 	for _, comp := range m.Competencies {
 		c.Competencies = append(c.Competencies, comp.ToDomain())

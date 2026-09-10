@@ -69,7 +69,7 @@ var allowedSortColumns = map[string]bool{
 // ── Preload helper ────────────────────────────────────────────────────────
 
 // preloadByIncludes applies GORM Preload for each include key present in the
-// query. Supported keys: "holder", "issuer", "revoker", "competencies",
+// query. Supported keys: "holder", "issuer", "revoker", "rejecter", "competencies",
 // "type", "issuer_organization". A single batch IN-clause query runs per
 // Preload regardless of result size (no N+1).
 func preloadByIncludes(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
@@ -88,6 +88,10 @@ func preloadByIncludes(db *gorm.DB, query *domainQuery.Query) *gorm.DB {
 			})
 		case "revoker":
 			db = db.Preload("RevokerUser", func(db *gorm.DB) *gorm.DB {
+				return db.Unscoped()
+			})
+		case "rejecter":
+			db = db.Preload("RejecterUser", func(db *gorm.DB) *gorm.DB {
 				return db.Unscoped()
 			})
 		case "competencies":

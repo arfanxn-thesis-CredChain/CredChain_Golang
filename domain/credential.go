@@ -105,11 +105,12 @@ type Credential struct {
 	UpdatedAt             *time.Time            `json:"updated_at"`
 
 	// Preloaded relations (populated by repository when query.Includes contains
-	// "holder", "issuer", or "revoker"). json:"-" so they never leak through
+	// "holder", "issuer", "revoker", or "rejecter"). json:"-" so they never leak through
 	// the API envelope; the response DTO maps them explicitly.
-	Holder  *User `gorm:"-" json:"-"`
-	Issuer  *User `gorm:"-" json:"-"`
-	Revoker *User `gorm:"-" json:"-"`
+	Holder   *User `gorm:"-" json:"-"`
+	Issuer   *User `gorm:"-" json:"-"`
+	Revoker  *User `gorm:"-" json:"-"`
+	Rejecter *User `gorm:"-" json:"-"`
 
 	// Competencies are the resolved competency rows linked through the
 	// competency_credential join table. Populated by the repository when the
