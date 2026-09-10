@@ -242,4 +242,5 @@ const (
 	CodeCredentialMetadataResolveTargetInactive  = 401544
 	CodeCredentialMetadataResolveNumberDuplicate = 401545
 	CodeCredentialApproveUnresolvedMetadata      = 401546
+	CodeCredentialApproveInactiveMetadata        = 401547
 )

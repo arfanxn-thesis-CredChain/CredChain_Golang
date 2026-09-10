@@ -181,6 +181,7 @@
     "success_user_unit_destroy": "User unit destroyed successfully.",
     "error_user_unit_not_found": "User unit not found.",
     "error_user_unit_parent_invalid": "The selected parent unit is not valid.",
+    "error_user_unit_parent_inactive": "The selected parent unit is inactive.",
     "error_credential_issue_type_not_found": "Credential type not found.",
     "error_credential_issue_type_inactive": "This credential type is inactive and cannot be used.",
     "error_credential_issue_organization_not_found": "Issuer organization not found.",
@@ -210,5 +211,6 @@
     "error_credential_metadata_resolve_target_not_found": "One or more referenced taxonomy rows were not found.",
     "error_credential_metadata_resolve_target_inactive": "One or more referenced taxonomy rows are inactive.",
     "error_credential_metadata_resolve_number_duplicate": "Number already in use for this issuer organization.",
-    "error_credential_approve_unresolved_metadata": "This credential has unresolved metadata and cannot be approved."
+    "error_credential_approve_unresolved_metadata": "This credential has unresolved metadata and cannot be approved.",
+    "error_credential_approve_inactive_metadata": "This credential references inactive metadata and cannot be approved."
 }

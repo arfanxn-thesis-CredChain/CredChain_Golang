@@ -179,6 +179,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeUserUnitDestroySuccess: "success_user_unit_destroy",
 	domain.CodeUserUnitNotFound:       "error_user_unit_not_found",
 	domain.CodeUserUnitParentInvalid:  "error_user_unit_parent_invalid",
+	domain.CodeUserUnitParentInactive: "error_user_unit_parent_inactive",
 
 	// Credential Issue extension codes
 	domain.CodeCredentialIssueTypeNotFound:         "error_credential_issue_type_not_found",
@@ -221,6 +222,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialMetadataResolveTargetInactive:  "error_credential_metadata_resolve_target_inactive",
 	domain.CodeCredentialMetadataResolveNumberDuplicate: "error_credential_metadata_resolve_number_duplicate",
 	domain.CodeCredentialApproveUnresolvedMetadata:      "error_credential_approve_unresolved_metadata",
+	domain.CodeCredentialApproveInactiveMetadata:        "error_credential_approve_inactive_metadata",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -386,6 +388,7 @@ var HttpCodes = map[int]int{
 	domain.CodeUserUnitDestroySuccess: http.StatusOK,
 	domain.CodeUserUnitNotFound:       http.StatusNotFound,
 	domain.CodeUserUnitParentInvalid:  http.StatusBadRequest,
+	domain.CodeUserUnitParentInactive: http.StatusBadRequest,
 
 	// Credential Issue extension codes
 	domain.CodeCredentialIssueTypeNotFound:         http.StatusBadRequest,
@@ -428,6 +431,7 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialMetadataResolveTargetInactive:  http.StatusUnprocessableEntity,
 	domain.CodeCredentialMetadataResolveNumberDuplicate: http.StatusConflict,
 	domain.CodeCredentialApproveUnresolvedMetadata:      http.StatusUnprocessableEntity,
+	domain.CodeCredentialApproveInactiveMetadata:        http.StatusUnprocessableEntity,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

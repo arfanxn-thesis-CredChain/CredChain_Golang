@@ -1218,7 +1218,8 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 
 	var approved []domain.Credential
 	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
-		targets, err := uow.Credential().FindByIds(ctx, ids, nil)
+		targets, err := uow.Credential().FindByIds(ctx, ids,
+			&domainQuery.Query{Includes: []string{"type", "issuer_organization", "competencies"}})
 		if err != nil {
 			return err
 		}
@@ -1242,6 +1243,15 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 				return domain.NewError(domain.CodeCredentialApproveUnresolvedMetadata,
 					domain.WithMetadata("credential_id", t.ID),
 					domain.WithMetadata("unresolved", unresolved))
+			}
+			// A row may have been retired (active=false) after resolution but
+			// before approval — resolution and approval are separate calls,
+			// potentially days apart. Approving would mint a permanent
+			// on-chain credential against a deactivated taxonomy row.
+			if inactive := t.InactiveMetadata(); len(inactive) > 0 {
+				return domain.NewError(domain.CodeCredentialApproveInactiveMetadata,
+					domain.WithMetadata("credential_id", t.ID),
+					domain.WithMetadata("inactive", inactive))
 			}
 		}
 

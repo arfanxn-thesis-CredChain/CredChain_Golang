@@ -181,6 +181,7 @@
     "success_user_unit_destroy": "Unit pengguna berhasil dihapus permanen.",
     "error_user_unit_not_found": "Unit pengguna tidak ditemukan.",
     "error_user_unit_parent_invalid": "Unit induk yang dipilih tidak valid.",
+    "error_user_unit_parent_inactive": "Unit induk yang dipilih tidak aktif.",
     "error_credential_issue_type_not_found": "Tipe kredensial tidak ditemukan.",
     "error_credential_issue_type_inactive": "Tipe kredensial ini tidak aktif dan tidak dapat digunakan.",
     "error_credential_issue_organization_not_found": "Organisasi penerbit tidak ditemukan.",
@@ -210,5 +211,6 @@
     "error_credential_metadata_resolve_target_not_found": "Satu atau lebih entri taksonomi yang dirujuk tidak ditemukan.",
     "error_credential_metadata_resolve_target_inactive": "Satu atau lebih entri taksonomi yang dirujuk tidak aktif.",
     "error_credential_metadata_resolve_number_duplicate": "Nomor sudah digunakan untuk organisasi penerbit ini.",
-    "error_credential_approve_unresolved_metadata": "Kredensial ini memiliki metadata yang belum terselesaikan dan tidak dapat disetujui."
+    "error_credential_approve_unresolved_metadata": "Kredensial ini memiliki metadata yang belum terselesaikan dan tidak dapat disetujui.",
+    "error_credential_approve_inactive_metadata": "Kredensial ini merujuk metadata yang tidak aktif dan tidak dapat disetujui."
 }

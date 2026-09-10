@@ -2823,6 +2823,12 @@ func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, credRepo
 	}
 }
 
+// approveIncludesQuery is the *domainQuery.Query Approve now passes to
+// FindByIds so it can preload Type/IssuerOrganization/Competencies and check
+// their Active flag without an extra round trip. testify compares mock args
+// via reflect.DeepEqual, so any pointer to an equal struct matches.
+var approveIncludesQuery = &domainQuery.Query{Includes: []string{"type", "issuer_organization", "competencies"}}
+
 func reviewPendingCredential() domain.Credential {
 	return domain.Credential{
 		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
@@ -2831,13 +2837,25 @@ func reviewPendingCredential() domain.Credential {
 	}
 }
 
+// reviewPendingCredentialWithActiveRelations is reviewPendingCredential plus
+// preloaded, active taxonomy relations — the shape FindByIds now returns for
+// Approve. Use this as the base for inactive-metadata guard tests, mutating
+// exactly one relation's Active flag per test.
+func reviewPendingCredentialWithActiveRelations() domain.Credential {
+	c := reviewPendingCredential()
+	c.Type = &domain.CredentialType{Id: "t1", Name: "Diploma", Active: true}
+	c.IssuerOrganization = &domain.CredentialIssuerOrganization{Id: "o1", Name: "University", Active: true}
+	c.Competencies = []domain.Competency{{Id: "comp1", Name: "Algorithms", Active: true}}
+	return c
+}
+
 func TestApprove_ChainFailure_RollsBackAndStaysPending(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 	pending := []domain.Credential{reviewPendingCredential()}
 
 	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(pending, nil)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return(pending, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return(pending, nil)
 
 	regSvc := new(mocks.MockRegistryService)
@@ -2866,7 +2884,7 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 
 	var approvalUpdates []domain.Credential
 	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(pending, nil)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return(pending, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything).
 		Return(pending, nil).
 		Run(func(args mock.Arguments) {
@@ -2906,7 +2924,7 @@ func TestApprove_NotFound(t *testing.T) {
 	ctx := ctxWithAuth(&user)
 
 	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"ghost"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{}, nil)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"ghost"}, approveIncludesQuery).Return([]domain.Credential{}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 	regSvc := new(mocks.MockRegistryService)
@@ -2936,7 +2954,7 @@ func TestApprove_NotPending(t *testing.T) {
 			ctx := ctxWithAuth(&user)
 
 			innerCredRepo := new(mocks.MockCredentialRepository)
-			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{tt.cred}, nil)
+			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{tt.cred}, nil)
 			uow := mocks.NewPropagatingUnitOfWork()
 			uow.On("Credential").Return(innerCredRepo)
 			regSvc := new(mocks.MockRegistryService)
@@ -2950,6 +2968,99 @@ func TestApprove_NotPending(t *testing.T) {
 			regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
+}
+
+// TestApprove_InactiveMetadata_Blocked covers the integrity hole where a
+// taxonomy row is resolved while active, then retired (active=false) before
+// the reviewer approves. Approve must refuse rather than mint against a
+// deactivated row — the mint is permanent (soulbound), so this can't be
+// corrected after the fact. Each case deactivates exactly one relation.
+func TestApprove_InactiveMetadata_Blocked(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(c *domain.Credential)
+		inactive []string
+	}{
+		{"type", func(c *domain.Credential) { c.Type.Active = false }, []string{"type"}},
+		{"issuer_organization", func(c *domain.Credential) { c.IssuerOrganization.Active = false }, []string{"issuer_organization"}},
+		{"competency", func(c *domain.Credential) { c.Competencies[0].Active = false }, []string{"competency"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			ctx := ctxWithAuth(&user)
+
+			pending := reviewPendingCredentialWithActiveRelations()
+			tt.mutate(&pending)
+
+			innerCredRepo := new(mocks.MockCredentialRepository)
+			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
+			uow := mocks.NewPropagatingUnitOfWork()
+			uow.On("Credential").Return(innerCredRepo)
+			regSvc := new(mocks.MockRegistryService)
+			svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+			_, err := svc.Approve(ctx, "c1")
+			var de *domain.Error
+			require.ErrorAs(t, err, &de)
+			assert.Equal(t, domain.CodeCredentialApproveInactiveMetadata, de.Code)
+			assert.Equal(t, tt.inactive, de.Metadata["inactive"])
+			innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+			regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// TestApprove_ActiveMetadata_Approves is the control: all preloaded relations
+// active, so the new guard must let the happy path through unchanged.
+func TestApprove_ActiveMetadata_Approves(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	pending := []domain.Credential{reviewPendingCredentialWithActiveRelations()}
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return(pending, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return(pending, nil)
+
+	regSvc := new(mocks.MockRegistryService)
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).
+		Return([]*big.Int{big.NewInt(1)}, nil)
+
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	approved, err := svc.Approve(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, approved, 1)
+	regSvc.AssertCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestApprove_UnresolvedBeforeInactive_OrderingPreserved: a nil FK can never
+// be inactive, but the reverse — an inactive relation alongside a still-nil
+// FK elsewhere — must surface the unresolved error first. The reviewer needs
+// to resolve before they can even see the inactive-metadata error.
+func TestApprove_UnresolvedBeforeInactive_OrderingPreserved(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	pending := reviewPendingCredentialWithActiveRelations()
+	pending.TypeID = nil
+	pending.Type = nil // unresolved: no relation to preload
+	pending.IssuerOrganization.Active = false
+
+	innerCredRepo := new(mocks.MockCredentialRepository)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	regSvc := new(mocks.MockRegistryService)
+	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+
+	_, err := svc.Approve(ctx, "c1")
+	var de *domain.Error
+	require.ErrorAs(t, err, &de)
+	assert.Equal(t, domain.CodeCredentialApproveUnresolvedMetadata, de.Code)
 }
 
 func TestReject_HappyPath(t *testing.T) {
@@ -3566,7 +3677,7 @@ func TestApproveBlocksUnresolvedMetadata(t *testing.T) {
 	pending.SubmittedTypeName = strPtr("Micro-credential")
 
 	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{pending}, nil)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 	regSvc := new(mocks.MockRegistryService)
@@ -3590,7 +3701,7 @@ func TestApproveAllowsResolvedMetadata(t *testing.T) {
 	pending.SubmittedCompetencies = domain.SubmittedCompetencies{{Name: "Discrete Math", ResolvedID: &compID}}
 
 	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{pending}, nil)
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{pending}, nil)
 
 	regSvc := new(mocks.MockRegistryService)

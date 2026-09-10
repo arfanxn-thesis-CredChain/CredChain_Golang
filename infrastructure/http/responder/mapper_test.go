@@ -165,6 +165,7 @@ var allDomainCodes = []int{
 	domain.CodeUserUnitDestroySuccess,
 	domain.CodeUserUnitNotFound,
 	domain.CodeUserUnitParentInvalid,
+	domain.CodeUserUnitParentInactive,
 	// Credential Issue extensions
 	domain.CodeCredentialIssueTypeNotFound,
 	domain.CodeCredentialIssueTypeInactive,
@@ -191,6 +192,17 @@ var allDomainCodes = []int{
 	domain.CodeCredentialUpdateSuccess,
 	domain.CodeCredentialUpdateNotFound,
 	domain.CodeCredentialUpdateNotPending,
+	// Credential Metadata Resolution
+	domain.CodeCredentialMetadataResolveSuccess,
+	domain.CodeCredentialMetadataSuggestSuccess,
+	domain.CodeCredentialMetadataResolveNotFound,
+	domain.CodeCredentialMetadataResolveNotPending,
+	domain.CodeCredentialMetadataResolveNothingStaged,
+	domain.CodeCredentialMetadataResolveTargetNotFound,
+	domain.CodeCredentialMetadataResolveTargetInactive,
+	domain.CodeCredentialMetadataResolveNumberDuplicate,
+	domain.CodeCredentialApproveUnresolvedMetadata,
+	domain.CodeCredentialApproveInactiveMetadata,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

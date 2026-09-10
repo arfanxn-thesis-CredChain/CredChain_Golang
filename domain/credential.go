@@ -181,6 +181,29 @@ func (c *Credential) UnresolvedMetadata() []string {
 	return out
 }
 
+// InactiveMetadata returns the metadata kinds whose resolved taxonomy row is no
+// longer active, in a stable order: "type", "issuer_organization", "competency".
+// A row may be retired between resolution and approval; approving would mint a
+// permanent on-chain credential against a deactivated row. Relations must be
+// preloaded (Includes: type, issuer_organization, competencies) — a nil relation
+// is reported as resolved-and-fine, since UnresolvedMetadata covers nil FKs.
+func (c *Credential) InactiveMetadata() []string {
+	var out []string
+	if c.Type != nil && !c.Type.Active {
+		out = append(out, "type")
+	}
+	if c.IssuerOrganization != nil && !c.IssuerOrganization.Active {
+		out = append(out, "issuer_organization")
+	}
+	for _, comp := range c.Competencies {
+		if !comp.Active {
+			out = append(out, "competency")
+			break
+		}
+	}
+	return out
+}
+
 // CredentialRepository defines the database contract for the credential domain.
 type CredentialRepository interface {
 	// Pagination-aware retrieval with filters, sorts, search, and includes.
