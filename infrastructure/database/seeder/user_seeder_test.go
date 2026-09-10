@@ -59,6 +59,13 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.Nil(t, admins[0].DeletedAt)
 	assert.Nil(t, admins[0].UnitID, "admin must not have a unit")
 
+	units, err := userUnitRepo.Get(ctx, nil)
+	assert.NoError(t, err)
+	parentByID := make(map[string]*string, len(units))
+	for _, u := range units {
+		parentByID[u.Id] = u.ParentId
+	}
+
 	issuers, err := userRepo.FindByRole(ctx, domain.RoleIssuer)
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(issuers), 1)
@@ -66,12 +73,16 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	for _, u := range issuers {
 		assert.NotNil(t, u.Number, "all users must have Number")
 		assert.True(t, len(*u.Number) == 18, "issuer number must be 18-digit NIP")
-		assert.Nil(t, u.UnitID, "issuer must not have a unit")
+		assert.NotNil(t, u.UnitID, "issuer must have a unit")
+		if u.UnitID != nil {
+			assert.Nil(t, parentByID[*u.UnitID], "issuer unit must be a root faculty")
+		}
 		if u.Email == "edysusilo17580@gmail.com" {
 			hasEdy = true
 			assert.NotNil(t, u.Meta)
 			assert.Equal(t, "E5F6G7H8", u.Meta["key"])
 			assert.Nil(t, u.DeletedAt)
+			assert.NotNil(t, u.UnitID, "Edy Susilo must have a unit")
 		}
 	}
 	assert.True(t, hasEdy, "Edy Susilo should be an issuer")

@@ -32,12 +32,13 @@ func (s *UserSeeder) Seed(ctx context.Context) error {
 		return fmt.Errorf("user seeder: fetch units: %w", err)
 	}
 	programs := seedLeafUnits(units)
+	faculties := seedRootUnits(units)
 
 	seed := hashToSeed("credchain-seed")
 	rng := rand.New(rand.NewSource(seed))
 
 	users := s.seedBuildUsers(rng)
-	seedAssignUnitIDs(users, programs)
+	seedAssignUnitIDs(users, programs, faculties)
 
 	_, err = s.repo.Store(ctx, users...)
 	if err != nil {
@@ -230,17 +231,37 @@ func seedLeafUnits(units []domain.UserUnit) []domain.UserUnit {
 	return leaves
 }
 
-// seedAssignUnitIDs assigns study programs round-robin to Holder users.
-// Non-Holder users keep a nil UnitID.
-func seedAssignUnitIDs(users []domain.User, programs []domain.UserUnit) {
-	if len(programs) == 0 {
-		return
+// seedRootUnits returns the faculties at the top of the tree (no ParentId).
+func seedRootUnits(units []domain.UserUnit) []domain.UserUnit {
+	roots := make([]domain.UserUnit, 0, len(units))
+	for _, u := range units {
+		if u.ParentId == nil {
+			roots = append(roots, u)
+		}
 	}
-	idx := 0
+	return roots
+}
+
+// seedAssignUnitIDs assigns units round-robin by role: Holders get a leaf
+// study program, Issuers get a root faculty. Admin and SuperAdmin keep a nil
+// UnitID — they are system roles, not org members. Each role has its own
+// round-robin counter so assigning one role never shifts another's picks.
+func seedAssignUnitIDs(users []domain.User, programs, faculties []domain.UserUnit) {
+	var programIdx, facultyIdx int
 	for i := range users {
-		if users[i].Role == domain.RoleHolder {
-			users[i].UnitID = lo.ToPtr(programs[idx%len(programs)].Id)
-			idx++
+		switch users[i].Role {
+		case domain.RoleHolder:
+			if len(programs) == 0 {
+				continue
+			}
+			users[i].UnitID = lo.ToPtr(programs[programIdx%len(programs)].Id)
+			programIdx++
+		case domain.RoleIssuer:
+			if len(faculties) == 0 {
+				continue
+			}
+			users[i].UnitID = lo.ToPtr(faculties[facultyIdx%len(faculties)].Id)
+			facultyIdx++
 		}
 	}
 }
