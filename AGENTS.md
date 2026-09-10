@@ -138,7 +138,14 @@ CredChain_Golang/
     codes.go            → 6-digit AABBCC response codes
     errors.go           → domain error wrapper + metadata
     user.go             → User entity, Role enum (None/Holder/Issuer/Admin/SuperAdmin)
-    credential.go       → Credential entity
+    user_unit.go        → UserUnit entity (self-referencing org tree)
+    credential.go       → Credential entity, Status()/ExtractState() derivations
+    credential_type.go  → CredentialType taxonomy entity
+    credential_issuer_organization.go → CredentialIssuerOrganization taxonomy entity
+    competency.go       → Competency taxonomy entity
+    competency_credential.go → Competency↔Credential join entity
+    credential_extraction.go    → Mongo extraction document
+    credential_verification.go  → Mongo verification audit document
     wallet.go           → Wallet struct + WalletFromUser()
     uow.go              → UnitOfWork interface
     query.go + query/   → query DSL + parser for filters/sorts/pagination
@@ -146,10 +153,17 @@ CredChain_Golang/
     auth/               → auth_handler.go, auth_service.go, auth_request.go (+ tests)
     user/               → user_handler.go, user_service.go, user_policy.go,
                           user_request.go, gorm_user_repository.go,
-                          gorm_user_token_repository.go (+ tests)
+                          gorm_user_token_repository.go,
+                          user_unit_handler.go, user_unit_service.go,
+                          user_unit_request.go, gorm_user_unit_repository.go (+ tests)
     credential/         → credential_handler.go, credential_service.go,
                           gorm_credential_repository.go, credential_policy.go,
                           credential_request.go, mock_credential_service_test.go (+ tests, 67% coverage)
+                          taxonomy CRUD: credential_type_*.go, issuer_organization_*.go,
+                          competency_*.go + their gorm repositories,
+                          gorm_competency_credential_repository.go
+                          mongo_credential_extraction_repository.go,
+                          mongo_credential_verification_repository.go
     meta/               → meta_handler.go, meta_service.go (+ tests)
     overview/           → overview_handler.go, overview_service.go,
                           gorm_overview_repository.go (+ tests)
@@ -166,9 +180,15 @@ CredChain_Golang/
     crypto/             → AES-256 encryption (encryption.go), random hex (token.go)
     database/gorm/      → GORM setup, UnitOfWork, gorm_context
       helpers.go        → shared filter/sort/pagination/CASE update helpers (ApplyFilters, ApplySorts, ApplyPagination, BuildCaseColumnSQL, BuildBatchUpdateSQL)
-      model/            → GORM structs: User, UserToken, Credential
+      model/            → GORM structs: User, UserToken, UserUnit, Credential,
+                          CredentialType, CredentialIssuerOrganization,
+                          Competency, CompetencyCredential
     database/migrations → 000001_initial_schema.up.sql / .down.sql
-    database/seeder/    → Seeder interface, Registry runner, UserSeeder (15 users), phone sanitizer
+    database/seeder/    → seeder.go (Seeder interface + Registry runner),
+                          user_unit_seeder.go, user_seeder.go (15 users),
+                          credential_type_seeder.go, credential_issuer_organization_seeder.go,
+                          competency_seeder.go, credential_seeder.go,
+                          pdf.go (deterministic PDF bytes), ulid.go (deterministic ULIDs)
     http/               → router.go + sub-packages
       context/          → auth user injection helpers
       middleware/        → AuthMiddleware, ErrorLoggerMiddleware,
@@ -270,7 +290,7 @@ DTOs validate with Ozzo (`Validate()` method). The `ToDomain()` pattern converts
 
 **Date fields use `*string` + `validation.Date("2006-01-02")`** rather than `*time.Time` (default `time.Time` JSON unmarshalling only accepts RFC3339). `ToDomain()` then parses the string into `*time.Time`.
 
-**DB-constraint validation:** request DTOs (`UserStoreInput`, `UserUpdateInput`, `UserUpdateSelfProfileRequest`, `UserUpdateSelfEmailRequest`) enforce DB column maxima — name (1–256), number (0–256), phone_number (0–18 + `strictE164Rule`), email (1–256 + `is.Email`). `strictE164Rule` uses regex `^\+[1-9]\d{6,14}$` (stricter than `is.E164` which accepts bare country codes like `+62`); defined as package-level var in `feature/user/user_request.go`.
+**DB-constraint validation:** request DTOs (`UserStoreInput`, `UserUpdateInput`, `UserUpdateSelfEmailRequest`) enforce DB column maxima — name (1–256), number (0–256), unit_id (0–26), email (1–256 + `is.Email`), gender (`validation.In("male", "female")`). Defined in `feature/user/user_request.go`.
 
 ### Response Envelope & 6-Digit Codes
 
@@ -287,7 +307,7 @@ Response codes follow a 6-digit `AABBCC` format defined in `domain/codes.go`. Ca
 `SendError` detects malformed-body errors (`io.EOF`, `io.ErrUnexpectedEOF`, `*json.SyntaxError`, `*json.UnmarshalTypeError` from `c.ShouldBindJSON`) via `isMalformedBodyError` helper and returns `CodeSystemValidation` (400) instead of falling through to `CodeSystemInternal` (500).
 
 **Response DTOs** live in `infrastructure/http/response/`:
-- `response.User` — mirrors `domain.User` minus `EncryptedWalletPrivateKey`; `Name` is `*string`; includes `Number`, `PhoneNumber`, `BirthDate`, `Meta`, `DeletedAt`.
+- `response.User` — mirrors `domain.User` minus `EncryptedWalletPrivateKey`; `Name` is `*string`; includes `Number`, `UnitID`, `JoinedYear`, `BirthDate`, `Gender`, `Meta`, `DeletedAt` (`response/user.go`).
 - `response.Auth` — embeds `response.User` with `json:",inline"` + `AccessToken`, `RefreshToken`, `AccessTokenExpiresIn`, `RefreshTokenExpiresIn`, `TokenType`.
 - Factory: `response.NewAuth(user, accessToken, refreshToken, accessExpirySec, refreshExpirySec)` — `TokenType` hardcoded to `"Bearer"`.
 
@@ -363,9 +383,9 @@ CredChain uses a two-method policy split: `PreFetch` methods validate before gor
 - `UpdateUserRole` calls `bind.WaitMined` after the relayer tx and verifies `receipt.Status == 1` before returning, ensuring on-chain nonce has incremented before the next call
 - `waitMined` is a struct field (`waitMinedFunc` type) initialized in `NewAuthorityService` to `bind.WaitMined`; tests can substitute their own stub via type assertion to `*authorityService`
 
-**Verify verdicts (400401-400412):** authentic, revoked, integrity_warning, tampered, suspicious, low_similarity, not_similar, no_identifiers, no_match, holder_disabled, issuer_disabled, party_disabled. `integrity_warning` returns HTTP 409, all others 200.
+**Verify verdicts (400401-400413):** authentic, revoked, integrity_warning, tampered, suspicious, low_similarity, not_similar, no_identifiers, no_match, holder_disabled, issuer_disabled, party_disabled, expired. `integrity_warning` returns HTTP 409, all others 200.
 
-**Verify cache:** the MongoDB `credential_verifications` cache (24h TTL) stores only the credential-level verdict snapshot. Holder/issuer deleted status is re-checked live against the users table on every call (including cache hits), so the party-disabled verdict (400410–400412) is always fresh with respect to user state.
+**Verify cache:** the MongoDB `credential_verifications` cache (24h TTL) stores only the credential-level verdict snapshot. Holder/issuer deleted status and `expires_at` are re-checked live on every call (including cache hits), so the party-disabled (400410–400412) and expired (400413) verdicts are always fresh. All four only override an otherwise-`Authentic` result; revocation is checked first (`credential_service.go:1721-1736`).
 
 **RoleNone:** `domain.RoleNone` (Solidity enum value 0) is the on-chain revocation target. Used by `userService.Delete` to revoke roles via `AuthorityService.UpdateUserRole`. **Never persisted to the Postgres `role` ENUM** — in-memory only for chain calls.
 
@@ -403,19 +423,18 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | GET | `/api/health` | None | Health check |
-| GET | `/api/meta` | None | Public metadata endpoint (QRIS, email, phone patterns) |
+| GET | `/api/meta` | None | Public metadata endpoint (issuing organization name, authority/registry contract addresses, chain ID, last block) |
 | POST | `/api/auth/google` | None | Google OAuth login |
 | POST | `/api/auth/refresh` | None | Refresh token (rotates) |
 | POST | `/api/auth/logout` | Authenticated | Revoke all refresh tokens |
 | GET | `/api/users` | Issuer+ | Paginated user list (handler `Paginate`); read-only for Issuer/Admin |
 | GET | `/api/users/self` | Authenticated | Current user (handler `Self`) |
-| PUT | `/api/users/self/profile` | Authenticated | Update own phone number only (handler `UpdateSelfProfile`); name/number/birth_date/meta are admin-managed |
 | PUT | `/api/users/self/email` | Authenticated | Update own email; requires fresh Google ID token |
 | POST | `/api/users/self/transfer-super-admin` | SuperAdmin | Transfer SuperAdmin role (handler `TransferSuperAdmin`); caller → Admin, target → SuperAdmin, both refresh tokens revoked |
 | GET | `/api/users/self/credentials` | Authenticated | Paginated list of own credentials (handler `SelfPaginate`); same query DSL as `GET /api/credentials`, scoped to `holder_user_id == auth_user.id` |
 | GET | `/api/users/self/credentials/:id` | Authenticated | Single own credential (handler `SelfFind`); returns 404 (`CodeCredentialFetchNotFound`) when not found OR not owned — never leaks IDs across holders |
 | GET | `/api/users/:id` | Issuer+ | Single user lookup (handler `Find`); read-only for Issuer/Admin |
-| POST | `/api/users/batch` | Admin+ | Batch create users (optional: number, phone_number, birth_date, gender, meta) |
+| POST | `/api/users/batch` | Admin+ | Batch create users (optional: number, unit_id, birth_date, gender, meta) |
 | PUT | `/api/users/batch` | Admin+ | Batch update users (handler `Update`); same-role updates silently skipped; email changes revoke target's refresh tokens; role changes sync to blockchain |
 | PUT | `/api/users/batch/role` | Admin+ | Batch role update (handler `UpdateRole`); syncs DB and on-chain |
 | DELETE | `/api/users/batch` | Admin+ | Soft delete users (handler `Delete`); on-chain role revoked to `RoleNone` |
@@ -423,10 +442,25 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | GET | `/api/credentials` | Issuer+ | List credentials |
 | GET | `/api/credentials/:id` | Issuer+ | Single credential |
 | GET | `/api/credentials/:id/file` | Authenticated (no role gate) | Download decrypted file; authorization via policy (holder OR Issuer+) |
-| POST | `/api/credentials/batch/issue` | Issuer+ | Issue credentials |
-| POST | `/api/credentials/batch/revoke` | Issuer+ | Revoke credentials |
+| PUT | `/api/credentials/:id/competencies` | Issuer+ | Link competencies to a credential |
+| GET | `/api/credentials/:id/metadata/suggestions` | Issuer+ | Suggest taxonomy rows for staged free text |
+| PUT | `/api/credentials/:id/metadata` | Issuer+ | Resolve staged free text to taxonomy IDs (pending rows only) |
+| POST | `/api/credentials/batch/issue` | Issuer+ | Direct issuance — born approved, type/org required as IDs |
+| POST | `/api/credentials/batch/submit` | Authenticated (no role gate) | Holder self-submission — awaits review; type/org may be staged free text |
+| POST | `/api/credentials/batch/approve` | Issuer+ | Approve pending submissions; mints on chain, reassigns `issuer_user_id` to the approver |
+| POST | `/api/credentials/batch/reject` | Issuer+ | Reject pending submissions with a reason |
+| PUT | `/api/credentials/batch` | Issuer+ | Batch update credentials (pending only) |
+| POST | `/api/credentials/batch/revoke` | Issuer+ | Revoke credentials (approved only) |
 | POST | `/api/credentials/batch/reextract` | Issuer+ | Re-extract failed credentials |
-| POST | `/api/credentials/verify` | None (public) | Returns verdict code (400401-400412) + locale description; used by external verifiers (HR, employers) — no auth required |
+| POST | `/api/credentials/verify` | None (public) | Returns verdict code (400401-400413) + locale description; used by external verifiers (HR, employers) — no auth required |
+| GET | `/api/credential-types` | Authenticated | List credential types (a holder needs these to submit) |
+| POST/PUT/DELETE | `/api/credential-types[/:id]` | Issuer+ | Credential type CRUD |
+| GET | `/api/issuer-organizations` | Authenticated | List issuer organizations |
+| POST/PUT/DELETE | `/api/issuer-organizations[/:id]` | Issuer+ | Issuer organization CRUD |
+| GET | `/api/competencies` | Authenticated | List competencies |
+| POST/PUT/DELETE | `/api/competencies[/:id]` | Issuer+ | Competency CRUD |
+| GET | `/api/user-units` | Authenticated | List organizational units |
+| POST/PUT/DELETE | `/api/user-units[/:id]` | Admin+ | User unit CRUD |
 | GET | `/api/overview` | Authenticated (no role gate) | Role-conditional dashboard: credential counts, user counts, recents, chain details. Optional `?limit=N` controls recent items per category (default 5). Issuer+ get system-wide data; Holder get own only. |
 
 ### Database
@@ -460,7 +494,11 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 
 **Repository nil-safety (Get):** `Get` and the shared helpers `ApplySorts` / `ApplyPagination` accept a nil `*Query` — nil queries skip search, filters, and pagination, returning all rows. The default sort is still applied.
 
-**Database Seeder:** `infrastructure/database/seeder/` implements a `Seeder` interface with a `Registry` runner accepting variadic `--names` flags, run inside `make dev-up`; standalone via `go run main.go seed` and `go run main.go seed-chain --env .env`. The `UserSeeder` creates 15 users (5 defined + 10 randomised Indonesian names, 60/40 Holder/Issuer tilt) with wallet keys derived from the standard Hardhat mnemonic via BIP44 (`DeriveKeyFromMnemonic`). All users receive an employee number (NIP, 18-digit `YYYYMMDDYYYYMMXNNN`) for Issuer+ roles or a student number (NIM, `2209XXXX`) for Holder roles. Half the users receive random `{"key":"...}` metadata. Five users are soft-deleted (Anna Sorokin at index 4 + 4 users at indices 10-13). All timestamps (created_at, updated_at, deleted_at) are deterministically generated from a seeded RNG. Chain roles are registered via the `seed-chain` CLI, which reads the database with a nil query and signs batch `UpdateUserRole` transactions in chunks of ≤100 (respecting `MAX_BATCH_ROLE=100` limit in the CredentialAuthority contract) with the SuperAdmin wallet (Hardhat node #1). SuperAdmin and users whose target role is `RoleNone` on a fresh deploy are skipped to avoid contract reverts (`SuperAdminRoleNotUpdatableError`, `SameRoleUpdateError`). The phone sanitizer (`SanitizePhone`) ensures E.164 compliance for all generated phone numbers. Soft-deleted users are created with `DeletedAt` pre-set; the `seed-chain` CLI detects these via `DeletedAt != nil` and assigns `RoleNone` on-chain.
+**Database Seeder:** `infrastructure/database/seeder/` implements a `Seeder` interface with a `Registry` runner accepting variadic `--names` flags, run inside `make dev-up`; standalone via `go run main.go seed` and `go run main.go seed-chain --env .env`. Seeders run in dependency order: `UserUnitSeeder` → `UserSeeder` → `CredentialTypeSeeder` → `CredentialIssuerOrganizationSeeder` → `CompetencySeeder` → `CredentialSeeder`. Shared helpers live in `pdf.go` (deterministic PDF bytes) and `ulid.go` (`deterministicULID`, the only order-independent handle on a seeded row — `userRepo.Get` sorts by `updated_at DESC, id ASC`, so slice position is not stable). The `UserSeeder` creates 15 users (5 defined + 10 randomised Indonesian names, 60/40 Holder/Issuer tilt) with wallet keys derived from the standard Hardhat mnemonic via BIP44 (`DeriveKeyFromMnemonic`). All users receive an employee number (NIP, 18-digit `YYYYMMDDYYYYMMXNNN`) for Issuer+ roles or a student number (NIM, `2209XXXX`) for Holder roles. Half the users receive random `{"key":"...}` metadata. Five users are soft-deleted (Anna Sorokin at index 4 + 4 users at indices 10-13). All timestamps (created_at, updated_at, deleted_at) are deterministically generated from a seeded RNG. Chain roles are registered via the `seed-chain` CLI, which reads the database with a nil query and signs batch `UpdateUserRole` transactions in chunks of ≤100 (respecting `MAX_BATCH_ROLE=100` limit in the CredentialAuthority contract) with the SuperAdmin wallet (Hardhat node #1). SuperAdmin and users whose target role is `RoleNone` on a fresh deploy are skipped to avoid contract reverts (`SuperAdminRoleNotUpdatableError`, `SameRoleUpdateError`). The seeded SuperAdmin still holds `Role.SuperAdmin` on chain despite being skipped, because `INITIAL_SUPER_ADMIN_WALLET_ADDRESS` grants it at contract initialization. Soft-deleted users are created with `DeletedAt` pre-set; the `seed-chain` CLI detects these via `DeletedAt != nil` and assigns `RoleNone` on-chain.
+
+> `seed-chain` is not idempotent against a chain that already holds the seeded roles — a re-run reverts with `SameRoleUpdateError` (selector `0x538b255d`). Reset the chain first (`docker compose stop anvil && rm -rf docker/anvil/data/* && docker compose up -d anvil`), then redeploy with `ENV_FILE=.env python3 scripts/setup-contracts.py` so the new contract addresses land in `.env`.
+
+**Credential Seeder:** `credential_seeder.go` builds every row from four orthogonal enums — `credWorkflow` (issue/submit), `credOutcome` (pending/approved/rejected/revoked), `credExtract` (unextracted/pending/succeeded/failed) and `credMetadata` (resolved/staged/resolved-from-staged) — so each row is a shape one of the two real service paths could have produced. A fixed A/B/C matrix covers the named scenarios (both workflows, all four acting roles, a past `expires_at`, a soft-deleted holder, and one file hash reused after rejection); filler rows repeat those shapes across the randomised pool. The seeder never sets `token_id` — `seed-chain` writes it back after minting.
 
 ### Docker
 
@@ -544,7 +582,7 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | `INITIAL_SUPER_ADMIN_NUMBER` | no | — | employee/student number |
 | `INITIAL_SUPER_ADMIN_PHONE_NUMBER` | no | — | E.164 format |
 | `INITIAL_SUPER_ADMIN_BIRTH_DATE` | no | — | ISO 8601 `YYYY-MM-DD` |
-| `INITIAL_SUPER_ADMIN_GENDER` | no | — | `male`, `female`, or `other` |
+| `INITIAL_SUPER_ADMIN_GENDER` | no | — | `male` or `female` only (Postgres ENUM, `migration:12-15`) |
 | `INITIAL_SUPER_ADMIN_META` | no | — | JSON object string |
 | `PYTHON_AI_API_KEY` | no | — | Python AI service API key (empty = auth disabled) |
 | `MONGO_DATABASE` | no | `credchain` | MongoDB database name |
@@ -648,7 +686,7 @@ When adding a new endpoint or service method, add at least: one happy-path test,
 - **`FILE_ENCRYPTION_KEY`** must be exactly 32 bytes (AES-256). Same validation — credential files encrypted at rest with this key.
 - **SuperAdmin** can only be created via the `init-super-admin` CLI (run automatically by `make local-up`, or `go run main.go init-super-admin --env .env`), never via API.
 - **Transfer Super Admin**: Only the current SuperAdmin can transfer their role via `POST /api/users/self/transfer-super-admin`. Caller is downgraded to Admin, target promoted to SuperAdmin. Refresh tokens for both users are revoked.
-- **Self-profile lockdown**: `PUT /api/users/self/profile` only accepts `phone_number`. Name, number, birth_date, and meta are admin-managed via `PUT /api/users/batch`. **SuperAdmin** may include their own ID in `PUT /api/users/batch` to self-edit profile fields (other roles cannot self-target via batch — `CodeUserUpdateSelfForbidden`). However, **no role can change their own email via batch** (`CodeUserUpdateSelfEmailForbidden` 300847, 403) — email changes must go through `PUT /api/users/self/email` which requires a fresh Google ID token. This prevents accidentally locking the account out with an inaccessible email.
+- **Self-profile lockdown**: there is no self-profile route. Name, number, unit_id, birth_date, gender, and meta are admin-managed via `PUT /api/users/batch`. **SuperAdmin** may include their own ID in `PUT /api/users/batch` to self-edit profile fields (other roles cannot self-target via batch — `CodeUserUpdateSelfForbidden`). However, **no role can change their own email via batch** (`CodeUserUpdateSelfEmailForbidden` 300847, 403) — email changes must go through `PUT /api/users/self/email` which requires a fresh Google ID token. This prevents accidentally locking the account out with an inaccessible email.
 - **`init-super-admin`** validates wallet has SuperAdmin role on-chain before database initialization; checks for existing SuperAdmin by role using `FindByRole`, not by email. Filters out trashed users from the existence check.
 - **Auth is Google OAuth only** — no email/password login exists.
 - **Soulbound tokens:** `CredentialRegistry._update()` blocks all transfers and burns (reverts with `CredentialTransferError`) — Solidity-side enforcement; backend should not attempt transfer flows.

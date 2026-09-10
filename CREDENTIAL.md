@@ -4,7 +4,7 @@
 
 ## Entity Definitions
 
-### `domain.Credential` (`domain/credential.go:67-115`)
+### `domain.Credential` (`domain/credential.go:69-123`)
 
 | Field | DB Type | Purpose |
 |-------|---------|---------|
@@ -39,9 +39,9 @@
 | `CreatedAt` | `TIMESTAMP`, NOT NULL | Row creation time |
 | `UpdatedAt` | `TIMESTAMP`, nullable | Row update time |
 
-**Sources:** Go `domain/credential.go:67-115`, GORM model `infrastructure/database/gorm/model/credential.go:27-70`, Postgres migration `000001_initial_schema.up.sql:100-156`.
+**Sources:** Go `domain/credential.go:69-123`, GORM model `infrastructure/database/gorm/model/credential.go:27-70`, Postgres migration `000001_initial_schema.up.sql:100-163`.
 
-Embeds `Holder`, `Issuer`, `Revoker` (`*domain.User`, `gorm:"-" json:"-"`) populated by GORM Preload when query.Includes contains the corresponding key, and `Competencies` (`[]domain.Competency`, `gorm:"-" json:"-"`) populated from the `competency_credential` join table when Includes contains `"competencies"`. None are serialized to JSON — the response DTO maps them explicitly.
+Embeds `Holder`, `Issuer`, `Revoker` (`*domain.User`, `gorm:"-" json:"-"`) populated by GORM Preload when query.Includes contains the corresponding key, plus `Competencies` (`[]domain.Competency`) from the `competency_credential` join table and `Type` / `IssuerOrganization` (`*domain.CredentialType` / `*domain.CredentialIssuerOrganization`) — all keyed off `Includes` (`"competencies"`, `"type"`, `"issuer_organization"`). None are serialized to JSON — the response DTO maps them explicitly.
 
 ### `response.Credential` (`response/credential.go:15-33`)
 
@@ -51,22 +51,34 @@ Mirrors domain entity minus embeddings. `Holder`, `Issuer`, `Revoker` are `*resp
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `VerdictCode` | `int` | 6-digit domain code (400401-400412) |
+| `VerdictCode` | `int` | 6-digit domain code (400401-400413) |
 | `SimilarityScore` | `*float64` | Fuzzy match score (0-1), non-nil only on fuzzy path |
 | `SimilarityPercent` | `*string` | Human-readable percentage, non-nil only on fuzzy path |
 | `Description` | `string` | Localized verdict description resolved via the request's i18n localizer |
 | `Credential` | `*Credential` | Matched credential, if any |
 
-### `CredentialIssuance` (service-layer input, `credential_service.go:51-58`)
+### `CredentialIssuance` (service-layer input, `credential_service.go:69-82`)
+
+Direct issuance is the Issuer+ path. Type and organization are **IDs, not names** — an officer issuing directly must pick existing taxonomy rows, so a directly issued credential can never carry staged free text.
 
 | Field | Type | Source |
 |-------|------|--------|
-| `HolderUserID` | `string` | Multipart form field |
+| `HolderUserID` | `string` | Multipart form field — required, and unlike submit the holder is someone else |
+| `TypeID` | `string` | Multipart form field — required, must be an existing `credential_types` row |
+| `IssuerOrganizationID` | `string` | Multipart form field — required, must be an existing `credential_issuer_organizations` row |
+| `Number` | `*string` | Multipart form field — optional; unique within the organization |
+| `IssuedAt` | `*time.Time` | Multipart form field — optional; defaults to now |
+| `ExpiresAt` | `*time.Time` | Multipart form field — optional |
 | `Name` | `string` | Multipart form field |
 | `Meta` | `map[string]any` | Multipart form field (JSON string) |
+| `CompetencyIDs` | `[]string` | Multipart form field — existing competency rows, linked at creation |
 | `Filename` | `string` | Uploaded file name |
 | `MIMEType` | `string` | Content-Type header (validated against allowlist) |
 | `FileBytes` | `[]byte` | Uploaded file contents (max 10 MB) |
+
+### `CredentialSubmission` (service-layer input, `credential_service.go:94-110`)
+
+The self-submission counterpart. No `HolderUserID` — the submitter is always the holder. Metadata is **id-or-name**: for type and organization exactly one of each pair must be set, and a name matching nothing is staged on the row (`submitted_type_name` / `submitted_issuer_organization_name`) for a reviewer to resolve before approval. Competencies work the same way per entry via `CompetencyIDs` / `SubmittedCompetencyNames`.
 
 ### `CredentialIssueInput` / `CredentialIssueRequest` (`credential_request.go:21-68`)
 
@@ -97,9 +109,9 @@ unextracted ──→ pending ──→ succeeded
 
 *Precedence:* `failed` wins over `succeeded` so a failed re-extract is not masked by a historical `extracted_at`.
 
-**Sources:** `domain/credential.go:16-40`, migration `000001_initial_schema.up.sql`.
+**Sources:** `domain/credential.go:19-41` (constants), `domain/credential.go:150-165` (`ExtractState()`), migration `000001_initial_schema.up.sql`.
 
-Directly-issued credentials have `extract_enqueued_at` set at creation; the extraction job is enqueued at approval. Self-submitted credentials start with all extract timestamps nil (`unextracted`) — extraction runs **after approval**, not at submit — and have `extract_enqueued_at` set only when an officer approves them. On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
+Extraction is enqueued at the moment the credential becomes approved, which is a different moment per workflow. Directly issued credentials are born approved, so `extract_enqueued_at` is stamped at creation (`credential_service.go:490`) and the job is enqueued in the same call — there is no separate approval step to wait for. Self-submitted credentials start with all extract timestamps nil (`unextracted`); `extract_enqueued_at` is stamped only when an officer approves (`credential_service.go:1272`). On-chain issuance is synchronous (keccak256 computed immediately), but extraction (text, IDs, embedding — needed by verify's fuzzy path) requires a slow Python OCR+EmbeddingGemma round-trip via River async worker.
 
 **ReExtract flow** (`credential_service.go`):
 1. Validates all targets exist, are in `ExtractStateFailed`, and have `file_uri`
@@ -166,21 +178,21 @@ RegistryService.RevokeCredentials:
 
 **Known revocation gap:** `CredentialRegistry.sol:205` (`batchRevokeCredentialsWithSignature`) gates revocation only on the revoker holding the Issuer role (`onlyRoleOrAbove(params.revoker, CredentialAuthority.Role.Issuer)`, line 209) — `_revokeCredential` (line 375) never checks that the revoker is the credential's issuing organization. Any address holding the Issuer role can revoke any credential, not only ones it issued. Accepted within the current single-institution deployment; revisit before multi-tenant.
 
-### FindCredentialByHash (Exact-Hash Verify Path — Planned)
+### Exact-Hash Verify Path
 
-Uses Postgres bridge:
-1. `FindByFileHashes` queries Postgres for matching `file_hash` rows
-2. Gets `token_id`s from matched rows
-3. Calls `getCredentialsByIds` on-chain with those token IDs
-4. Returns on-chain credential data for cross-reference
+There is no `FindCredentialByHash` and no `tokenIdFromHash` — the exact-hash path is assembled in the service from two primitives:
 
-**Sources:** `chain/registry_service.go:98-108` (current impl, uses direct `tokenIdFromHash`), `chain/registry_service.go:186-244` (revoke), `chain/registry_service.go:110-184` (issue).
+1. `repo.FindByFileHashes(ctx, []string{uploadedHash}, verifyQuery)` (`credential_service.go:1745`) returns matching **approved** Postgres rows
+2. Their `token_id`s feed `registryService.GetCredentialsByIds` (`chain/registry_service.go:114`) for the on-chain cross-check
+3. A row that matches in Postgres but has no valid on-chain counterpart yields `IntegrityWarning` (400403) rather than a match
+
+**Sources:** `chain/registry_service.go:106` (`FindNonce`), `:114` (`GetCredentialsByIds`), `:122` (`GetCredentialHashStatuses`), `:130` (`IssueCredentials`), `:214` (`RevokeCredentials`).
 
 ---
 
 ## Credential Status (timestamp-derived)
 
-There is no separate DB status column. `Credential.Status()` (`domain/credential.go`) derives the workflow lifecycle purely from timestamps, in this precedence order:
+There is no separate DB status column. `Credential.Status()` (`domain/credential.go:134-148`) derives the workflow lifecycle purely from timestamps, in this precedence order:
 
 | Status | Condition | Meaning |
 |--------|-----------|---------|
@@ -200,7 +212,7 @@ Notes:
 
 ## API Routes
 
-**Source:** `infrastructure/http/router.go:113-161`
+**Source:** `infrastructure/http/router.go:91-166`
 
 | Route | Method | Auth | Handler | Notes |
 |---|---|---|---|---|
@@ -248,13 +260,17 @@ The credential policy interface lives at `feature/credential/credential_policy.g
 
 | Method | Line | Purpose |
 |---|---|---|
-| `IssuePostFetch` | 30 | Validates credentials after fetch for issue; no-op (role enforcement is via `IssuerRoleMiddleware`, on-chain) |
-| `RevokePostFetch` | 34 | Validates credentials after fetch for revoke; no-op (role enforcement is via `IssuerRoleMiddleware`, on-chain) |
-| `DownloadFilePreFetch` | 38 | Enforces that only issuers and above can download credential files |
+| `IssuePostFetch` | 30 | `return nil` — a stub. Role enforcement is via `IssuerRoleMiddleware`, on-chain |
+| `RevokePostFetch` | 34 | `return nil` — a stub. Role enforcement is via `IssuerRoleMiddleware`, on-chain |
+| `DownloadFilePreFetch` | 38 | The holder of the credential first, then any Issuer+; everyone else gets `CodeCredentialFileDownloadForbidden` |
 
-Role enforcement for issue/revoke/reextract is done at the **route level** by `IssuerRoleMiddleware` (on-chain check), not by credential policy. The route-level guard is applied in `router.go:112-116`.
+`DownloadFilePreFetch` checks the **holder** before the role (`credential_policy.go:39-47`), which is what makes `/api/credentials/:id/file` usable by a plain Holder for their own document while staying closed to a Holder reaching for someone else's.
 
-There is no `IssuePreFetch`, `RevokePreFetch`, `VerifyPreFetch`, or `ReExtractPreFetch` method. The verify route is public (no auth middleware — `router.go:88`).
+Role enforcement for issue/revoke/reextract is done at the **route level** by `IssuerRoleMiddleware` (on-chain check), not by credential policy. The route-level guard is applied in `router.go:114-160`.
+
+There is no `IssuePreFetch`, `RevokePreFetch`, `VerifyPreFetch`, or `ReExtractPreFetch` method. The verify route is public (no auth middleware — `router.go:91`).
+
+> **Known gap:** `IssuePostFetch` and `RevokePostFetch` are stubs, and nothing anywhere prevents an Issuer+ from submitting a credential for themselves and then approving it. Both are accepted in the current single-institution deployment.
 
 ---
 
@@ -264,16 +280,17 @@ There is no `IssuePreFetch`, `RevokePreFetch`, `VerifyPreFetch`, or `ReExtractPr
 
 | Scenario | Rule |
 |---|---|
-| Same hash, any holder, active | **Blocked** — `CredentialStatus.Issued` on-chain, DB unique index |
-| Same hash, was revoked | **Allowed** — re-issue after revocation (any holder) |
+| Same hash, any holder, active (neither revoked nor rejected) | **Blocked** |
+| Same hash, earlier row revoked | **Allowed** — re-issue after revocation (any holder) |
+| Same hash, earlier row rejected | **Allowed** — a refused document may be resubmitted |
 
-**Enforcement flow:**
-1. Go computes file hash
-2. Go calls `getCredentialHashStatuses([hash])` on-chain
-3. If status is `Issued` → return duplicate error (`CodeCredentialIssueDuplicateFileHash` 400242)
-4. If status is `None` or `Revoked` → proceed
+"Active" is defined identically in three places, and all three must agree:
 
-**Sources:** Design discussion; `credential_service.go:216-221` (current Go-side check that will be removed), `credential_service.go:239-241` (current per-batch claimedHash that will be kept for same-batch dedup).
+1. **Submit-time count** — `repo.CountActiveByFileHashes` (`gorm_credential_repository.go:692`) counts rows matching the hash `WHERE revoked_at IS NULL AND rejected_at IS NULL`. One count per batch, no N+1 (`credential_service.go:817`). A hit returns validation error `validation_issue_duplicate_file_hash`.
+2. **DB partial unique index** — `idx_credentials_file_hash_active` on `file_hash WHERE revoked_at IS NULL AND rejected_at IS NULL` (`000001_initial_schema.up.sql`). This is the final authority under concurrency; the count above is only a fast pre-check.
+3. **On-chain** — `batchIssueCredentialsWithSignature` reverts `IssuedCredentialError` if `credentialHashToStatus[hash] == Issued`. `mintCredentials` maps that revert to `CodeCredentialIssueDuplicateFileHash` (400242) (`credential_service.go:2154-2157`).
+
+Note the asymmetry: a **rejected** row frees the hash in Postgres but was never minted, so the chain never held it. A **revoked** row frees it on both sides. Both are legal resubmission paths; the credential seeder exercises the rejected case (one rejected row and one pending row sharing a file hash).
 
 ---
 
@@ -339,7 +356,8 @@ Self-submission pipeline: a holder submits a credential (possibly naming taxonom
 
 1. Refuses any credential with unresolved staged metadata — `CodeCredentialApproveUnresolvedMetadata` (401546, HTTP 422).
 2. The DB CHECK `chk_credentials_approved_metadata_resolved` backstops the type + organization half; the service enforces the JSONB competency half (`UnresolvedMetadata`, `domain/credential.go:143-158`) so the error is usable either way.
-3. Approval and on-chain mint run in the **same unit of work** — a failed mint rolls the approval back and the rows stay pending.
+3. Refuses any credential whose resolved type, organization, or competency has since been deactivated — `CodeCredentialApproveInactiveMetadata` (401547, HTTP 422). Resolution and approval are separate calls, potentially days apart; a taxonomy row can be retired in between, and the mint is a permanent soulbound NFT so this must be caught before minting, not after. The fetch preloads `type`/`issuer_organization`/`competencies` (no extra query) and `InactiveMetadata` (`domain/credential.go:184-199`) checks their `Active` flag; a nil relation is treated as fine since the unresolved check above already covers nil FKs.
+4. Approval and on-chain mint run in the **same unit of work** — a failed mint rolls the approval back and the rows stay pending.
 
 **Reject** (`Reject`, `credential_service.go:1554`) — `POST /api/credentials/batch/reject`:
 
@@ -421,7 +439,7 @@ CREATE INDEX idx_credentials_file_hash      ON credentials(file_hash);
 ```
 
 **Repository methods** (`gorm_credential_repository.go`):
-- `Get`: pagination with search (name, meta TEXT, holder name/email/number/phone), filters (name/issued_at/revoked_at/holder_user_id), sorts (name/issued_at/revoked_at + holder_name/email/number/phone), Preload (holder/issuer/revoker)
+- `Get`: pagination with search (name, meta TEXT, id, token_id, file_hash, number, holder/issuer/revoker name/email/number, joined type name, joined issuer organization name, competency name via EXISTS), filters (name/issued_at/revoked_at/holder_user_id), sorts (name/issued_at/revoked_at + holder_name/email/number/phone), Preload (holder/issuer/revoker). Type/organization joins are gated on `HasSearch()` and are 1:1 LEFT JOINs so they never inflate the paginated total; staged (`submitted_*`) names are intentionally excluded since reviewers reach unresolved credentials through the review queue, not free-text search.
 - `Find`: single row by ID with optional Preload
 - `FindByIds`: batch lookup, single IN-clause
 - `FindByHolderId`: scoped to one holder
@@ -479,6 +497,18 @@ Extendable to IPFS via `storage.Storage` interface.
 | 400245 | `CodeCredentialIssueStorageFailed` | 500 | File storage failed (or empty path, or missing file_uri) |
 | 400246 | `CodeCredentialIssueHashFailed` | 500 | Hash computation failed |
 
+Direct issuance resolves type, organization and competencies by ID at request time, so it owns a second block of codes for taxonomy failures the submit path never hits (a submission stages free text and defers resolution to review):
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 400247 | `CodeCredentialIssueTypeNotFound` | 400 | `type_id` does not resolve |
+| 400248 | `CodeCredentialIssueTypeInactive` | 400 | Credential type is deactivated |
+| 400249 | `CodeCredentialIssueOrganizationNotFound` | 400 | `issuer_organization_id` does not resolve |
+| 400250 | `CodeCredentialIssueNumberDuplicate` | 409 | `number` already used within that organization (`uq_credentials_issuer_org_number`) |
+| 400251 | `CodeCredentialIssueCompetencyNotFound` | 400 | A referenced competency does not resolve |
+| 400252 | `CodeCredentialIssueOrganizationInactive` | 400 | Issuer organization is deactivated |
+| 400253 | `CodeCredentialIssueCompetencyInactive` | 400 | A referenced competency is deactivated |
+
 ### Credential Revoke (40-03)
 
 | Code | Constant | HTTP | Meaning |
@@ -488,6 +518,7 @@ Extendable to IPFS via `storage.Storage` interface.
 | 400341 | `CodeCredentialRevokeNotFound` | 404 | One or more credential IDs not found |
 | 400342 | `CodeCredentialRevokeAlreadyRevoked` | 409 | One or more credentials already revoked |
 | 400343 | `CodeCredentialRevokeBlockchainSyncFailed` | 500 | On-chain revocation failed |
+| 400344 | `CodeCredentialRevokeNotApproved` | 422 | Target is not in `approved` status — only an approved credential can be revoked |
 
 ### Credential Verify (40-04)
 
@@ -500,8 +531,9 @@ Extendable to IPFS via `storage.Storage` interface.
 | 400443 | `CodeCredentialVerifyExtractFailed` | 500 | Extraction previously failed |
 | 400444 | `CodeCredentialVerifyAiServiceFailed` | 502 | Python AI service unreachable/errored |
 | 400445 | `CodeCredentialVerifyCredentialNotFound` | 404 | Matched credential not found in DB |
+| 400446 | `CodeCredentialVerifyDocumentUnreadable` | 422 | Uploaded file could not be read as a document (`credential_service.go:1834`) |
 
-#### Verdict Codes (400401-400412)
+#### Verdict Codes (400401-400413)
 
 | Code | Constant | HTTP | Stage | Meaning |
 |------|----------|------|-------|---------|
@@ -517,8 +549,9 @@ Extendable to IPFS via `storage.Storage` interface.
 | 400410 | `CodeCredentialVerifyHolderDisabled` | 200 | Override | Authentic but holder soft-deleted |
 | 400411 | `CodeCredentialVerifyIssuerDisabled` | 200 | Override | Authentic but issuer soft-deleted |
 | 400412 | `CodeCredentialVerifyPartyDisabled` | 200 | Override | Authentic but both parties soft-deleted |
+| 400413 | `CodeCredentialVerifyExpired` | 200 | Override | Authentic but `expires_at` has passed |
 
-Verdict codes (400401-400412) deliberately avoid CC 01-12 for other credential codes — these are success outcomes, not errors.
+Verdict codes (400401-400413) deliberately avoid CC 01-13 for other credential codes — these are success outcomes, not errors (`domain/codes.go:128-131`).
 
 ### Credential Re-Extract (40-05)
 
@@ -538,6 +571,44 @@ Verdict codes (400401-400412) deliberately avoid CC 01-12 for other credential c
 | 400642 | `CodeCredentialFileDownloadDecryptionFailed` | 500 | File decryption error |
 | 400643 | `CodeCredentialFileDownloadNoFile` | 404 | Credential has no stored file |
 
+### Credential Submission (40-11)
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401100 | `CodeCredentialSubmitSuccess` | 200 | Submission accepted, awaiting review |
+| 401141 | `CodeCredentialSubmitStorageFailed` | 500 | File encryption or storage failed (`credential_service.go:1015,1021`) |
+
+Submission reuses the Issue group's validation and duplicate-hash codes (400241/400242); only storage failure gets its own code.
+
+### Credential Review (40-12)
+
+Approve, Reject and the review-path revoke all report through this group.
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401200 | `CodeCredentialReviewSuccess` | 200 | Review action applied |
+| 401240 | `CodeCredentialReviewNotFound` | 404 | One or more credential IDs not found |
+| 401241 | `CodeCredentialReviewAlreadyApproved` | 409 | Target already approved — review is single-shot |
+| 401242 | `CodeCredentialReviewAlreadyRejected` | 409 | Target already rejected |
+| 401243 | `CodeCredentialReviewAlreadyRevoked` | 409 | Target already revoked |
+| 401244 | `CodeCredentialReviewBlockchainSyncFailed` | 500 | Approval minted nothing — on-chain write failed |
+
+### Credential Competency Link (40-13)
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401300 | `CodeCredentialCompetencyLinkSuccess` | 200 | Competencies linked |
+| 401340 | `CodeCredentialCompetencyLinkCredentialNotFound` | 404 | Credential not found |
+| 401341 | `CodeCredentialCompetencyLinkCompetencyNotFound` | 400 | One or more competency IDs do not resolve (`credential_service.go:2103`) |
+
+### Credential Update (40-14)
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401400 | `CodeCredentialUpdateSuccess` | 200 | Credential updated |
+| 401440 | `CodeCredentialUpdateNotFound` | 404 | Credential not found |
+| 401441 | `CodeCredentialUpdateNotPending` | 409 | Credential is no longer pending — an approved, rejected or revoked row is immutable (`credential_service.go:1104`) |
+
 ### Credential Metadata Resolve / Approve (40-15)
 
 | Code | Constant | HTTP | Meaning |
@@ -551,6 +622,25 @@ Verdict codes (400401-400412) deliberately avoid CC 01-12 for other credential c
 | 401544 | `CodeCredentialMetadataResolveTargetInactive` | 422 | Target taxonomy row inactive |
 | 401545 | `CodeCredentialMetadataResolveNumberDuplicate` | 409 | Credential number already used within the org |
 | 401546 | `CodeCredentialApproveUnresolvedMetadata` | 422 | Approval blocked — unresolved staged metadata |
+| 401547 | `CodeCredentialApproveInactiveMetadata` | 422 | Approval blocked — resolved type, organization, or competency has been deactivated |
+
+### Taxonomy CRUD (40-08, 40-09, 40-10)
+
+The three lookup tables a credential resolves against share one code shape. Success codes are fetch/store/update/destroy in order.
+
+| Domain | Success | Not found | Name duplicate |
+|--------|---------|-----------|----------------|
+| Credential Type | 400800-400803 | 400840 (404) | 400841 (409) |
+| Issuer Organization | 400900-400903 | 400940 (404) | 400941 (409) |
+| Competency | 401000-401003 | 401040 (404) | 401041 (409) |
+
+Hard deletion is guarded — a row still referenced by a credential cannot be destroyed. Deactivating (`active = false`) is the everyday path; these codes are raised by the services and again by the repository's 23503 translation backstop (`domain/codes.go:158-166`):
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 400741 | `CodeCredentialTypeDestroyInUse` | 409 | Credential type is referenced by a credential |
+| 400742 | `CodeCredentialIssuerOrganizationDestroyInUse` | 409 | Issuer organization is referenced by a credential |
+| 400743 | `CodeCompetencyDestroyInUse` | 409 | Competency is referenced by a credential |
 
 ---
 

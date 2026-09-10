@@ -52,19 +52,18 @@ Both leverage Solidity enum natural ordering, with Go mirroring via `Rank()`.
 
 ## API Route Authorization
 
-**Source:** `infrastructure/http/router.go:68-111`
+**Source:** `infrastructure/http/router.go:78-166`
 
 Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `RoleMiddleware` (if applicable)
 
 | Route | Method | Auth | Min Role (on-chain) |
 |-------|--------|------|---------------------|
 | `/api/health` | GET | None | None |
-| `/api/meta` | GET | None | — | Public metadata endpoint (QRIS, email, phone patterns) |
+| `/api/meta` | GET | None | — | Public metadata: issuing organization name, authority/registry contract addresses, chain ID, last block |
 | `/api/auth/google` | POST | None | None |
 | `/api/auth/refresh` | POST | None | None |
 | `/api/auth/logout` | POST | Authenticated | Any |
 | `/api/users/self` | GET | Authenticated | Any |
-| `/api/users/self/profile` | PUT | Authenticated | Any |
 | `/api/users/self/email` | PUT | Authenticated | Any |
 | `/api/users/self/transfer-super-admin` | POST | Authenticated | SuperAdmin |
 | `/api/users/self/credentials` | GET | Authenticated | Any — lists own credentials (handler `SelfPaginate`) |
@@ -89,7 +88,7 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/credentials/batch` | PUT | Authenticated | Issuer+ |
 | `/api/credentials/batch/revoke` | POST | Authenticated | Issuer+ |
 | `/api/credentials/batch/reextract` | POST | Authenticated | Issuer+ |
-| `/api/credentials/verify` | POST | **None (public)** | None — used by external verifiers (HR, employers); returns verdict 400401-400412 including party-disabled (400410-400412) for trashed holder/issuer |
+| `/api/credentials/verify` | POST | **None (public)** | None — used by external verifiers (HR, employers); returns verdict 400401-400413 including party-disabled (400410-400412) for trashed holder/issuer and expired (400413) |
 | `/api/credential-types` | GET | Authenticated | Any — taxonomy lookup |
 | `/api/credential-types` | POST | Authenticated | Issuer+ |
 | `/api/credential-types/:id` | PUT | Authenticated | Issuer+ |
@@ -102,6 +101,10 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/competencies` | POST | Authenticated | Issuer+ |
 | `/api/competencies/:id` | PUT | Authenticated | Issuer+ |
 | `/api/competencies/:id` | DELETE | Authenticated | Issuer+ |
+| `/api/user-units` | GET | Authenticated | Any — organizational unit lookup |
+| `/api/user-units` | POST | Authenticated | Admin+ |
+| `/api/user-units/:id` | PUT | Authenticated | Admin+ |
+| `/api/user-units/:id` | DELETE | Authenticated | Admin+ |
 | `/api/overview` | GET | Authenticated | Any — role-conditional response (Holder: own data; Issuer+: system-wide) |
 
 **Role middlewares** (`infrastructure/http/middleware/auth.go:94-146`):
@@ -238,7 +241,6 @@ Google Login                    —      ✓       ✓       ✓       ✓
 Refresh Token                   —      ✓       ✓       ✓       ✓
 Logout                          —      ✓       ✓       ✓       ✓
 View own profile                —      ✓       ✓       ✓       ✓
-Update own phone                —      ✓       ✓       ✓       ✓
 Update own email                —      ✓       ✓       ✓       ✓
 List own credentials             —      ✓       ✓       ✓       ✓
 Find own credential              —      ✓       ✓       ✓       ✓
@@ -277,7 +279,7 @@ Verify credential (public)      ✓      ✓       ✓       ✓       ✓
 3. Admin can update Holder, Issuer; **cannot** update Admin, SuperAdmin, self (via batch), or trashed users; **cannot** promote to Admin
 4. Admin can update Holder/Issuer among Holder/Issuer roles; **cannot** target self, Admin peers, SuperAdmin; **cannot** assign Admin role
 5. Admin can delete Holder, Issuer; **cannot** delete Admin, SuperAdmin, or self
-6. **SuperAdmin can update self via batch (profile fields only — name, number, phone, birth_date, gender, meta, role).** Email cannot be changed via batch even by SuperAdmin — must use `PUT /api/users/self/email` (Google reauth required) to prevent locking out with an inaccessible email.
+6. **SuperAdmin can update self via batch (profile fields only — name, number, birth_date, gender, meta, role).** Email cannot be changed via batch even by SuperAdmin — must use `PUT /api/users/self/email` (Google reauth required) to prevent locking out with an inaccessible email.
 
 ---
 
@@ -317,7 +319,14 @@ Verify credential (public)      ✓      ✓       ✓       ✓       ✓
 
 ### SuperAdmin Creation
 
-**Only via CLI (`make init-super-admin` or `make docker-init-super-admin`).** Source: `cmd/init_super_admin.go`
+**Only via CLI.** Source: `cmd/init_super_admin.go:322`
+
+```bash
+go run main.go init-super-admin --env .env             # host
+docker compose exec golang ./server init-super-admin   # in-container (what local-up/prod-up run)
+```
+
+There is no dedicated Makefile target — `local-up` and `prod-up` invoke the in-container form as one of their steps.
 
 Pre-conditions:
 1. Wallet must have `SuperAdmin` role on-chain in CredentialAuthority contract
@@ -370,11 +379,17 @@ Constraints:
 - SuperAdmin target restore is unconditionally blocked (300943)
 - Non-trashed target restore is strictly rejected (300944 — Option B)
 
-### Credential Verify: Party-Disabled Verdicts
+### Credential Verify: Party-Disabled and Expired Verdicts
 
-When `/api/credentials/verify` matches a credential whose holder or issuer has been soft-deleted, the verdict is overridden to indicate manual review is needed. Three codes: `holder_disabled` (400410), `issuer_disabled` (400411), `party_disabled` (400412 — both deleted). These only override `Authentic` (400401) — stronger verdicts like Revoked, Tampered, and IntegrityWarning persist unchanged.
+When `/api/credentials/verify` matches a credential whose holder or issuer has been soft-deleted, the verdict is overridden to indicate manual review is needed. Three codes: `holder_disabled` (400410), `issuer_disabled` (400411), `party_disabled` (400412 — both deleted). A fourth override, `expired` (400413), fires when the credential's `expires_at` has passed (`verifyApplyExpiry`, `credential_service.go:1860-1866`).
 
-The verify cache (MongoDB, 24h TTL) stores only the credential-level verdict. Holder/issuer status is re-checked live on every call (including cache hits), so the party-disabled verdict is always fresh with respect to user state.
+All four only override `Authentic` (400401) — stronger verdicts like Revoked, Tampered, and IntegrityWarning persist unchanged. Expiry is deliberately not part of `Credential.Status()`; it is evaluated only on the verify path, so an expired credential still reads as `approved` everywhere else.
+
+Precedence between expiry and party-disabled differs by path: the cache and exact-hash paths apply expiry first (`:1725`, `:1785`), so an expired credential with a disabled holder returns 400413; the fuzzy path applies the party checks first (`:1841-1852`), so the same credential returns 400410. Both are "needs manual review" outcomes, so the divergence is cosmetic, but a caller matching on the exact code should not assume one wins.
+
+The verify cache (MongoDB, 24h TTL) stores only the credential-level verdict. Holder/issuer status and expiry are re-checked live on every call (including cache hits), so both overrides stay fresh with respect to user and clock state.
+
+**Seed coverage:** the credential seeder covers `holder_disabled` (an approved credential held by soft-deleted Anna Sorokin) and `expired`. It deliberately does **not** seed a soft-deleted *issuer*, so `issuer_disabled` and `party_disabled` are untested by seed data: `seed-chain` signs each mint batch with the wallet named by `issuer_user_id`, and a soft-deleted user is deregistered on-chain (`RoleNone`), so `batchIssueCredentialsWithSignature` would revert `RoleBelowIssuerError`. A disabled *holder* is chain-safe because `_issueCredential` only requires a non-zero holder address.
 
 ---
 
