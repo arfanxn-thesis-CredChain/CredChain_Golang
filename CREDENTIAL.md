@@ -10,8 +10,8 @@
 |-------|---------|---------|
 | `ID` | `CHAR(26)` PK | ULID primary key |
 | `HolderUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Credential owner |
-| `SubmitterUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Who submitted it (self-submission: submitter == holder) |
-| `IssuerUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Who minted it on-chain (stamped at approval for self-submissions) |
+| `SubmitterUserID` | `CHAR(26)` FK → `users.id`, NOT NULL | Who submitted it (self-submission: submitter == holder; direct issuance: submitter == issuer) |
+| `IssuerUserID` | `CHAR(26)` FK → `users.id`, nullable | Who minted it on-chain (stamped at approval for self-submissions; NULL while pending/rejected) |
 | `SubmittedIssuerOrganizationName` | `VARCHAR(256)`, nullable | Free-text issuer org name staged when no taxonomy row matched at submit |
 | `IssuerOrganizationID` | `CHAR(26)` FK → `credential_issuer_organizations.id`, nullable | Resolved org; nil until a reviewer resolves the staged name |
 | `SubmittedTypeName` | `VARCHAR(256)`, nullable | Free-text credential-type name staged when no taxonomy row matched at submit |
@@ -31,7 +31,6 @@
 | `IssuedAt` | `TIMESTAMP`, NOT NULL | When credential was created (minted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
 | `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
-| `ApproverUserID` | `CHAR(26)` FK → `users.id`, nullable | Who approved it |
 | `ApprovedAt` | `TIMESTAMP`, nullable | When approved (mint time); drives `approved` lifecycle |
 | `RejecterUserID` | `CHAR(26)` FK → `users.id`, nullable | Who rejected it |
 | `RejectedAt` | `TIMESTAMP`, nullable | When rejected; drives `rejected` lifecycle |
@@ -339,6 +338,7 @@ Self-submission pipeline: a holder submits a credential (possibly naming taxonom
 5. A name matching nothing is **staged** on the credential row (`submitted_type_name` / `submitted_issuer_organization_name` / `submitted_competencies` JSONB) with the paired FK left NULL. Nothing is silently created.
 6. Name lookups are batched: exactly one query per taxonomy table per batch (`resolveSubmissionNames`, `credential_service.go:722`) — no N+1.
 7. Number uniqueness is **skipped** for a staged (unresolved) organization at submit — there is no org scope to be unique within yet; it is re-checked at resolution time.
+8. Audit trail: `submitter_user_id` is set to the authenticated submitter (the holder), while `issuer_user_id` remains NULL until approval.
 
 **Resolve metadata** (`ResolveMetadata`, `credential_service.go:1286`) — `PUT /api/credentials/:id/metadata`:
 
@@ -358,6 +358,7 @@ Self-submission pipeline: a holder submits a credential (possibly naming taxonom
 2. The DB CHECK `chk_credentials_approved_metadata_resolved` backstops the type + organization half; the service enforces the JSONB competency half (`UnresolvedMetadata`, `domain/credential.go:143-158`) so the error is usable either way.
 3. Refuses any credential whose resolved type, organization, or competency has since been deactivated — `CodeCredentialApproveInactiveMetadata` (401547, HTTP 422). Resolution and approval are separate calls, potentially days apart; a taxonomy row can be retired in between, and the mint is a permanent soulbound NFT so this must be caught before minting, not after. The fetch preloads `type`/`issuer_organization`/`competencies` (no extra query) and `InactiveMetadata` (`domain/credential.go:184-199`) checks their `Active` flag; a nil relation is treated as fine since the unresolved check above already covers nil FKs.
 4. Approval and on-chain mint run in the **same unit of work** — a failed mint rolls the approval back and the rows stay pending.
+5. Stamps `issuer_user_id` with the approving officer ID, sets `approved_at` to now, and enqueues background OCR extraction.
 
 **Reject** (`Reject`, `credential_service.go:1554`) — `POST /api/credentials/batch/reject`:
 

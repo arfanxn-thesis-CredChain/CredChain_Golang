@@ -447,7 +447,7 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | PUT | `/api/credentials/:id/metadata` | Issuer+ | Resolve staged free text to taxonomy IDs (pending rows only) |
 | POST | `/api/credentials/batch/issue` | Issuer+ | Direct issuance — born approved, type/org required as IDs |
 | POST | `/api/credentials/batch/submit` | Authenticated (no role gate) | Holder self-submission — awaits review; type/org may be staged free text |
-| POST | `/api/credentials/batch/approve` | Issuer+ | Approve pending submissions; mints on chain, reassigns `issuer_user_id` to the approver |
+| POST | `/api/credentials/batch/approve` | Issuer+ | Approve pending submissions; mints on chain, stamps `issuer_user_id` with the approving officer |
 | POST | `/api/credentials/batch/reject` | Issuer+ | Reject pending submissions with a reason |
 | PUT | `/api/credentials/batch` | Issuer+ | Batch update credentials (pending only) |
 | POST | `/api/credentials/batch/revoke` | Issuer+ | Revoke credentials (approved only) |
