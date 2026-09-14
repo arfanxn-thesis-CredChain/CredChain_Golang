@@ -98,7 +98,7 @@ func TestCredentialTypeService_Destroy_ReferencedAndFree(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, credRepo.db.Create(&model.Credential{
-		Id: "c1", HolderUserId: "h1", SubmitterUserId: "s1", IssuerUserId: "i1",
+		Id: "c1", HolderUserId: "h1", SubmitterUserId: "s1", IssuerUserId: lo.ToPtr("i1"),
 		IssuerOrganizationId: lo.ToPtr("o1"), TypeId: lo.ToPtr(referenced.Id), Name: "C", FileHash: "0x1",
 	}).Error)
 

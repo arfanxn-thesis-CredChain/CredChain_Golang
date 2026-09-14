@@ -249,7 +249,10 @@ func seedChainCredentials(
 	// Group credentials by issuer user ID so each batch is signed by that issuer's wallet
 	credsByIssuer := make(map[string][]domain.Credential)
 	for _, c := range onChainCreds {
-		credsByIssuer[c.IssuerUserID] = append(credsByIssuer[c.IssuerUserID], c)
+		if c.IssuerUserID == nil {
+			continue
+		}
+		credsByIssuer[*c.IssuerUserID] = append(credsByIssuer[*c.IssuerUserID], c)
 	}
 
 	const maxBatchIssue = 100
@@ -327,9 +330,14 @@ func seedChainCredentials(
 
 		revokedByRevoker := make(map[string][]domain.Credential)
 		for _, c := range revokedCredsToSync {
-			revokerID := c.IssuerUserID
+			var revokerID string
 			if c.RevokerUserID != nil && *c.RevokerUserID != "" {
 				revokerID = *c.RevokerUserID
+			} else if c.IssuerUserID != nil {
+				revokerID = *c.IssuerUserID
+			}
+			if revokerID == "" {
+				continue
 			}
 			revokedByRevoker[revokerID] = append(revokedByRevoker[revokerID], c)
 		}

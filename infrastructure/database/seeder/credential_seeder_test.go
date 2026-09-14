@@ -189,43 +189,33 @@ func TestCredentialSeeder_WorkflowInvariants(t *testing.T) {
 
 	for _, c := range s.creds {
 		if isDirectIssuance(c) {
-			// issuePrepareCredentials stamps the officer into all three
-			// columns and approves at creation — a direct-issue row is never
-			// pending.
-			require.NotNil(t, c.ApproverUserID, "%s: direct issuance is approved at creation", c.Name)
-			assert.Equal(t, c.SubmitterUserID, c.IssuerUserID,
+			require.NotNil(t, c.IssuerUserID, "%s: direct issuance has an issuer", c.Name)
+			assert.Equal(t, c.SubmitterUserID, *c.IssuerUserID,
 				"%s: direct issuance issuer must be the submitting officer", c.Name)
-			assert.Equal(t, c.SubmitterUserID, *c.ApproverUserID,
-				"%s: direct issuance approver must be the submitting officer", c.Name)
 			assert.NotNil(t, c.ApprovedAt, "%s: direct issuance is approved at creation", c.Name)
 			assert.Nil(t, c.RejectedAt, "%s: a directly issued row is never rejected", c.Name)
 			continue
 		}
 
-		// submitPrepareCredentials puts the holder in all three columns.
+		// submitPrepareCredentials stamps the holder as submitter, leaves issuer nil.
 		assert.Equal(t, c.HolderUserID, c.SubmitterUserID,
 			"%s: a submission is filed by its holder", c.Name)
 
 		switch c.Status() {
 		case domain.CredentialStatusPending:
-			assert.Equal(t, c.HolderUserID, c.IssuerUserID,
-				"%s: an unreviewed submission still names the holder as issuer", c.Name)
-			assert.Nil(t, c.ApproverUserID, "%s: pending row has no approver", c.Name)
+			assert.Nil(t, c.IssuerUserID, "%s: pending submission has nil issuer_user_id", c.Name)
 			assert.Nil(t, c.RejecterUserID, "%s: pending row has no rejecter", c.Name)
 		case domain.CredentialStatusApproved, domain.CredentialStatusRevoked:
-			// Approve reassigns issuer_user_id to the reviewing officer, who is
+			// Approve assigns issuer_user_id to the reviewing officer, who is
 			// the wallet that signs the mint.
-			require.NotNil(t, c.ApproverUserID)
-			assert.Equal(t, *c.ApproverUserID, c.IssuerUserID,
-				"%s: approval hands issuer_user_id to the reviewer", c.Name)
-			assert.NotEqual(t, c.HolderUserID, c.IssuerUserID,
+			require.NotNil(t, c.IssuerUserID)
+			assert.NotEqual(t, c.HolderUserID, *c.IssuerUserID,
 				"%s: a holder cannot end up as the issuer of an approved row", c.Name)
 		case domain.CredentialStatusRejected:
 			require.NotNil(t, c.RejecterUserID)
 			assert.NotNil(t, c.RejectionReason, "%s: Reject always records a reason", c.Name)
-			// Reject touches neither issuer_user_id nor the staged metadata.
-			assert.Equal(t, c.HolderUserID, c.IssuerUserID,
-				"%s: rejection leaves issuer_user_id on the submitter", c.Name)
+			// Reject leaves issuer_user_id nil.
+			assert.Nil(t, c.IssuerUserID, "%s: rejected submission leaves issuer_user_id nil", c.Name)
 		}
 	}
 }
@@ -279,9 +269,8 @@ func TestCredentialSeeder_OfficersAreIssuerPlus(t *testing.T) {
 			continue
 		}
 		approved++
-		requireIssuerPlus(t, c.IssuerUserID, "issuer", c.Name)
-		require.NotNil(t, c.ApproverUserID)
-		requireIssuerPlus(t, *c.ApproverUserID, "approver", c.Name)
+		require.NotNil(t, c.IssuerUserID)
+		requireIssuerPlus(t, *c.IssuerUserID, "issuer", c.Name)
 		if c.RevokerUserID != nil {
 			requireIssuerPlus(t, *c.RevokerUserID, "revoker", c.Name)
 		}
@@ -411,7 +400,7 @@ func TestCredentialSeeder_ScenarioCoverage(t *testing.T) {
 		} else {
 			selfSubmitted++
 		}
-		for _, id := range []*string{c.ApproverUserID, c.RejecterUserID, c.RevokerUserID} {
+		for _, id := range []*string{c.IssuerUserID, c.RejecterUserID, c.RevokerUserID} {
 			if id != nil {
 				actingRoles[s.usersByID[*id].Role]++
 			}

@@ -94,7 +94,7 @@ CREATE TABLE credentials (
     id CHAR(26) PRIMARY KEY,
     holder_user_id CHAR(26) NOT NULL,
     submitter_user_id CHAR(26) NOT NULL,
-    issuer_user_id CHAR(26) NOT NULL,
+    issuer_user_id CHAR(26),
     -- Free-text staging: a holder may submit a name with no taxonomy row yet.
     -- The name is kept; the FK stays NULL until a reviewer resolves it.
     submitted_issuer_organization_name VARCHAR(256),
@@ -113,7 +113,6 @@ CREATE TABLE credentials (
     extract_enqueued_at TIMESTAMP WITH TIME ZONE,
     extract_failed_at TIMESTAMP WITH TIME ZONE,
     extract_error TEXT,
-    approver_user_id CHAR(26),
     rejecter_user_id CHAR(26),
     revoker_user_id CHAR(26),
     rejection_reason TEXT,
@@ -130,7 +129,6 @@ CREATE TABLE credentials (
     CONSTRAINT fk_issuer_user_id FOREIGN KEY (issuer_user_id) REFERENCES users(id),
     CONSTRAINT fk_issuer_organization_id FOREIGN KEY (issuer_organization_id) REFERENCES credential_issuer_organizations(id),
     CONSTRAINT fk_type_id FOREIGN KEY (type_id) REFERENCES credential_types(id),
-    CONSTRAINT fk_approver_user_id FOREIGN KEY (approver_user_id) REFERENCES users(id),
     CONSTRAINT fk_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
     CONSTRAINT fk_revoker_user_id FOREIGN KEY (revoker_user_id) REFERENCES users(id),
     CONSTRAINT chk_credentials_approved_xor_rejected CHECK (approved_at IS NULL OR rejected_at IS NULL),

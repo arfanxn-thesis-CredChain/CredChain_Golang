@@ -518,14 +518,13 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return c.SubmitterUserID, true
 	})
-	// issuer_user_id is updatable because Approve reassigns it from the
-	// submitting holder (a placeholder on the submit path) to the reviewing
+	// issuer_user_id is updatable because Approve assigns it to the reviewing
 	// officer who actually writes the credential to chain.
 	addCol("issuer_user_id", func(c domain.Credential) (interface{}, bool) {
-		if c.IssuerUserID == "" {
+		if c.IssuerUserID == nil || *c.IssuerUserID == "" {
 			return nil, false
 		}
-		return c.IssuerUserID, true
+		return *c.IssuerUserID, true
 	})
 	addCol("issuer_organization_id", func(c domain.Credential) (interface{}, bool) {
 		if c.IssuerOrganizationID == nil {
@@ -550,12 +549,6 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 			return nil, false
 		}
 		return c.IssuedAt, true
-	})
-	addCol("approver_user_id", func(c domain.Credential) (interface{}, bool) {
-		if c.ApproverUserID == nil {
-			return nil, false
-		}
-		return *c.ApproverUserID, true
 	})
 	addCol("approved_at", func(c domain.Credential) (interface{}, bool) {
 		if c.ApprovedAt == nil {

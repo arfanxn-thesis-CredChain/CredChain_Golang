@@ -67,10 +67,10 @@ type SubmittedCompetencies []SubmittedCompetency
 // They are populated by the repository when the caller's query includes
 // "holder", "issuer", or "revoker" in its Includes slice.
 type Credential struct {
-	ID              string `json:"id"`
-	HolderUserID    string `json:"holder_user_id"`
-	SubmitterUserID string `json:"submitter_user_id"`
-	IssuerUserID    string `json:"issuer_user_id"`
+	ID              string  `json:"id"`
+	HolderUserID    string  `json:"holder_user_id"`
+	SubmitterUserID string  `json:"submitter_user_id"`
+	IssuerUserID    *string `json:"issuer_user_id"`
 	// SubmittedIssuerOrganizationName / SubmittedTypeName hold the free text a
 	// submitter typed when no taxonomy row matched. The paired ID stays nil
 	// until a reviewer resolves it; an approved credential always has both IDs.
@@ -96,7 +96,6 @@ type Credential struct {
 	IssuedAt              time.Time             `json:"issued_at"`
 	RevokedAt             *time.Time            `json:"revoked_at"`
 	ExpiresAt             *time.Time            `json:"expires_at"`
-	ApproverUserID        *string               `json:"approver_user_id"`
 	ApprovedAt            *time.Time            `json:"approved_at"`
 	RejecterUserID        *string               `json:"rejecter_user_id"`
 	RejectedAt            *time.Time            `json:"rejected_at"`

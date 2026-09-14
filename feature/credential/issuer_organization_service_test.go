@@ -136,7 +136,7 @@ func TestCredentialIssuerOrganizationService_Destroy_ReferencedAndFree(t *testin
 	require.NoError(t, err)
 
 	require.NoError(t, credRepo.db.Create(&model.Credential{
-		Id: "c1", HolderUserId: "h1", SubmitterUserId: "s1", IssuerUserId: "i1",
+		Id: "c1", HolderUserId: "h1", SubmitterUserId: "s1", IssuerUserId: lo.ToPtr("i1"),
 		IssuerOrganizationId: lo.ToPtr(referenced.Id), TypeId: lo.ToPtr("t1"), Name: "C", FileHash: "0x1",
 	}).Error)
 

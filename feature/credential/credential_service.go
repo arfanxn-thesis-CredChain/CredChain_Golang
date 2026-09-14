@@ -479,7 +479,7 @@ func (s *credentialService) issuePrepareCredentials(
 			ID:                   ulid.Make().String(),
 			HolderUserID:         it.HolderUserID,
 			SubmitterUserID:      authUser.Id,
-			IssuerUserID:         authUser.Id,
+			IssuerUserID:         &authUser.Id,
 			IssuerOrganizationID: lo.ToPtr(it.IssuerOrganizationID),
 			TypeID:               lo.ToPtr(it.TypeID),
 			Number:               it.Number,
@@ -490,7 +490,6 @@ func (s *credentialService) issuePrepareCredentials(
 			ExtractEnqueuedAt:    &enqueuedAt,
 			IssuedAt:             issuedAt,
 			ExpiresAt:            it.ExpiresAt,
-			ApproverUserID:       &authUser.Id,
 			ApprovedAt:           &issuedAt,
 		}
 	}
@@ -994,11 +993,9 @@ func (s *credentialService) submitValidate(
 
 // submitPrepareCredentials encrypts files, persists them to storage, and
 // builds domain.Credential entities unextracted (no extract timestamps),
-// holder and submitter both equal to the auth user, and NO approver fields (the row
-// enters the pending-review pool). IssuerUserID is the auth user as a D5
-// placeholder (the submitting holder is not an issuer; the real issuer is
-// stamped at approval). Returns *domain.Error on encryption or storage
-// failure (caller cleans up orphan files).
+// holder and submitter both equal to the auth user, and NO issuer/approver fields
+// (the row enters the pending-review pool; IssuerUserID is stamped at approval).
+// Returns *domain.Error on encryption or storage failure (caller cleans up orphan files).
 func (s *credentialService) submitPrepareCredentials(
 	holderID string,
 	items []CredentialSubmission,
@@ -1058,7 +1055,7 @@ func (s *credentialService) submitPrepareCredentials(
 			ID:                              ulid.Make().String(),
 			HolderUserID:                    holderID,
 			SubmitterUserID:                 holderID,
-			IssuerUserID:                    holderID,
+			IssuerUserID:                    nil,
 			IssuerOrganizationID:            orgID,
 			SubmittedIssuerOrganizationName: submittedOrgName,
 			TypeID:                          typeID,
@@ -1266,9 +1263,8 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		for i, t := range targets {
 			updates[i] = domain.Credential{
 				ID:                t.ID,
-				ApproverUserID:    &approverID,
 				ApprovedAt:        &now,
-				IssuerUserID:      approverID, // the officer who writes to chain
+				IssuerUserID:      &approverID, // the officer who writes to chain
 				ExtractEnqueuedAt: &now,       // job enqueued below
 			}
 		}

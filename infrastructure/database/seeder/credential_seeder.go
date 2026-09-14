@@ -304,11 +304,11 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 		switch spec.workflow {
 		case workflowIssue:
 			c.SubmitterUserID = officerID
-			c.IssuerUserID = officerID
+			c.IssuerUserID = &officerID
 			c.CreatedAt = issuedAt
 		case workflowSubmit:
 			c.SubmitterUserID = spec.holderID
-			c.IssuerUserID = spec.holderID
+			c.IssuerUserID = nil
 			c.CreatedAt = issuedAt.Add(30 * 24 * time.Hour)
 		}
 
@@ -358,8 +358,7 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 		switch spec.outcome {
 		case outcomeApproved, outcomeRevoked:
 			c.ApprovedAt = &reviewedAt
-			c.ApproverUserID = &officerID
-			c.IssuerUserID = officerID
+			c.IssuerUserID = &officerID
 		case outcomeRejected:
 			c.RejectedAt = &reviewedAt
 			c.RejecterUserID = &officerID

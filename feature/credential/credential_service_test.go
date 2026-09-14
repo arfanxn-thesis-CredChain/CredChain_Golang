@@ -1618,7 +1618,7 @@ func TestVerify_HolderDisabled_OverridesAuthentic(t *testing.T) {
 	cred := domain.Credential{
 		ID:           "c1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       &holder,
 		Issuer:       &issuer,
 	}
@@ -1663,7 +1663,7 @@ func TestVerify_IssuerDisabled_OverridesAuthentic(t *testing.T) {
 	cred := domain.Credential{
 		ID:           "c1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       &holder,
 		Issuer:       &issuer,
 	}
@@ -1709,7 +1709,7 @@ func TestVerify_PartyDisabled_BothDeleted(t *testing.T) {
 	cred := domain.Credential{
 		ID:           "c1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       &holder,
 		Issuer:       &issuer,
 	}
@@ -1755,7 +1755,7 @@ func TestVerify_DoesNotOverrideRevoked_WhenHolderDeleted(t *testing.T) {
 	cred := domain.Credential{
 		ID:           "c1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       &holder,
 		Issuer:       &issuer,
 		RevokedAt:    &now,
@@ -1797,7 +1797,7 @@ func TestVerify_PartyDisabled_MissingHolderTreatedAsDisabled(t *testing.T) {
 	cred := domain.Credential{
 		ID:           "c1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       nil,
 		Issuer:       &issuer,
 	}
@@ -1860,7 +1860,7 @@ func TestVerify_DoesNotOverrideTampered_WhenHolderDeleted(t *testing.T) {
 	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(&domain.Credential{
 		ID:           "cred-1",
 		HolderUserID: "holder-1",
-		IssuerUserID: "issuer-1",
+		IssuerUserID: lo.ToPtr("issuer-1"),
 		Holder:       &holder,
 		Issuer:       &issuer,
 	}, nil)
@@ -2476,13 +2476,12 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 		c := captureRepo.stored[0]
 		assert.Equal(t, "h", c.HolderUserID)
 		assert.Equal(t, issuer.Id, c.SubmitterUserID)
-		assert.Equal(t, issuer.Id, c.IssuerUserID)
-		assert.Equal(t, c.SubmitterUserID, c.IssuerUserID)
+		require.NotNil(t, c.IssuerUserID)
+		assert.Equal(t, issuer.Id, *c.IssuerUserID)
+		assert.Equal(t, c.SubmitterUserID, *c.IssuerUserID)
 		assert.Equal(t, "type-1", *c.TypeID)
 		assert.Equal(t, "org-1", *c.IssuerOrganizationID)
 		assert.Equal(t, "N-001", *c.Number)
-		assert.NotNil(t, c.ApproverUserID)
-		assert.Equal(t, issuer.Id, *c.ApproverUserID)
 		assert.NotNil(t, c.ApprovedAt)
 	}
 	if assert.NotEmpty(t, captureRepo.stored) {
@@ -2831,7 +2830,7 @@ var approveIncludesQuery = &domainQuery.Query{Includes: []string{"type", "issuer
 
 func reviewPendingCredential() domain.Credential {
 	return domain.Credential{
-		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"), Name: "Degree", FileHash: "0x1",
 		FileURI: lo.ToPtr("f.pdf"), IssuedAt: time.Now(),
 	}
@@ -2889,7 +2888,7 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 		Return(pending, nil).
 		Run(func(args mock.Arguments) {
 			for _, c := range args.Get(1).([]domain.Credential) {
-				if c.ApproverUserID != nil {
+				if c.ApprovedAt != nil {
 					approvalUpdates = append(approvalUpdates, c)
 				}
 			}
@@ -2912,8 +2911,8 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 
 	require.Len(t, approvalUpdates, 1)
 	u := approvalUpdates[0]
-	assert.Equal(t, user.Id, *u.ApproverUserID)
-	assert.Equal(t, user.Id, u.IssuerUserID)
+	require.NotNil(t, u.IssuerUserID)
+	assert.Equal(t, user.Id, *u.IssuerUserID)
 	assert.NotNil(t, u.ApprovedAt)
 	assert.NotNil(t, u.ExtractEnqueuedAt)
 	assert.Equal(t, domain.ExtractStatePending, u.ExtractState())
@@ -3440,7 +3439,7 @@ func TestResolveMetadataLinksExistingRows(t *testing.T) {
 	require.NoError(t, err)
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xlink1", IssuedAt: time.Now(),
 		SubmittedTypeName:               strPtr("Micro-credential"),
 		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
@@ -3468,7 +3467,7 @@ func TestResolveMetadataCreatesNewRows(t *testing.T) {
 	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xnew1", IssuedAt: time.Now(),
 		SubmittedTypeName:               strPtr("Micro-credential"),
 		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
@@ -3509,7 +3508,7 @@ func TestResolveMetadataDedupesConvergingCreates(t *testing.T) {
 	}
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xdup1", IssuedAt: time.Now(),
 		SubmittedTypeName:               strPtr("Micro-credential"),
 		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
@@ -3537,7 +3536,7 @@ func TestResolveMetadataStampsAlreadyLinkedCompetency(t *testing.T) {
 	require.NoError(t, err)
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xalready1", IssuedAt: time.Now(),
 		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
 	})
@@ -3573,7 +3572,7 @@ func TestResolveMetadataStampsCorrectEntryByName(t *testing.T) {
 	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xcorrect1", IssuedAt: time.Now(),
 		SubmittedCompetencies: domain.SubmittedCompetencies{
 			{Name: "Discrete Math"},
@@ -3604,7 +3603,7 @@ func TestResolveMetadataRejectsNonPending(t *testing.T) {
 
 	now := time.Now()
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xapproved1", IssuedAt: time.Now(),
 		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
 		ApprovedAt: &now,
@@ -3634,7 +3633,7 @@ func TestSuggestMetadataMatches(t *testing.T) {
 	}
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xsug1", IssuedAt: time.Now(),
 		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
 	})
@@ -3655,7 +3654,7 @@ func TestSuggestMetadataMatchesSkipsResolved(t *testing.T) {
 	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
 
 	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1",
+		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xsug2", IssuedAt: time.Now(),
 		TypeID:            strPtr("t1"),
 		SubmittedTypeName: strPtr("Diploma"),

@@ -13,18 +13,18 @@ import (
 // Holder, Issuer, and Revoker are optional user expansions loaded from the
 // preloaded domain.Credential entity via FromDomainCredential.
 type Credential struct {
-	ID                              string         `json:"id"`
-	HolderUserID                    string         `json:"holder_user_id"`
-	SubmitterUserID                 string         `json:"submitter_user_id"`
-	IssuerUserID                    string         `json:"issuer_user_id"`
-	SubmittedIssuerOrganizationName *string        `json:"submitted_issuer_organization_name"`
-	IssuerOrganizationID            *string        `json:"issuer_organization_id"`
-	SubmittedTypeName               *string        `json:"submitted_type_name"`
-	TypeID                          *string        `json:"type_id"`
-	Number                          *string        `json:"number"`
-	RevokerUserID                   *string        `json:"revoker_user_id"`
-	Name                            string         `json:"name"`
-	Meta                            map[string]any `json:"meta"`
+	ID                              string                  `json:"id"`
+	HolderUserID                    string                  `json:"holder_user_id"`
+	SubmitterUserID                 string                  `json:"submitter_user_id"`
+	IssuerUserID                    *string                 `json:"issuer_user_id"`
+	SubmittedIssuerOrganizationName *string                 `json:"submitted_issuer_organization_name"`
+	IssuerOrganizationID            *string                 `json:"issuer_organization_id"`
+	SubmittedTypeName               *string                 `json:"submitted_type_name"`
+	TypeID                          *string                 `json:"type_id"`
+	Number                          *string                 `json:"number"`
+	RevokerUserID                   *string                 `json:"revoker_user_id"`
+	Name                            string                  `json:"name"`
+	Meta                            map[string]any          `json:"meta"`
 	// SubmittedCompetencies mirrors the staged names; Competencies carries the
 	// resolved rows the reviewer linked. A UI shows staged entries whose
 	// resolved_id is null as pending review.
@@ -45,7 +45,6 @@ type Credential struct {
 	RevokedAt          *time.Time              `json:"revoked_at"`
 	ExpiresAt          *time.Time              `json:"expires_at"`
 	Status             domain.CredentialStatus `json:"status"`
-	ApproverUserID     *string                 `json:"approver_user_id"`
 	ApprovedAt         *time.Time              `json:"approved_at"`
 	RejecterUserID     *string                 `json:"rejecter_user_id"`
 	RejectedAt         *time.Time              `json:"rejected_at"`
@@ -91,7 +90,6 @@ func FromDomainCredential(c domain.Credential) Credential {
 		RevokedAt:                       c.RevokedAt,
 		ExpiresAt:                       c.ExpiresAt,
 		Status:                          c.Status(),
-		ApproverUserID:                  c.ApproverUserID,
 		ApprovedAt:                      c.ApprovedAt,
 		RejecterUserID:                  c.RejecterUserID,
 		RejectedAt:                      c.RejectedAt,

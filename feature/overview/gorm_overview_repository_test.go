@@ -27,11 +27,11 @@ func seedRepoTestData(t *testing.T, gormDB *gorm.DB) {
 	require.NoError(t, gormDB.Create(&users).Error)
 
 	creds := []model.Credential{
-		{Id: "01J000000000000000000000C1", HolderUserId: "01J00000000000000000000001", IssuerUserId: "01J00000000000000000000002", Name: "Active-Degree", FileHash: "0xaa", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now},
-		{Id: "01J000000000000000000000C2", HolderUserId: "01J00000000000000000000001", IssuerUserId: "01J00000000000000000000002", Name: "Revoked-Diploma", FileHash: "0xbb", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now.Add(-1 * time.Hour), RevokedAt: ptr(now), RevokerUserId: ptr("01J00000000000000000000002")},
-		{Id: "01J000000000000000000000C3", HolderUserId: "01J00000000000000000000001", IssuerUserId: "01J00000000000000000000002", Name: "Pending-Extract", FileHash: "0xcc", ExtractEnqueuedAt: ptr(now), IssuedAt: now.Add(-2 * time.Hour)},
-		{Id: "01J000000000000000000000C4", HolderUserId: "01J00000000000000000000001", IssuerUserId: "01J00000000000000000000002", Name: "Failed-Extract", FileHash: "0xdd", ExtractEnqueuedAt: ptr(now), ExtractFailedAt: ptr(now), IssuedAt: now.Add(-3 * time.Hour)},
-		{Id: "01J000000000000000000000C5", HolderUserId: "01J00000000000000000000003", IssuerUserId: "01J00000000000000000000002", Name: "Admin-Active", FileHash: "0xee", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now.Add(-4 * time.Hour)},
+		{Id: "01J000000000000000000000C1", HolderUserId: "01J00000000000000000000001", IssuerUserId: ptr("01J00000000000000000000002"), Name: "Active-Degree", FileHash: "0xaa", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now},
+		{Id: "01J000000000000000000000C2", HolderUserId: "01J00000000000000000000001", IssuerUserId: ptr("01J00000000000000000000002"), Name: "Revoked-Diploma", FileHash: "0xbb", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now.Add(-1 * time.Hour), RevokedAt: ptr(now), RevokerUserId: ptr("01J00000000000000000000002")},
+		{Id: "01J000000000000000000000C3", HolderUserId: "01J00000000000000000000001", IssuerUserId: ptr("01J00000000000000000000002"), Name: "Pending-Extract", FileHash: "0xcc", ExtractEnqueuedAt: ptr(now), IssuedAt: now.Add(-2 * time.Hour)},
+		{Id: "01J000000000000000000000C4", HolderUserId: "01J00000000000000000000001", IssuerUserId: ptr("01J00000000000000000000002"), Name: "Failed-Extract", FileHash: "0xdd", ExtractEnqueuedAt: ptr(now), ExtractFailedAt: ptr(now), IssuedAt: now.Add(-3 * time.Hour)},
+		{Id: "01J000000000000000000000C5", HolderUserId: "01J00000000000000000000003", IssuerUserId: ptr("01J00000000000000000000002"), Name: "Admin-Active", FileHash: "0xee", ExtractEnqueuedAt: ptr(now), ExtractedAt: ptr(now), IssuedAt: now.Add(-4 * time.Hour)},
 	}
 	require.NoError(t, gormDB.Create(&creds).Error)
 }

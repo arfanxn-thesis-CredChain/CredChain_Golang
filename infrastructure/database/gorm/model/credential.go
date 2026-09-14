@@ -28,7 +28,7 @@ type Credential struct {
 	Id                              string                       `gorm:"primaryKey;type:char(26);column:id"`
 	HolderUserId                    string                       `gorm:"type:char(26);column:holder_user_id;index;not null"`
 	SubmitterUserId                 string                       `gorm:"type:char(26);column:submitter_user_id;not null"`
-	IssuerUserId                    string                       `gorm:"type:char(26);column:issuer_user_id;index;not null"`
+	IssuerUserId                    *string                      `gorm:"type:char(26);column:issuer_user_id;index"`
 	SubmittedIssuerOrganizationName *string                      `gorm:"type:varchar(256);column:submitted_issuer_organization_name"`
 	IssuerOrganizationId            *string                      `gorm:"type:char(26);column:issuer_organization_id;uniqueIndex:uq_credentials_issuer_org_number"`
 	SubmittedTypeName               *string                      `gorm:"type:varchar(256);column:submitted_type_name"`
@@ -43,7 +43,6 @@ type Credential struct {
 	ExtractEnqueuedAt               *time.Time                   `gorm:"column:extract_enqueued_at"`
 	ExtractFailedAt                 *time.Time                   `gorm:"column:extract_failed_at"`
 	ExtractError                    *string                      `gorm:"type:text;column:extract_error"`
-	ApproverUserId                  *string                      `gorm:"type:char(26);column:approver_user_id"`
 	RejecterUserId                  *string                      `gorm:"type:char(26);column:rejecter_user_id"`
 	RevokerUserId                   *string                      `gorm:"type:char(26);column:revoker_user_id"`
 	RejectionReason                 *string                      `gorm:"type:text;column:rejection_reason"`
@@ -104,7 +103,6 @@ func (m Credential) ToDomain() domain.Credential {
 		ExtractEnqueuedAt:               m.ExtractEnqueuedAt,
 		ExtractFailedAt:                 m.ExtractFailedAt,
 		ExtractError:                    m.ExtractError,
-		ApproverUserID:                  m.ApproverUserId,
 		RejecterUserID:                  m.RejecterUserId,
 		RevokerUserID:                   m.RevokerUserId,
 		RejectionReason:                 m.RejectionReason,
@@ -172,7 +170,6 @@ func FromDomainCredential(c domain.Credential) Credential {
 		ExtractEnqueuedAt:               c.ExtractEnqueuedAt,
 		ExtractFailedAt:                 c.ExtractFailedAt,
 		ExtractError:                    c.ExtractError,
-		ApproverUserId:                  c.ApproverUserID,
 		RejecterUserId:                  c.RejecterUserID,
 		RevokerUserId:                   c.RevokerUserID,
 		RejectionReason:                 c.RejectionReason,

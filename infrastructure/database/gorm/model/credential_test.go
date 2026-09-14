@@ -16,13 +16,12 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 		ID:                   "cred-1",
 		HolderUserID:         "h1",
 		SubmitterUserID:      "s1",
-		IssuerUserID:         "i1",
+		IssuerUserID:         strPtrModel("i1"),
 		IssuerOrganizationID: strPtrModel("org-1"),
 		TypeID:               strPtrModel("type-1"),
 		Number:               &num,
 		Name:                 "Degree",
 		FileHash:             "0xabc",
-		ApproverUserID:       strPtrModel("a1"),
 		ApprovedAt:           &now,
 		ExpiresAt:            &now,
 		RejectionReason:      nil,
@@ -55,7 +54,7 @@ func TestCredential_ToDomain_NoPhantomRelationsWhenUnpreloaded(t *testing.T) {
 	m := Credential{
 		Id:             "01CRED",
 		HolderUserId:   "01HOLDER",
-		IssuerUserId:   "01ISSUER",
+		IssuerUserId:   strPtrModel("01ISSUER"),
 		RevokerUserId:  &revokerID,
 		RejecterUserId: &rejecterID,
 		// HolderUser / IssuerUser / RevokerUser / RejecterUser left as zero User{} (not preloaded).
@@ -77,7 +76,7 @@ func TestCredential_ToDomain_MapsPreloadedRelations(t *testing.T) {
 	m := Credential{
 		Id:             "01CRED",
 		HolderUserId:   "01HOLDER",
-		IssuerUserId:   "01ISSUER",
+		IssuerUserId:   strPtrModel("01ISSUER"),
 		RevokerUserId:  &revokerID,
 		RejecterUserId: &rejecterID,
 		HolderUser:     User{Id: "01HOLDER"},

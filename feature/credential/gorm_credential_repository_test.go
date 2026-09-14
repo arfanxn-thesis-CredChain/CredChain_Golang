@@ -31,9 +31,9 @@ func TestGormCredentialRepository_CountByTypeAndOrganizationIds(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-a"), Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-b"), Name: "B", FileHash: "0x2"},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("org-b"), TypeID: strPtr("type-b"), Name: "C", FileHash: "0x3"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-a"), Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-b"), Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-b"), TypeID: strPtr("type-b"), Name: "C", FileHash: "0x3"},
 	)
 	require.NoError(t, err)
 
@@ -63,9 +63,9 @@ func TestGormCredentialRepository_CountActiveByFileHashes(t *testing.T) {
 	// The partial unique index only guards active rows, so all three rows are
 	// storable; CountActiveByFileHashes must count only the active one.
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: "i1", Name: "P", FileHash: "0xshared"},
-		domain.Credential{ID: "revoked", HolderUserID: "h1", IssuerUserID: "i1", Name: "R", FileHash: "0xshared", RevokedAt: &now},
-		domain.Credential{ID: "rejected", HolderUserID: "h1", IssuerUserID: "i1", Name: "J", FileHash: "0xshared", RejectedAt: &now},
+		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "P", FileHash: "0xshared"},
+		domain.Credential{ID: "revoked", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "R", FileHash: "0xshared", RevokedAt: &now},
+		domain.Credential{ID: "rejected", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "J", FileHash: "0xshared", RejectedAt: &now},
 	)
 	require.NoError(t, err)
 
@@ -91,8 +91,8 @@ func TestGormCredentialVerificationPathExcludesPending(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "approved", HolderUserID: "h1", IssuerUserID: "i1", Name: "Approved", FileHash: "0xapp", ApprovedAt: timePtr(time.Now())},
-		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: "i1", Name: "Pending", FileHash: "0xpen"},
+		domain.Credential{ID: "approved", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "Approved", FileHash: "0xapp", ApprovedAt: timePtr(time.Now())},
+		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "Pending", FileHash: "0xpen"},
 	)
 	require.NoError(t, err)
 
@@ -116,8 +116,8 @@ func TestGormCredentialStore_FindByIds(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "b", FileHash: "0xbb"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "b", FileHash: "0xbb"},
 	)
 	require.NoError(t, err)
 
@@ -136,7 +136,7 @@ func TestGormCredentialFindByFileHashes(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa", ApprovedAt: timePtr(time.Now())},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa", ApprovedAt: timePtr(time.Now())},
 	)
 	require.NoError(t, err)
 
@@ -151,8 +151,8 @@ func TestGormCredentialFindByHolderId(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "b", FileHash: "0xbb"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "b", FileHash: "0xbb"},
 	)
 	require.NoError(t, err)
 
@@ -167,7 +167,7 @@ func TestGormCredentialFind(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
 	)
 	require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestGormCredentialUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
 	)
 	require.NoError(t, err)
 
@@ -210,11 +210,11 @@ func TestGormCredentialUpdate_IssuerUserID(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: "h1", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: strPtr("h1"), Name: "a", FileHash: "0xaa"},
 	)
 	require.NoError(t, err)
 
-	_, err = repo.Update(ctx, domain.Credential{ID: "c1", IssuerUserID: "officer"})
+	_, err = repo.Update(ctx, domain.Credential{ID: "c1", IssuerUserID: strPtr("officer")})
 	require.NoError(t, err)
 
 	// Re-read from the database — asserting the returned struct would pass
@@ -222,7 +222,8 @@ func TestGormCredentialUpdate_IssuerUserID(t *testing.T) {
 	got, err := repo.Find(ctx, "c1", &domainQuery.Query{})
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "officer", got.IssuerUserID)
+	require.NotNil(t, got.IssuerUserID)
+	assert.Equal(t, "officer", *got.IssuerUserID)
 
 	// Empty means skip, so a partial update must not clobber the officer.
 	_, err = repo.Update(ctx, domain.Credential{ID: "c1", Name: "renamed"})
@@ -231,7 +232,8 @@ func TestGormCredentialUpdate_IssuerUserID(t *testing.T) {
 	got, err = repo.Find(ctx, "c1", &domainQuery.Query{})
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "officer", got.IssuerUserID)
+	require.NotNil(t, got.IssuerUserID)
+	assert.Equal(t, "officer", *got.IssuerUserID)
 }
 
 func TestGormCredentialUpdate_IssuedAt(t *testing.T) {
@@ -239,7 +241,7 @@ func TestGormCredentialUpdate_IssuedAt(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
 	)
 	require.NoError(t, err)
 
@@ -255,7 +257,7 @@ func TestGormCredentialUpdate_IssuedAtZeroSkipsColumn(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "a", FileHash: "0xaa"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa"},
 	)
 	require.NoError(t, err)
 
@@ -278,7 +280,7 @@ func TestGormCredentialGet(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		id := "c" + strconv.Itoa(i+1)
-		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: "iss", Name: id, FileHash: "0x" + id})
+		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: id, FileHash: "0x" + id})
 		require.NoError(t, err)
 	}
 
@@ -292,7 +294,7 @@ func TestGormCredentialGet_FilterByName(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 	for _, n := range []string{"Alpha", "Beta"} {
-		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: "iss", Name: n, FileHash: "0x" + n})
+		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: n, FileHash: "0x" + n})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{
@@ -311,7 +313,7 @@ func TestGormCredentialGet_SortByName(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 	for _, n := range []string{"Gamma", "Alpha", "Beta"} {
-		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: "iss", Name: n, FileHash: "0x" + n})
+		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: n, FileHash: "0x" + n})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{
@@ -332,7 +334,7 @@ func TestGormCredentialGet_Pagination(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
 		id := "c" + strconv.Itoa(i+1)
-		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: "iss", Name: id, FileHash: "0x" + id})
+		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: id, FileHash: "0x" + id})
 		require.NoError(t, err)
 	}
 	q := domainQuery.NewQuery()
@@ -348,7 +350,7 @@ func TestGormCredentialGet_FilterDisallowedColumnIsIgnored(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 	for _, n := range []string{"Alpha", "Beta"} {
-		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: "iss", Name: n, FileHash: "0x" + n})
+		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: n, FileHash: "0x" + n})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{
@@ -366,7 +368,7 @@ func TestGormCredentialGet_SortDisallowedColumnIsIgnored(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 	for _, n := range []string{"Alpha", "Beta"} {
-		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: "iss", Name: n, FileHash: "0x" + n})
+		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: n, FileHash: "0x" + n})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{
@@ -385,7 +387,7 @@ func TestGormCredentialGet_PaginationPage2(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
 		id := "c" + strconv.Itoa(i+1)
-		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: "iss", Name: id, FileHash: "0x" + id})
+		_, err := repo.Store(ctx, domain.Credential{ID: id, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: id, FileHash: "0x" + id})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{Page: 2, Limit: 2}
@@ -399,7 +401,7 @@ func TestGormCredentialGet_FilterCombinedWithSort(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()
 	for _, n := range []string{"Gamma", "Alpha", "Beta"} {
-		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: "iss", Name: n, FileHash: "0x" + n})
+		_, err := repo.Store(ctx, domain.Credential{ID: "c" + n, HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: n, FileHash: "0x" + n})
 		require.NoError(t, err)
 	}
 	q := &domainQuery.Query{
@@ -423,9 +425,9 @@ func TestGormCredentialGet_SearchCredentialColumns(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: "iss1", Name: "Alpha", FileHash: "0xaa", TokenID: strPtr("tok-1"), Meta: map[string]any{"key": "val1"}},
-		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Beta", FileHash: "0xbb", TokenID: strPtr("tok-2"), Meta: map[string]any{"key": "val2"}},
-		domain.Credential{ID: "c003", HolderUserID: "h3", IssuerUserID: "iss3", Name: "Gamma", FileHash: "0xcc", TokenID: strPtr("tok-3"), Meta: nil},
+		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: strPtr("iss1"), Name: "Alpha", FileHash: "0xaa", TokenID: strPtr("tok-1"), Meta: map[string]any{"key": "val1"}},
+		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: strPtr("iss2"), Name: "Beta", FileHash: "0xbb", TokenID: strPtr("tok-2"), Meta: map[string]any{"key": "val2"}},
+		domain.Credential{ID: "c003", HolderUserID: "h3", IssuerUserID: strPtr("iss3"), Name: "Gamma", FileHash: "0xcc", TokenID: strPtr("tok-3"), Meta: nil},
 	)
 	require.NoError(t, err)
 
@@ -500,8 +502,8 @@ func TestGormCredentialGet_SearchByNumberAndTaxonomy(t *testing.T) {
 	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-ai", Name: "Artificial Intelligence", Active: true}).Error)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: "iss1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "Alpha", FileHash: "0xaa", Number: strPtr("2024/ALPHA/001")},
-		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Beta", FileHash: "0xbb", Number: strPtr("2024/BETA/002")},
+		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: strPtr("iss1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "Alpha", FileHash: "0xaa", Number: strPtr("2024/ALPHA/001")},
+		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: strPtr("iss2"), Name: "Beta", FileHash: "0xbb", Number: strPtr("2024/BETA/002")},
 	)
 	require.NoError(t, err)
 	require.NoError(t, repo.db.Create(&model.CompetencyCredential{CompetencyId: "comp-ai", CredentialId: "c001"}).Error)
@@ -567,7 +569,7 @@ func TestGormCredentialGet_SearchByRelatedUsers(t *testing.T) {
 
 	revokerID := "revoker1"
 	_, err := repo.Store(ctx, domain.Credential{
-		ID: "cred01", HolderUserID: "holder1", IssuerUserID: "issuer1", RevokerUserID: &revokerID,
+		ID: "cred01", HolderUserID: "holder1", IssuerUserID: strPtr("issuer1"), RevokerUserID: &revokerID,
 		Name: "TestCred", FileHash: "0xff", TokenID: strPtr("tok-main"),
 	})
 	require.NoError(t, err)
@@ -650,9 +652,9 @@ func TestGormCredentialGet_FilterByExtractTimestamps(t *testing.T) {
 	t3 := time.Date(2025, 1, 3, 10, 0, 0, 0, time.UTC)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c100", HolderUserID: "h1", IssuerUserID: "iss1", Name: "Pending1", FileHash: "0xaa", ExtractEnqueuedAt: &t1},
-		domain.Credential{ID: "c101", HolderUserID: "h2", IssuerUserID: "iss2", Name: "Pending2", FileHash: "0xbb", ExtractEnqueuedAt: &t2},
-		domain.Credential{ID: "c102", HolderUserID: "h3", IssuerUserID: "iss3", Name: "Failed1", FileHash: "0xcc", ExtractFailedAt: &t3},
+		domain.Credential{ID: "c100", HolderUserID: "h1", IssuerUserID: strPtr("iss1"), Name: "Pending1", FileHash: "0xaa", ExtractEnqueuedAt: &t1},
+		domain.Credential{ID: "c101", HolderUserID: "h2", IssuerUserID: strPtr("iss2"), Name: "Pending2", FileHash: "0xbb", ExtractEnqueuedAt: &t2},
+		domain.Credential{ID: "c102", HolderUserID: "h3", IssuerUserID: strPtr("iss3"), Name: "Failed1", FileHash: "0xcc", ExtractFailedAt: &t3},
 	)
 	require.NoError(t, err)
 
@@ -710,9 +712,9 @@ func TestGormCredentialGet_FilterByNameComparison(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "Beta", FileHash: "0xb"},
-		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: "iss", Name: "Gamma", FileHash: "0xc"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Alpha", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "Beta", FileHash: "0xb"},
+		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: strPtr("iss"), Name: "Gamma", FileHash: "0xc"},
 	)
 	require.NoError(t, err)
 
@@ -790,8 +792,8 @@ func TestGormCredentialGet_FilterByRevokedAt(t *testing.T) {
 
 	revokedAt := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Active", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "Revoked", FileHash: "0xb", RevokedAt: &revokedAt},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Active", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "Revoked", FileHash: "0xb", RevokedAt: &revokedAt},
 	)
 	require.NoError(t, err)
 
@@ -825,9 +827,9 @@ func TestGormCredentialGet_FilterByHolderUserId(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "A", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "B", FileHash: "0xb"},
-		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: "iss", Name: "C", FileHash: "0xc"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "A", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "B", FileHash: "0xb"},
+		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: strPtr("iss"), Name: "C", FileHash: "0xc"},
 	)
 	require.NoError(t, err)
 
@@ -872,9 +874,9 @@ func TestGormCredentialGet_FilterByNameNotLike(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "Beta", FileHash: "0xb"},
-		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: "iss", Name: "Alpine", FileHash: "0xc"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Alpha", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "Beta", FileHash: "0xb"},
+		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: strPtr("iss"), Name: "Alpine", FileHash: "0xc"},
 	)
 	require.NoError(t, err)
 
@@ -910,9 +912,9 @@ func TestGormCredentialGet_SortByIssuedAt(t *testing.T) {
 	t3 := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "iss", Name: "Mid", FileHash: "0xb", IssuedAt: t2},
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Early", FileHash: "0xa", IssuedAt: t1},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "iss", Name: "Late", FileHash: "0xc", IssuedAt: t3},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Mid", FileHash: "0xb", IssuedAt: t2},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Early", FileHash: "0xa", IssuedAt: t1},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Late", FileHash: "0xc", IssuedAt: t3},
 	)
 	require.NoError(t, err)
 
@@ -953,9 +955,9 @@ func TestGormCredentialGet_SortByRevokedAt(t *testing.T) {
 	t2 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Active", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "OldRevoked", FileHash: "0xb", RevokedAt: &t1},
-		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: "iss", Name: "RecentRevoked", FileHash: "0xc", RevokedAt: &t2},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Active", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "OldRevoked", FileHash: "0xb", RevokedAt: &t1},
+		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: strPtr("iss"), Name: "RecentRevoked", FileHash: "0xc", RevokedAt: &t2},
 	)
 	require.NoError(t, err)
 
@@ -1001,9 +1003,9 @@ func TestGormCredentialGet_SortByHolderFields(t *testing.T) {
 	}
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h-beta", IssuerUserID: "iss", Name: "Beta Cred", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h-alpha", IssuerUserID: "iss", Name: "Alpha Cred", FileHash: "0x2"},
-		domain.Credential{ID: "c3", HolderUserID: "h-gamma", IssuerUserID: "iss", Name: "Gamma Cred", FileHash: "0x3"},
+		domain.Credential{ID: "c1", HolderUserID: "h-beta", IssuerUserID: strPtr("iss"), Name: "Beta Cred", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h-alpha", IssuerUserID: strPtr("iss"), Name: "Alpha Cred", FileHash: "0x2"},
+		domain.Credential{ID: "c3", HolderUserID: "h-gamma", IssuerUserID: strPtr("iss"), Name: "Gamma Cred", FileHash: "0x3"},
 	)
 	require.NoError(t, err)
 
@@ -1066,9 +1068,9 @@ func TestGormCredentialGet_SortMultiple(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Z", FileHash: "0xa", IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "iss", Name: "Y", FileHash: "0xb", IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "iss", Name: "Z", FileHash: "0xc", IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Z", FileHash: "0xa", IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Y", FileHash: "0xb", IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Z", FileHash: "0xc", IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
 	)
 	require.NoError(t, err)
 
@@ -1095,9 +1097,9 @@ func TestGormCredentialGet_SearchFilterSortCombined(t *testing.T) {
 	t3 := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Corp", FileHash: "0xa", ExtractEnqueuedAt: &t1, IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha Inc", FileHash: "0xb", ExtractFailedAt: &t2, IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: "iss", Name: "Beta Corp", FileHash: "0xc", ExtractEnqueuedAt: &t3, IssuedAt: time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Alpha Corp", FileHash: "0xa", ExtractEnqueuedAt: &t1, IssuedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Alpha Inc", FileHash: "0xb", ExtractFailedAt: &t2, IssuedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Beta Corp", FileHash: "0xc", ExtractEnqueuedAt: &t3, IssuedAt: time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)},
 	)
 	require.NoError(t, err)
 
@@ -1122,8 +1124,8 @@ func TestGormCredentialGet_SearchEmptyString(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "iss", Name: "Alpha", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "iss", Name: "Beta", FileHash: "0xb"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "Alpha", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("iss"), Name: "Beta", FileHash: "0xb"},
 	)
 	require.NoError(t, err)
 
@@ -1139,9 +1141,9 @@ func TestGormCredentialGet_FilterByIssuerUserId(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", Name: "A", FileHash: "0xa"},
-		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: "i2", Name: "B", FileHash: "0xb"},
-		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: "i3", Name: "C", FileHash: "0xc"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "A", FileHash: "0xa"},
+		domain.Credential{ID: "c2", HolderUserID: "h2", IssuerUserID: strPtr("i2"), Name: "B", FileHash: "0xb"},
+		domain.Credential{ID: "c3", HolderUserID: "h3", IssuerUserID: strPtr("i3"), Name: "C", FileHash: "0xc"},
 	)
 	require.NoError(t, err)
 
@@ -1193,8 +1195,8 @@ func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
 	require.NoError(t, repo.db.Create(&holder).Error)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: "i1", IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "B", FileHash: "0x2"},
 	)
 	require.NoError(t, err)
 	require.NoError(t, repo.db.Create(&[]model.CompetencyCredential{
@@ -1254,7 +1256,7 @@ func TestGormCredentialRepositoryFindWithCompetencies(t *testing.T) {
 	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-db", Name: "Databases", Active: true}).Error)
 
 	_, err := repo.Store(ctx, domain.Credential{
-		ID: "c1", HolderUserID: "h1", IssuerUserID: "i1",
+		ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"),
 		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
 		Name: "A", FileHash: "0x1",
 	})
@@ -1284,7 +1286,7 @@ func TestGormCredentialRepositoryFindWithTypeAndIssuerOrganization(t *testing.T)
 	}).Error)
 
 	_, err := repo.Store(ctx, domain.Credential{
-		ID: "c1", HolderUserID: "h1", IssuerUserID: "i1",
+		ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"),
 		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
 		Name: "A", FileHash: "0x1",
 	})
