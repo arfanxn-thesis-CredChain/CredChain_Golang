@@ -28,7 +28,7 @@
 | `ExtractFailedAt` | `TIMESTAMP`, nullable | When OCR extract job permanently failed |
 | `ExtractError` | `TEXT`, nullable | Error message if extraction failed |
 | `ExtractedAt` | `TIMESTAMP`, nullable | When extraction completed successfully |
-| `IssuedAt` | `TIMESTAMP`, NOT NULL | When credential was created (minted) |
+| `IssuedAt` | `TIMESTAMP`, NOT NULL | Date printed on the physical credential (entered via form; defaults to now if omitted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
 | `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
 | `ApprovedAt` | `TIMESTAMP`, nullable | When approved (mint time); drives `approved` lifecycle |
