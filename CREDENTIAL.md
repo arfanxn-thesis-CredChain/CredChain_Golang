@@ -31,7 +31,7 @@
 | `IssuedAt` | `TIMESTAMP`, NOT NULL | Date printed on the physical credential (entered via form; defaults to now if omitted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
 | `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
-| `ApprovedAt` | `TIMESTAMP`, nullable | When approved (mint time); drives `approved` lifecycle |
+| `ApprovedAt` | `TIMESTAMP`, nullable | When approved or directly registered (mint time); drives `approved` lifecycle |
 | `RejecterUserID` | `CHAR(26)` FK → `users.id`, nullable | Who rejected it |
 | `RejectedAt` | `TIMESTAMP`, nullable | When rejected; drives `rejected` lifecycle |
 | `RejectionReason` | `TEXT`, nullable | Why rejected |
@@ -196,14 +196,14 @@ There is no separate DB status column. `Credential.Status()` (`domain/credential
 | Status | Condition | Meaning |
 |--------|-----------|---------|
 | `pending` | no approval/rejection/revocation timestamp | Submitted, awaiting Issuer review |
-| `approved` | `approved_at IS NOT NULL` | Reviewed and minted on-chain |
+| `approved` | `approved_at IS NOT NULL` | Minted on-chain (approved via review if submitted; directly registered if issued by officer) |
 | `rejected` | `rejected_at IS NOT NULL` | Reviewed and refused |
 | `revoked` | `revoked_at IS NOT NULL` | Previously approved, later invalidated |
 
 Notes:
 
 - `chk_credentials_approved_xor_rejected` makes approve/reject mutually exclusive at the DB level.
-- Directly-issued credentials are stamped `approved_at` at creation (never `pending`).
+- Directly-issued credentials are stamped `approved_at` at creation (never `pending`). In the presentation layer, active credentials with `submitter_user_id != holder_user_id` are labeled Registered ("Didaftarkan"), while those with `submitter_user_id == holder_user_id` are labeled Approved ("Disetujui"). Filter controls use Approved & Registered ("Disetujui & Didaftarkan") to encompass both origins.
 - Expiry is deliberately NOT part of this derivation — `expires_at` is evaluated only on the verification path.
 - The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
 
