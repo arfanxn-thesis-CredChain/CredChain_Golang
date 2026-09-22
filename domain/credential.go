@@ -95,6 +95,7 @@ type Credential struct {
 	ExtractError          *string               `json:"extract_error"`
 	IssuedAt              time.Time             `json:"issued_at"`
 	RevokedAt             *time.Time            `json:"revoked_at"`
+	RevocationReason      *string               `json:"revocation_reason"`
 	ExpiresAt             *time.Time            `json:"expires_at"`
 	ApprovedAt            *time.Time            `json:"approved_at"`
 	RejecterUserID        *string               `json:"rejecter_user_id"`

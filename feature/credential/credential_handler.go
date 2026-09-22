@@ -462,7 +462,13 @@ func (h *credentialHandler) Revoke(c *gin.Context) {
 		responder.SendValidationError(c, err)
 		return
 	}
-	revoked, err := h.credSvc.Revoke(c.Request.Context(), req.Ids...)
+
+	revs := make([]CredentialRevocation, len(req.Revocations))
+	for i, r := range req.Revocations {
+		revs[i] = CredentialRevocation{ID: r.ID, Reason: r.Reason}
+	}
+
+	revoked, err := h.credSvc.Revoke(c.Request.Context(), revs)
 	if err != nil {
 		c.Error(err)
 		responder.SendError(c, err)

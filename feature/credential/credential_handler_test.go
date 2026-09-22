@@ -336,7 +336,7 @@ func TestHandler_Revoke_Success(t *testing.T) {
 		gintest.WithUser(&user),
 		gintest.WithMethod("POST"),
 		gintest.WithPath("/"),
-		gintest.WithBody(map[string]any{"ids": []string{"c1"}}),
+		gintest.WithBody(map[string]any{"revocations": []map[string]any{{"id": "c1"}}}),
 		gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
 	)
 	svc := &mockCredentialService{}

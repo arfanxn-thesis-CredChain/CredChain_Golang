@@ -1307,7 +1307,7 @@ func TestRevoke_HappyPath(t *testing.T) {
 		policy:          &credentialPolicy{},
 		logger:          zap.NewNop(),
 	}
-	revoked, err := svc.Revoke(ctx, "c1")
+	revoked, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	assert.NoError(t, err)
 	assert.Len(t, revoked, 1)
 }
@@ -1326,7 +1326,7 @@ func TestRevoke_NotFound(t *testing.T) {
 		policy: &credentialPolicy{},
 		logger: zap.NewNop(),
 	}
-	_, err := svc.Revoke(ctx, "missing")
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "missing"}})
 	var domErr *domain.Error
 	if assert.ErrorAs(t, err, &domErr) {
 		assert.Equal(t, domain.CodeCredentialRevokeNotFound, domErr.Code)
@@ -1349,7 +1349,7 @@ func TestRevoke_AlreadyRevoked(t *testing.T) {
 		policy: &credentialPolicy{},
 		logger: zap.NewNop(),
 	}
-	_, err := svc.Revoke(ctx, "c1")
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	var domErr *domain.Error
 	if assert.ErrorAs(t, err, &domErr) {
 		assert.Equal(t, domain.CodeCredentialRevokeAlreadyRevoked, domErr.Code)
@@ -1371,7 +1371,7 @@ func TestRevoke_NotApproved(t *testing.T) {
 		policy: &credentialPolicy{},
 		logger: zap.NewNop(),
 	}
-	_, err := svc.Revoke(ctx, "c1")
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	var domErr *domain.Error
 	if assert.ErrorAs(t, err, &domErr) {
 		assert.Equal(t, domain.CodeCredentialRevokeNotApproved, domErr.Code)
@@ -1401,7 +1401,7 @@ func TestRevoke_ChainRollback(t *testing.T) {
 		policy:          &credentialPolicy{},
 		logger:          zap.NewNop(),
 	}
-	_, err := svc.Revoke(ctx, "c1")
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	assert.Error(t, err)
 }
 
@@ -1435,7 +1435,7 @@ func TestRevoke_DeletesVerificationCache(t *testing.T) {
 		verificationRepo: verRepo,
 		logger:           zap.NewNop(),
 	}
-	revoked, err := svc.Revoke(ctx, "c1", "c2")
+	revoked, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}, {ID: "c2"}})
 	assert.NoError(t, err)
 	assert.Len(t, revoked, 2)
 	verRepo.AssertCalled(t, "DeleteByUploadedFileHashes", mock.Anything, []string{"0xabc", "0xdef"})
@@ -1470,7 +1470,7 @@ func TestRevoke_VerificationCacheDeleteFailureIsNonFatal(t *testing.T) {
 		verificationRepo: verRepo,
 		logger:           zap.NewNop(),
 	}
-	revoked, err := svc.Revoke(ctx, "c1")
+	revoked, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	assert.NoError(t, err)
 	assert.Len(t, revoked, 1)
 	verRepo.AssertCalled(t, "DeleteByUploadedFileHashes", mock.Anything, []string{"0xabc"})

@@ -54,8 +54,11 @@ func (m *mockCredentialService) Submit(ctx context.Context, items []CredentialSu
 	return args.Get(0).([]domain.Credential), args.Error(1)
 }
 
-func (m *mockCredentialService) Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error) {
-	args := m.Called(ctx, ids)
+func (m *mockCredentialService) Revoke(ctx context.Context, revocations []CredentialRevocation) ([]domain.Credential, error) {
+	args := m.Called(ctx, revocations)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).([]domain.Credential), args.Error(1)
 }
 

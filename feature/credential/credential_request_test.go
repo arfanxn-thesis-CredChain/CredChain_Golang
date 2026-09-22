@@ -241,17 +241,17 @@ func TestCredentialIssueRequest_ToDomain(t *testing.T) {
 
 func TestCredentialRevokeRequest_Validate(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		assert.NoError(t, CredentialRevokeRequest{Ids: []string{"01J0"}}.Validate())
+		assert.NoError(t, CredentialRevokeRequest{Revocations: []CredentialRevocationInput{{ID: "01J0"}}}.Validate())
 	})
 	t.Run("empty", func(t *testing.T) {
-		assert.Error(t, CredentialRevokeRequest{Ids: []string{}}.Validate())
+		assert.Error(t, CredentialRevokeRequest{Revocations: []CredentialRevocationInput{}}.Validate())
 	})
 	t.Run("too many", func(t *testing.T) {
-		ids := make([]string, 101)
-		for i := range ids {
-			ids[i] = "x"
+		revs := make([]CredentialRevocationInput, 101)
+		for i := range revs {
+			revs[i] = CredentialRevocationInput{ID: "x"}
 		}
-		assert.Error(t, CredentialRevokeRequest{Ids: ids}.Validate())
+		assert.Error(t, CredentialRevokeRequest{Revocations: revs}.Validate())
 	})
 }
 

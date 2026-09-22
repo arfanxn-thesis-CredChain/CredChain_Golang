@@ -175,14 +175,27 @@ func (r CredentialUpdateRequest) ToDomain() []domain.Credential {
 	return out
 }
 
+// CredentialRevocationInput is a single item in a batch revocation request.
+type CredentialRevocationInput struct {
+	ID     string  `json:"id"`
+	Reason *string `json:"reason"`
+}
+
+func (i CredentialRevocationInput) Validate() error {
+	return validation.ValidateStruct(&i,
+		validation.Field(&i.ID, validation.Required),
+		validation.Field(&i.Reason, validation.Length(0, 1000)),
+	)
+}
+
 // CredentialRevokeRequest is the JSON body for POST /api/credentials/batch/revoke.
 type CredentialRevokeRequest struct {
-	Ids []string `json:"ids"`
+	Revocations []CredentialRevocationInput `json:"revocations"`
 }
 
 func (r CredentialRevokeRequest) Validate() error {
 	return validation.ValidateStruct(&r,
-		validation.Field(&r.Ids,
+		validation.Field(&r.Revocations,
 			validation.Required,
 			validation.Length(1, 100),
 		),

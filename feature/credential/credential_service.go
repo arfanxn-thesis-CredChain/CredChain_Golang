@@ -56,7 +56,7 @@ type CredentialService interface {
 	// instead of creating near-duplicates. Read-only; confirm via ResolveMetadata.
 	SuggestMetadataMatches(ctx context.Context, credentialID string) (*CredentialMetadataSuggestions, error)
 	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
-	Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error)
+	Revoke(ctx context.Context, revocations []CredentialRevocation) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	DownloadFile(ctx context.Context, id string) (data []byte, filename string, mimeType string, err error)
@@ -112,6 +112,11 @@ type CredentialSubmission struct {
 type CredentialRejection struct {
 	ID     string
 	Reason string
+}
+
+type CredentialRevocation struct {
+	ID     string
+	Reason *string
 }
 
 // CredentialMetadataResolution is the service-layer input for resolving one
@@ -1610,7 +1615,7 @@ func (s *credentialService) issueEnqueueExtractJob(ctx context.Context, credenti
 // Revoke batch-revokes credentials by ID. Sets revoked_at, revoker_user_id
 // in the database and syncs the revocation on-chain via the CredentialRegistry.
 // Uses Update (CASE-based) — there is no separate Revoke method on the repository.
-func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain.Credential, error) {
+func (s *credentialService) Revoke(ctx context.Context, revocations []CredentialRevocation) ([]domain.Credential, error) {
 	authUser := httpContext.MustGetUser(ctx)
 	now := time.Now()
 	revokerID := authUser.Id
@@ -1619,6 +1624,10 @@ func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain
 		revoked    []domain.Credential
 		fileHashes []string
 	)
+
+	ids := lo.Map(revocations, func(r CredentialRevocation, _ int) string { return r.ID })
+	reasonMap := lo.SliceToMap(revocations, func(r CredentialRevocation) (string, *string) { return r.ID, r.Reason })
+
 	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
 		targets, err := uow.Credential().FindByIds(ctx, ids, nil)
 		if err != nil {
@@ -1664,9 +1673,10 @@ func (s *credentialService) Revoke(ctx context.Context, ids ...string) ([]domain
 		tokenIds := make([]string, 0, len(targets))
 		for i, t := range targets {
 			updates[i] = domain.Credential{
-				ID:            t.ID,
-				RevokedAt:     &now,
-				RevokerUserID: &revokerID,
+				ID:               t.ID,
+				RevokedAt:        &now,
+				RevokerUserID:    &revokerID,
+				RevocationReason: reasonMap[t.ID],
 			}
 			if t.TokenID != nil {
 				tokenIds = append(tokenIds, *t.TokenID)
