@@ -1378,6 +1378,29 @@ func TestRevoke_NotApproved(t *testing.T) {
 	}
 }
 
+func TestRevoke_AlreadyExpired(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	past := time.Now().Add(-1 * time.Hour)
+
+	innerCredRepo := &mocks.MockCredentialRepository{}
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "c1", ApprovedAt: &past, ExpiresAt: &past}}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+
+	svc := &credentialService{
+		uow:    uow,
+		policy: &credentialPolicy{},
+		logger: zap.NewNop(),
+	}
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
+	var domErr *domain.Error
+	if assert.ErrorAs(t, err, &domErr) {
+		assert.Equal(t, domain.CodeCredentialRevokeAlreadyExpired, domErr.Code)
+	}
+}
+
 func TestRevoke_ChainRollback(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
@@ -2938,6 +2961,7 @@ func TestApprove_NotFound(t *testing.T) {
 
 func TestApprove_NotPending(t *testing.T) {
 	now := time.Now()
+	past := now.Add(-1 * time.Hour)
 	tests := []struct {
 		name string
 		cred domain.Credential
@@ -2946,6 +2970,7 @@ func TestApprove_NotPending(t *testing.T) {
 		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
 		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
 		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
+		{"already expired", domain.Credential{ID: "c1", ExpiresAt: &past}, domain.CodeCredentialReviewAlreadyExpired},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3116,6 +3141,7 @@ func TestReject_NotFound(t *testing.T) {
 
 func TestReject_NotPending(t *testing.T) {
 	now := time.Now()
+	past := now.Add(-1 * time.Hour)
 	tests := []struct {
 		name string
 		cred domain.Credential
@@ -3124,6 +3150,7 @@ func TestReject_NotPending(t *testing.T) {
 		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
 		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
 		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
+		{"already expired", domain.Credential{ID: "c1", ExpiresAt: &past}, domain.CodeCredentialReviewAlreadyExpired},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -103,6 +103,8 @@ var allDomainCodes = []int{
 	domain.CodeCredentialRevokeFailed,
 	domain.CodeCredentialRevokeNotFound,
 	domain.CodeCredentialRevokeAlreadyRevoked,
+	domain.CodeCredentialRevokeNotApproved,
+	domain.CodeCredentialRevokeAlreadyExpired,
 	domain.CodeCredentialRevokeBlockchainSyncFailed,
 	domain.CodeCredentialVerifySuccess,
 	domain.CodeCredentialVerifyFailed,
@@ -183,6 +185,7 @@ var allDomainCodes = []int{
 	domain.CodeCredentialReviewAlreadyApproved,
 	domain.CodeCredentialReviewAlreadyRejected,
 	domain.CodeCredentialReviewAlreadyRevoked,
+	domain.CodeCredentialReviewAlreadyExpired,
 	domain.CodeCredentialReviewBlockchainSyncFailed,
 	// Credential Competency Link
 	domain.CodeCredentialCompetencyLinkSuccess,

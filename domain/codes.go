@@ -115,6 +115,7 @@ const (
 	CodeCredentialRevokeAlreadyRevoked       = 400342
 	CodeCredentialRevokeBlockchainSyncFailed = 400343
 	CodeCredentialRevokeNotApproved          = 400344
+	CodeCredentialRevokeAlreadyExpired       = 400345
 
 	CodeCredentialVerifySuccess            = 400400
 	CodeCredentialVerifyFailed             = 400440
@@ -218,6 +219,7 @@ const (
 	CodeCredentialReviewAlreadyRejected      = 401242
 	CodeCredentialReviewAlreadyRevoked       = 401243
 	CodeCredentialReviewBlockchainSyncFailed = 401244
+	CodeCredentialReviewAlreadyExpired       = 401245
 
 	// ── Credential Competency Link (13) ─────────────────────────────────────
 	CodeCredentialCompetencyLinkSuccess            = 401300

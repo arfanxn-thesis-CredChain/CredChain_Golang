@@ -1237,6 +1237,8 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
 			case domain.CredentialStatusRevoked:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialStatusExpired:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyExpired, domain.WithMetadata("credential_ids", []string{t.ID}))
 			}
 			// An approved credential must never carry dangling metadata: the DB
 			// CHECK covers type + organization, this covers the JSONB
@@ -1578,6 +1580,8 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRejected, domain.WithMetadata("credential_ids", []string{t.ID}))
 			case domain.CredentialStatusRevoked:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyRevoked, domain.WithMetadata("credential_ids", []string{t.ID}))
+			case domain.CredentialStatusExpired:
+				return domain.NewError(domain.CodeCredentialReviewAlreadyExpired, domain.WithMetadata("credential_ids", []string{t.ID}))
 			}
 		}
 		updates := make([]domain.Credential, len(targets))
@@ -1652,6 +1656,17 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 		if len(alreadyRevoked) > 0 {
 			return domain.NewError(domain.CodeCredentialRevokeAlreadyRevoked,
 				domain.WithMetadata("credential_ids", alreadyRevoked))
+		}
+
+		alreadyExpired := []string{}
+		for _, t := range targets {
+			if t.Status() == domain.CredentialStatusExpired {
+				alreadyExpired = append(alreadyExpired, t.ID)
+			}
+		}
+		if len(alreadyExpired) > 0 {
+			return domain.NewError(domain.CodeCredentialRevokeAlreadyExpired,
+				domain.WithMetadata("credential_ids", alreadyExpired))
 		}
 
 		notApproved := []string{}

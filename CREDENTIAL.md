@@ -191,20 +191,21 @@ There is no `FindCredentialByHash` and no `tokenIdFromHash` — the exact-hash p
 
 ## Credential Status (timestamp-derived)
 
-There is no separate DB status column. `Credential.Status()` (`domain/credential.go:134-148`) derives the workflow lifecycle purely from timestamps, in this precedence order:
+There is no separate DB status column. `Credential.Status()` (`domain/credential.go`) derives the workflow lifecycle purely from timestamps, in this precedence order:
 
 | Status | Condition | Meaning |
 |--------|-----------|---------|
-| `pending` | no approval/rejection/revocation timestamp | Submitted, awaiting Issuer review |
-| `approved` | `approved_at IS NOT NULL` | Minted on-chain (approved via review if submitted; directly registered if issued by officer) |
-| `rejected` | `rejected_at IS NOT NULL` | Reviewed and refused |
+| `pending` | no approval/rejection/revocation/past-expiry timestamp | Submitted, awaiting Issuer review |
+| `approved` | `approved_at IS NOT NULL` (not revoked, rejected, or expired) | Minted on-chain (approved via review if submitted; directly registered if issued by officer) |
+| `expired` | `expires_at IS NOT NULL AND expires_at <= NOW()` (not revoked or rejected) | Past expiration timestamp |
+| `rejected` | `rejected_at IS NOT NULL` (not revoked) | Reviewed and refused |
 | `revoked` | `revoked_at IS NOT NULL` | Previously approved, later invalidated |
 
 Notes:
 
 - `chk_credentials_approved_xor_rejected` makes approve/reject mutually exclusive at the DB level.
 - Directly-issued credentials are stamped `approved_at` at creation (never `pending`). In the presentation layer, active credentials with `submitter_user_id != holder_user_id` are labeled Registered ("Didaftarkan"), while those with `submitter_user_id == holder_user_id` are labeled Approved ("Disetujui"). Filter controls use Approved & Registered ("Disetujui & Didaftarkan") to encompass both origins.
-- Expiry is deliberately NOT part of this derivation — `expires_at` is evaluated only on the verification path.
+- Expiry is derived when `expires_at` is set and in the past (and the credential is not revoked or rejected).
 - The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
 
 ---

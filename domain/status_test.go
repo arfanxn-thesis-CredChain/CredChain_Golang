@@ -10,6 +10,8 @@ import (
 func TestCredential_Status(t *testing.T) {
 	ts := func(t time.Time) *time.Time { return &t }
 	now := time.Now()
+	past := now.Add(-1 * time.Hour)
+	future := now.Add(1 * time.Hour)
 
 	tests := []struct {
 		name     string
@@ -23,7 +25,12 @@ func TestCredential_Status(t *testing.T) {
 		{"revoked beats approved", Credential{ApprovedAt: ts(now), RevokedAt: ts(now)}, CredentialStatusRevoked},
 		{"revoked beats rejected", Credential{RejectedAt: ts(now), RevokedAt: ts(now)}, CredentialStatusRevoked},
 		{"rejected beats approved", Credential{ApprovedAt: ts(now), RejectedAt: ts(now)}, CredentialStatusRejected},
-		{"expiry does not affect status", Credential{ApprovedAt: ts(now), ExpiresAt: ts(now)}, CredentialStatusApproved},
+		{"revoked beats expired", Credential{ApprovedAt: ts(now), ExpiresAt: ts(past), RevokedAt: ts(now)}, CredentialStatusRevoked},
+		{"rejected beats expired", Credential{RejectedAt: ts(now), ExpiresAt: ts(past)}, CredentialStatusRejected},
+		{"expired when approved and expires_at in past", Credential{ApprovedAt: ts(now), ExpiresAt: ts(past)}, CredentialStatusExpired},
+		{"approved when approved and expires_at in future", Credential{ApprovedAt: ts(now), ExpiresAt: ts(future)}, CredentialStatusApproved},
+		{"expired when pending and expires_at in past", Credential{ExpiresAt: ts(past)}, CredentialStatusExpired},
+		{"pending when pending and expires_at in future", Credential{ExpiresAt: ts(future)}, CredentialStatusPending},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

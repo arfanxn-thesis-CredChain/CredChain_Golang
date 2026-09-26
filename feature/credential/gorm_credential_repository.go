@@ -61,6 +61,7 @@ var allowedSortColumns = map[string]bool{
 	"name":          true,
 	"issued_at":     true,
 	"revoked_at":    true,
+	"expires_at":    true,
 	"holder_name":   true,
 	"holder_email":  true,
 	"holder_number": true,
@@ -142,7 +143,7 @@ func needsOrgJoin(query *domainQuery.Query) bool {
 // column expression (e.g. "holder_name" → "holder.name").
 func mapSortColumn(col string) string {
 	switch col {
-	case "name", "issued_at", "revoked_at":
+	case "name", "issued_at", "revoked_at", "expires_at":
 		return "credentials." + col
 	case "holder_name":
 		return "holder.name"

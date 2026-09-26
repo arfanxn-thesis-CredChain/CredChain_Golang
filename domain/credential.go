@@ -38,6 +38,7 @@ const (
 	CredentialStatusApproved CredentialStatus = "approved"
 	CredentialStatusRejected CredentialStatus = "rejected"
 	CredentialStatusRevoked  CredentialStatus = "revoked"
+	CredentialStatusExpired  CredentialStatus = "expired"
 )
 
 // SubmittedCompetency is one entry of credentials.submitted_competencies.
@@ -127,17 +128,18 @@ type Credential struct {
 //
 //	revoked  when RevokedAt is set
 //	rejected when RejectedAt is set (and not revoked)
-//	approved when ApprovedAt is set (and neither revoked nor rejected)
+//	expired  when ExpiresAt is set and in the past (and neither revoked nor rejected)
+//	approved when ApprovedAt is set (and neither revoked, rejected, nor expired)
 //	pending  otherwise
-//
-// Expiry is deliberately NOT part of this derivation — expiry is evaluated
-// only on the verification path (Task C1).
 func (c *Credential) Status() CredentialStatus {
 	if c.RevokedAt != nil {
 		return CredentialStatusRevoked
 	}
 	if c.RejectedAt != nil {
 		return CredentialStatusRejected
+	}
+	if c.ExpiresAt != nil && !time.Now().Before(*c.ExpiresAt) {
+		return CredentialStatusExpired
 	}
 	if c.ApprovedAt != nil {
 		return CredentialStatusApproved

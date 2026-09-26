@@ -205,7 +205,7 @@ func TestCredentialSeeder_WorkflowInvariants(t *testing.T) {
 		case domain.CredentialStatusPending:
 			assert.Nil(t, c.IssuerUserID, "%s: pending submission has nil issuer_user_id", c.Name)
 			assert.Nil(t, c.RejecterUserID, "%s: pending row has no rejecter", c.Name)
-		case domain.CredentialStatusApproved, domain.CredentialStatusRevoked:
+		case domain.CredentialStatusApproved, domain.CredentialStatusRevoked, domain.CredentialStatusExpired:
 			// Approve assigns issuer_user_id to the reviewing officer, who is
 			// the wallet that signs the mint.
 			require.NotNil(t, c.IssuerUserID)
@@ -227,7 +227,7 @@ func TestCredentialSeeder_ReviewInvariants(t *testing.T) {
 
 	for _, c := range s.creds {
 		switch c.Status() {
-		case domain.CredentialStatusApproved:
+		case domain.CredentialStatusApproved, domain.CredentialStatusExpired:
 			assert.Empty(t, c.UnresolvedMetadata(),
 				"%s: Approve refuses a row with unresolved metadata", c.Name)
 		case domain.CredentialStatusRevoked:
@@ -349,7 +349,7 @@ func TestCredentialSeeder_CompetencyLinks(t *testing.T) {
 				"%s: resolved competency %s has no join row", c.Name, sc.Name)
 		}
 
-		if c.Status() == domain.CredentialStatusApproved || c.Status() == domain.CredentialStatusRevoked {
+		if c.Status() == domain.CredentialStatusApproved || c.Status() == domain.CredentialStatusRevoked || c.Status() == domain.CredentialStatusExpired {
 			assert.NotEmpty(t, links, "%s: an approved credential attests competencies", c.Name)
 		}
 	}
@@ -427,6 +427,7 @@ func TestCredentialSeeder_ScenarioCoverage(t *testing.T) {
 		domain.CredentialStatusApproved,
 		domain.CredentialStatusRejected,
 		domain.CredentialStatusRevoked,
+		domain.CredentialStatusExpired,
 	} {
 		assert.Positive(t, statuses[status], "no credential with status %s", status)
 	}

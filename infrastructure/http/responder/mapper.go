@@ -107,6 +107,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialRevokeNotFound:             "error_credential_revoke_not_found",
 	domain.CodeCredentialRevokeAlreadyRevoked:       "error_credential_revoke_already_revoked",
 	domain.CodeCredentialRevokeNotApproved:          "error_credential_revoke_not_approved",
+	domain.CodeCredentialRevokeAlreadyExpired:       "error_credential_revoke_already_expired",
 	domain.CodeCredentialRevokeBlockchainSyncFailed: "error_credential_revoke_blockchain_sync_failed",
 	domain.CodeCredentialVerifySuccess:              "success_credential_verified",
 	domain.CodeCredentialVerifyFailed:               "error_credential_verify_failed",
@@ -200,6 +201,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialReviewAlreadyApproved:      "error_credential_review_already_approved",
 	domain.CodeCredentialReviewAlreadyRejected:      "error_credential_review_already_rejected",
 	domain.CodeCredentialReviewAlreadyRevoked:       "error_credential_review_already_revoked",
+	domain.CodeCredentialReviewAlreadyExpired:       "error_credential_review_already_expired",
 	domain.CodeCredentialReviewBlockchainSyncFailed: "error_credential_review_blockchain_sync_failed",
 
 	// Credential Competency Link codes
@@ -318,6 +320,7 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialRevokeNotFound:             http.StatusNotFound,
 	domain.CodeCredentialRevokeAlreadyRevoked:       http.StatusConflict,
 	domain.CodeCredentialRevokeNotApproved:          http.StatusConflict,
+	domain.CodeCredentialRevokeAlreadyExpired:       http.StatusConflict,
 	domain.CodeCredentialRevokeBlockchainSyncFailed: http.StatusInternalServerError,
 	domain.CodeCredentialVerifySuccess:              http.StatusOK,
 	domain.CodeCredentialVerifyFailed:               http.StatusUnprocessableEntity,
@@ -409,6 +412,7 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialReviewAlreadyApproved:      http.StatusConflict,
 	domain.CodeCredentialReviewAlreadyRejected:      http.StatusConflict,
 	domain.CodeCredentialReviewAlreadyRevoked:       http.StatusConflict,
+	domain.CodeCredentialReviewAlreadyExpired:       http.StatusConflict,
 	domain.CodeCredentialReviewBlockchainSyncFailed: http.StatusInternalServerError,
 
 	// Credential Competency Link codes
