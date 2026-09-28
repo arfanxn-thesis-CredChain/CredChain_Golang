@@ -45,7 +45,7 @@ var allowedFilterColumns = map[string]bool{
 	"extract_enqueued_at":    true,
 	"extract_failed_at":      true,
 	"extracted_at":           true,
-	"approved_at":            true,
+	"activated_at":           true,
 	"rejected_at":            true,
 	"type_id":                true,
 	"issuer_organization_id": true,
@@ -315,9 +315,9 @@ func (r *gormCredentialRepository) Find(ctx context.Context, id string, query *d
 }
 
 // FindVerifiableById retrieves a single approved credential by ID.
-// Verification path only: rows with approved_at IS NULL are invisible.
+// Verification path only: rows with activated_at IS NULL are invisible.
 func (r *gormCredentialRepository) FindVerifiableById(ctx context.Context, id string, query *domainQuery.Query) (*domain.Credential, error) {
-	db := r.db.WithContext(ctx).Model(&model.Credential{}).Where("approved_at IS NOT NULL")
+	db := r.db.WithContext(ctx).Model(&model.Credential{}).Where("activated_at IS NOT NULL")
 	if query != nil {
 		db = preloadByIncludes(db, query)
 	}
@@ -330,12 +330,12 @@ func (r *gormCredentialRepository) FindVerifiableById(ctx context.Context, id st
 }
 
 // FindVerifiableByIds retrieves approved credentials by ID list.
-// Verification path only: rows with approved_at IS NULL are invisible.
+// Verification path only: rows with activated_at IS NULL are invisible.
 func (r *gormCredentialRepository) FindVerifiableByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]domain.Credential, error) {
 	if len(ids) == 0 {
 		return []domain.Credential{}, nil
 	}
-	db := r.db.WithContext(ctx).Where("approved_at IS NOT NULL")
+	db := r.db.WithContext(ctx).Where("activated_at IS NOT NULL")
 	if query != nil {
 		db = preloadByIncludes(db, query)
 	}
@@ -390,7 +390,7 @@ func (r *gormCredentialRepository) FindByHolderId(ctx context.Context, holderID 
 }
 
 // FindByFileHashes retrieves approved credentials whose file_hash matches any
-// of the supplied hashes. Verification path only: rows with approved_at IS
+// of the supplied hashes. Verification path only: rows with activated_at IS
 // NULL are invisible.
 func (r *gormCredentialRepository) FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]domain.Credential, error) {
 	if len(hashes) == 0 {
@@ -401,7 +401,7 @@ func (r *gormCredentialRepository) FindByFileHashes(ctx context.Context, hashes 
 		db = preloadByIncludes(db, query)
 	}
 	var rows []model.Credential
-	if err := db.Where("file_hash IN ?", hashes).Where("approved_at IS NOT NULL").Find(&rows).Error; err != nil {
+	if err := db.Where("file_hash IN ?", hashes).Where("activated_at IS NOT NULL").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.Credential, len(rows))
@@ -551,11 +551,11 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		}
 		return c.IssuedAt, true
 	})
-	addCol("approved_at", func(c domain.Credential) (interface{}, bool) {
-		if c.ApprovedAt == nil {
+	addCol("activated_at", func(c domain.Credential) (interface{}, bool) {
+		if c.ActivatedAt == nil {
 			return nil, false
 		}
-		return *c.ApprovedAt, true
+		return *c.ActivatedAt, true
 	})
 	addCol("rejecter_user_id", func(c domain.Credential) (interface{}, bool) {
 		if c.RejecterUserID == nil {

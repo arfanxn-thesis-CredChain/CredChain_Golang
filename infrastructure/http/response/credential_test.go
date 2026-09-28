@@ -20,7 +20,7 @@ func TestFromDomainCredential_MapsNewFields(t *testing.T) {
 		TypeID:               lo.ToPtr("t1"),
 		Number:               &num,
 		ExpiresAt:            &now,
-		ApprovedAt:           &now,
+		ActivatedAt:          &now,
 		RejectedAt:           nil,
 		CreatedAt:            now,
 		UpdatedAt:            &now,
@@ -30,7 +30,7 @@ func TestFromDomainCredential_MapsNewFields(t *testing.T) {
 	assert.Equal(t, "t1", *out.TypeID)
 	assert.Equal(t, &num, out.Number)
 	assert.Equal(t, &now, out.ExpiresAt)
-	assert.Equal(t, &now, out.ApprovedAt)
+	assert.Equal(t, &now, out.ActivatedAt)
 	assert.Nil(t, out.RejectedAt)
 }
 
@@ -44,7 +44,7 @@ func TestFromDomainCredential_StatusDerivation(t *testing.T) {
 		expected domain.CredentialStatus
 	}{
 		{"pending when no timestamps", domain.Credential{}, domain.CredentialStatusPending},
-		{"approved when approved_at set", domain.Credential{ApprovedAt: ts(now)}, domain.CredentialStatusApproved},
+		{"approved when activated_at set", domain.Credential{ActivatedAt: ts(now)}, domain.CredentialStatusApproved},
 		{"rejected when rejected_at set", domain.Credential{RejectedAt: ts(now)}, domain.CredentialStatusRejected},
 		{"revoked when revoked_at set", domain.Credential{RevokedAt: ts(now)}, domain.CredentialStatusRevoked},
 	}

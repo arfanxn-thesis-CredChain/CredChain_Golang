@@ -84,6 +84,8 @@ type CredentialIssuance struct {
 	// ExpiresAt is the expiry timestamp in seconds since epoch; 0 means no
 	// expiry. It mirrors the credential's DB expires_at (NULL -> 0).
 	ExpiresAt uint64
+	// Number is the human-readable credential number (mirrors DB number).
+	Number string
 }
 
 // registryWaitMinedFunc matches bind.WaitMined for test injection in registry_service.
@@ -142,6 +144,7 @@ func (s *registryService) IssueCredentials(ctx context.Context, signer domain.Wa
 			Uri:       c.URI,
 			IssuedAt:  c.IssuedAt,
 			ExpiresAt: c.ExpiresAt,
+			Number:    c.Number,
 		}
 	}
 
@@ -173,6 +176,7 @@ func (s *registryService) IssueCredentials(ctx context.Context, signer domain.Wa
 		var expiresAt [8]byte
 		binary.BigEndian.PutUint64(expiresAt[:], iss.ExpiresAt)
 		packed = append(packed, expiresAt[:]...)
+		packed = append(packed, []byte(iss.Number)...)
 	}
 
 	digest := crypto.Keccak256(packed)

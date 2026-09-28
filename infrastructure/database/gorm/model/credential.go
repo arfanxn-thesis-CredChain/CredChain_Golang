@@ -48,7 +48,7 @@ type Credential struct {
 	RejectionReason                 *string                      `gorm:"type:text;column:rejection_reason"`
 	IssuedAt                        time.Time                    `gorm:"column:issued_at;not null"`
 	ExpiresAt                       *time.Time                   `gorm:"column:expires_at;index"`
-	ApprovedAt                      *time.Time                   `gorm:"column:approved_at"`
+	ActivatedAt                     *time.Time                   `gorm:"column:activated_at"`
 	RejectedAt                      *time.Time                   `gorm:"column:rejected_at"`
 	RevokedAt                       *time.Time                   `gorm:"column:revoked_at;index"`
 	RevocationReason                *string                      `gorm:"type:text;column:revocation_reason"`
@@ -109,7 +109,7 @@ func (m Credential) ToDomain() domain.Credential {
 		RejectionReason:                 m.RejectionReason,
 		IssuedAt:                        m.IssuedAt,
 		ExpiresAt:                       m.ExpiresAt,
-		ApprovedAt:                      m.ApprovedAt,
+		ActivatedAt:                     m.ActivatedAt,
 		RejectedAt:                      m.RejectedAt,
 		RevokedAt:                       m.RevokedAt,
 		RevocationReason:                m.RevocationReason,
@@ -177,7 +177,7 @@ func FromDomainCredential(c domain.Credential) Credential {
 		RejectionReason:                 c.RejectionReason,
 		IssuedAt:                        c.IssuedAt,
 		ExpiresAt:                       c.ExpiresAt,
-		ApprovedAt:                      c.ApprovedAt,
+		ActivatedAt:                     c.ActivatedAt,
 		RejectedAt:                      c.RejectedAt,
 		RevokedAt:                       c.RevokedAt,
 		RevocationReason:                c.RevocationReason,

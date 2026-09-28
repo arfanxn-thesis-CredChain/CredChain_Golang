@@ -495,7 +495,7 @@ func (s *credentialService) issuePrepareCredentials(
 			ExtractEnqueuedAt:    &enqueuedAt,
 			IssuedAt:             issuedAt,
 			ExpiresAt:            it.ExpiresAt,
-			ApprovedAt:           &issuedAt,
+			ActivatedAt:          lo.ToPtr(time.Now()),
 		}
 	}
 	return creds, nil
@@ -529,6 +529,15 @@ func credentialExpiresAtToChain(expiresAt *time.Time) uint64 {
 		return 0
 	}
 	return uint64(expiresAt.Unix())
+}
+
+// credentialNumberToChain maps the credential's DB number to the on-chain string.
+// NULL in the database maps to an empty string on chain.
+func credentialNumberToChain(number *string) string {
+	if number == nil {
+		return ""
+	}
+	return *number
 }
 
 // issueCommit runs the UoW transaction: Store credentials, mint on-chain,
@@ -1270,9 +1279,9 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		for i, t := range targets {
 			updates[i] = domain.Credential{
 				ID:                t.ID,
-				ApprovedAt:        &now,
+				ActivatedAt:       &now,
 				IssuerUserID:      &approverID, // the officer who writes to chain
-				ExtractEnqueuedAt: &now,       // job enqueued below
+				ExtractEnqueuedAt: &now,        // job enqueued below
 			}
 		}
 		updated, err := uow.Credential().Update(ctx, updates...)
@@ -2169,6 +2178,7 @@ func (s *credentialService) mintCredentials(
 			URI:           c.ID,
 			IssuedAt:      credentialIssuedAtToChain(c.IssuedAt),
 			ExpiresAt:     credentialExpiresAtToChain(c.ExpiresAt),
+			Number:        credentialNumberToChain(c.Number),
 		}
 	}
 	tokenIds, err := s.registryService.IssueCredentials(ctx, signer, issuances...)

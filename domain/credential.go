@@ -98,7 +98,7 @@ type Credential struct {
 	RevokedAt             *time.Time            `json:"revoked_at"`
 	RevocationReason      *string               `json:"revocation_reason"`
 	ExpiresAt             *time.Time            `json:"expires_at"`
-	ApprovedAt            *time.Time            `json:"approved_at"`
+	ActivatedAt           *time.Time            `json:"activated_at"`
 	RejecterUserID        *string               `json:"rejecter_user_id"`
 	RejectedAt            *time.Time            `json:"rejected_at"`
 	RejectionReason       *string               `json:"rejection_reason"`
@@ -129,7 +129,7 @@ type Credential struct {
 //	revoked  when RevokedAt is set
 //	rejected when RejectedAt is set (and not revoked)
 //	expired  when ExpiresAt is set and in the past (and neither revoked nor rejected)
-//	approved when ApprovedAt is set (and neither revoked, rejected, nor expired)
+//	approved when ActivatedAt is set (and neither revoked, rejected, nor expired)
 //	pending  otherwise
 func (c *Credential) Status() CredentialStatus {
 	if c.RevokedAt != nil {
@@ -141,7 +141,7 @@ func (c *Credential) Status() CredentialStatus {
 	if c.ExpiresAt != nil && !time.Now().Before(*c.ExpiresAt) {
 		return CredentialStatusExpired
 	}
-	if c.ApprovedAt != nil {
+	if c.ActivatedAt != nil {
 		return CredentialStatusApproved
 	}
 	return CredentialStatusPending
@@ -223,11 +223,11 @@ type CredentialRepository interface {
 	FindByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]Credential, error)
 
 	// FindVerifiableById retrieves a single approved credential by ID.
-	// Verification path only: rows with approved_at IS NULL are invisible.
+	// Verification path only: rows with activated_at IS NULL are invisible.
 	FindVerifiableById(ctx context.Context, id string, query *domainQuery.Query) (*Credential, error)
 
 	// FindVerifiableByIds retrieves approved credentials by ID list.
-	// Verification path only: rows with approved_at IS NULL are invisible.
+	// Verification path only: rows with activated_at IS NULL are invisible.
 	FindVerifiableByIds(ctx context.Context, ids []string, query *domainQuery.Query) ([]Credential, error)
 
 	// FindByHolderId retrieves all credentials owned by a given holder. When
@@ -235,7 +235,7 @@ type CredentialRepository interface {
 	FindByHolderId(ctx context.Context, holderID string, query *domainQuery.Query) ([]Credential, error)
 
 	// FindByFileHashes retrieves approved credentials whose file_hash matches
-	// any of the given hashes. approved_at IS NOT NULL is enforced; sole
+	// any of the given hashes. activated_at IS NOT NULL is enforced; sole
 	// consumer is the public verify path. When query is non-nil it may carry
 	// Includes for preloading relations.
 	FindByFileHashes(ctx context.Context, hashes []string, query *domainQuery.Query) ([]Credential, error)

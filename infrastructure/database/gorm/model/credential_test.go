@@ -22,7 +22,7 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 		Number:               &num,
 		Name:                 "Degree",
 		FileHash:             "0xabc",
-		ApprovedAt:           &now,
+		ActivatedAt:          &now,
 		ExpiresAt:            &now,
 		RejectionReason:      nil,
 	}
@@ -33,7 +33,7 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 	assert.Equal(t, "type-1", *m.TypeId)
 	assert.Equal(t, &num, m.Number)
 	assert.Equal(t, &now, m.ExpiresAt)
-	assert.Equal(t, &now, m.ApprovedAt)
+	assert.Equal(t, &now, m.ActivatedAt)
 	assert.Nil(t, m.RejectedAt)
 
 	d := m.ToDomain()
@@ -41,7 +41,7 @@ func TestCredentialModel_NewFields_RoundTrip(t *testing.T) {
 	assert.Equal(t, "org-1", *d.IssuerOrganizationID)
 	assert.Equal(t, "type-1", *d.TypeID)
 	assert.Equal(t, num, *d.Number)
-	assert.Equal(t, now, *d.ApprovedAt)
+	assert.Equal(t, now, *d.ActivatedAt)
 	assert.Equal(t, now, *d.ExpiresAt)
 }
 

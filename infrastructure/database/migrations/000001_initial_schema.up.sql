@@ -118,7 +118,7 @@ CREATE TABLE credentials (
     rejection_reason TEXT,
     issued_at TIMESTAMP WITH TIME ZONE NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE,
-    approved_at TIMESTAMP WITH TIME ZONE,
+    activated_at TIMESTAMP WITH TIME ZONE,
     rejected_at TIMESTAMP WITH TIME ZONE,
     revoked_at TIMESTAMP WITH TIME ZONE,
     revocation_reason TEXT,
@@ -132,11 +132,11 @@ CREATE TABLE credentials (
     CONSTRAINT fk_type_id FOREIGN KEY (type_id) REFERENCES credential_types(id),
     CONSTRAINT fk_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
     CONSTRAINT fk_revoker_user_id FOREIGN KEY (revoker_user_id) REFERENCES users(id),
-    CONSTRAINT chk_credentials_approved_xor_rejected CHECK (approved_at IS NULL OR rejected_at IS NULL),
+    CONSTRAINT chk_credentials_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL),
     -- An approved credential always carries a resolved type + organization.
     -- The competency half needs a JSONB scan, so it is enforced service-side.
-    CONSTRAINT chk_credentials_approved_metadata_resolved CHECK (
-        approved_at IS NULL
+    CONSTRAINT chk_credentials_activated_metadata_resolved CHECK (
+        activated_at IS NULL
         OR (type_id IS NOT NULL AND issuer_organization_id IS NOT NULL)
     ),
     -- Either a resolved FK or a staged name must be present, for both halves.

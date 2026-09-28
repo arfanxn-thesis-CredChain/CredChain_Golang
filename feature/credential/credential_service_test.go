@@ -1290,7 +1290,7 @@ func TestRevoke_HappyPath(t *testing.T) {
 
 	now := time.Now()
 	tokID := "1"
-	targets := []domain.Credential{{ID: "c1", TokenID: &tokID, ApprovedAt: &now}}
+	targets := []domain.Credential{{ID: "c1", TokenID: &tokID, ActivatedAt: &now}}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(targets, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(targets, nil)
@@ -1362,7 +1362,7 @@ func TestRevoke_NotApproved(t *testing.T) {
 
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "c1"}}, nil) // pending: no ApprovedAt/RejectedAt/RevokedAt
+		[]domain.Credential{{ID: "c1"}}, nil) // pending: no ActivatedAt/RejectedAt/RevokedAt
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
@@ -1385,7 +1385,7 @@ func TestRevoke_AlreadyExpired(t *testing.T) {
 
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "c1", ApprovedAt: &past, ExpiresAt: &past}}, nil)
+		[]domain.Credential{{ID: "c1", ActivatedAt: &past, ExpiresAt: &past}}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
@@ -1409,7 +1409,7 @@ func TestRevoke_ChainRollback(t *testing.T) {
 	tokID := "1"
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "c1", TokenID: &tokID, ApprovedAt: &now}}, nil)
+		[]domain.Credential{{ID: "c1", TokenID: &tokID, ActivatedAt: &now}}, nil)
 	innerCredRepo.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(
 		[]domain.Credential{{ID: "c1"}}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
@@ -1435,8 +1435,8 @@ func TestRevoke_DeletesVerificationCache(t *testing.T) {
 	now := time.Now()
 	tokID := "1"
 	targets := []domain.Credential{
-		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ApprovedAt: &now},
-		{ID: "c2", TokenID: &tokID, FileHash: "0xdef", ApprovedAt: &now},
+		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ActivatedAt: &now},
+		{ID: "c2", TokenID: &tokID, FileHash: "0xdef", ActivatedAt: &now},
 	}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1", "c2"}, (*domainQuery.Query)(nil)).Return(targets, nil)
@@ -1471,7 +1471,7 @@ func TestRevoke_VerificationCacheDeleteFailureIsNonFatal(t *testing.T) {
 	now := time.Now()
 	tokID := "1"
 	targets := []domain.Credential{
-		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ApprovedAt: &now},
+		{ID: "c1", TokenID: &tokID, FileHash: "0xabc", ActivatedAt: &now},
 	}
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(targets, nil)
@@ -2475,6 +2475,7 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 	svc.competencyRepo = compRepo
 
 	number := "N-001"
+	historicalIssuedAt := time.Date(2010, 1, 2, 3, 4, 5, 0, time.UTC)
 	items := []CredentialIssuance{
 		{
 			HolderUserID:         "h",
@@ -2482,6 +2483,7 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 			TypeID:               "type-1",
 			IssuerOrganizationID: "org-1",
 			Number:               &number,
+			IssuedAt:             &historicalIssuedAt,
 			CompetencyIDs:        []string{"comp-a", "comp-b"},
 			Filename:             "a.pdf",
 			MIMEType:             "application/pdf",
@@ -2505,7 +2507,10 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 		assert.Equal(t, "type-1", *c.TypeID)
 		assert.Equal(t, "org-1", *c.IssuerOrganizationID)
 		assert.Equal(t, "N-001", *c.Number)
-		assert.NotNil(t, c.ApprovedAt)
+		assert.Equal(t, historicalIssuedAt, c.IssuedAt)
+		require.NotNil(t, c.ActivatedAt)
+		assert.WithinDuration(t, time.Now(), *c.ActivatedAt, time.Second)
+		assert.NotEqual(t, c.IssuedAt, *c.ActivatedAt)
 	}
 	if assert.NotEmpty(t, captureRepo.stored) {
 		credID := captureRepo.stored[0].ID
@@ -2614,7 +2619,7 @@ func TestSubmit_LeavesExtractTimestampsNil(t *testing.T) {
 	assert.Nil(t, stored.ExtractedAt)
 	assert.Nil(t, stored.ExtractFailedAt)
 	assert.Equal(t, domain.ExtractStateUnextracted, stored.ExtractState())
-	assert.Nil(t, stored.ApprovedAt)
+	assert.Nil(t, stored.ActivatedAt)
 	assert.Equal(t, authUser.Id, stored.SubmitterUserID)
 	assert.Equal(t, stored.HolderUserID, stored.SubmitterUserID)
 	assert.Equal(t, issuedAt.UTC(), stored.IssuedAt.UTC())
@@ -2826,7 +2831,7 @@ func TestSubmitRequiresTypeIdOrName(t *testing.T) {
 // newCredentialServiceForReview builds a *credentialService wired with a
 // propagating UoW, a user repo that answers holder lookups for the review
 // flows, a no-op enqueuer, and the given registry service mock.
-func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, credRepo *mocks.MockCredentialRepository, regSvc *mocks.MockRegistryService) *credentialService {
+func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, regSvc *mocks.MockRegistryService) *credentialService {
 	t.Helper()
 	userRepo := &mocks.MockUserRepository{}
 	userRepo.On("FindByIds", mock.Anything, []string{"h1"}).Return([]domain.User{
@@ -2887,7 +2892,7 @@ func TestApprove_ChainFailure_RollsBackAndStaysPending(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	_, err := svc.Approve(ctx, "c1")
 	var de *domain.Error
@@ -2911,7 +2916,7 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 		Return(pending, nil).
 		Run(func(args mock.Arguments) {
 			for _, c := range args.Get(1).([]domain.Credential) {
-				if c.ApprovedAt != nil {
+				if c.ActivatedAt != nil {
 					approvalUpdates = append(approvalUpdates, c)
 				}
 			}
@@ -2924,7 +2929,7 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	approved, err := svc.Approve(ctx, "c1")
 	require.NoError(t, err)
@@ -2936,7 +2941,7 @@ func TestApprove_HappyPath_MintsAndApproves(t *testing.T) {
 	u := approvalUpdates[0]
 	require.NotNil(t, u.IssuerUserID)
 	assert.Equal(t, user.Id, *u.IssuerUserID)
-	assert.NotNil(t, u.ApprovedAt)
+	assert.NotNil(t, u.ActivatedAt)
 	assert.NotNil(t, u.ExtractEnqueuedAt)
 	assert.Equal(t, domain.ExtractStatePending, u.ExtractState())
 }
@@ -2950,7 +2955,7 @@ func TestApprove_NotFound(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 	regSvc := new(mocks.MockRegistryService)
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	_, err := svc.Approve(ctx, "ghost")
 	var de *domain.Error
@@ -2967,7 +2972,7 @@ func TestApprove_NotPending(t *testing.T) {
 		cred domain.Credential
 		want int
 	}{
-		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
+		{"already approved", domain.Credential{ID: "c1", ActivatedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
 		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
 		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
 		{"already expired", domain.Credential{ID: "c1", ExpiresAt: &past}, domain.CodeCredentialReviewAlreadyExpired},
@@ -2982,7 +2987,7 @@ func TestApprove_NotPending(t *testing.T) {
 			uow := mocks.NewPropagatingUnitOfWork()
 			uow.On("Credential").Return(innerCredRepo)
 			regSvc := new(mocks.MockRegistryService)
-			svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+			svc := newCredentialServiceForReview(t, uow, regSvc)
 
 			_, err := svc.Approve(ctx, "c1")
 			var de *domain.Error
@@ -3022,7 +3027,7 @@ func TestApprove_InactiveMetadata_Blocked(t *testing.T) {
 			uow := mocks.NewPropagatingUnitOfWork()
 			uow.On("Credential").Return(innerCredRepo)
 			regSvc := new(mocks.MockRegistryService)
-			svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+			svc := newCredentialServiceForReview(t, uow, regSvc)
 
 			_, err := svc.Approve(ctx, "c1")
 			var de *domain.Error
@@ -3053,7 +3058,7 @@ func TestApprove_ActiveMetadata_Approves(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	approved, err := svc.Approve(ctx, "c1")
 	require.NoError(t, err)
@@ -3079,7 +3084,7 @@ func TestApprove_UnresolvedBeforeInactive_OrderingPreserved(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 	regSvc := new(mocks.MockRegistryService)
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	_, err := svc.Approve(ctx, "c1")
 	var de *domain.Error
@@ -3107,7 +3112,7 @@ func TestReject_HappyPath(t *testing.T) {
 
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+	svc := newCredentialServiceForReview(t, uow, new(mocks.MockRegistryService))
 
 	rejected, err := svc.Reject(ctx, []CredentialRejection{
 		{ID: "c1", Reason: "unreadable scan"},
@@ -3131,7 +3136,7 @@ func TestReject_NotFound(t *testing.T) {
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"ghost"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+	svc := newCredentialServiceForReview(t, uow, new(mocks.MockRegistryService))
 
 	_, err := svc.Reject(ctx, []CredentialRejection{{ID: "ghost", Reason: "x"}})
 	var de *domain.Error
@@ -3147,7 +3152,7 @@ func TestReject_NotPending(t *testing.T) {
 		cred domain.Credential
 		want int
 	}{
-		{"already approved", domain.Credential{ID: "c1", ApprovedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
+		{"already approved", domain.Credential{ID: "c1", ActivatedAt: &now}, domain.CodeCredentialReviewAlreadyApproved},
 		{"already rejected", domain.Credential{ID: "c1", RejectedAt: &now}, domain.CodeCredentialReviewAlreadyRejected},
 		{"already revoked", domain.Credential{ID: "c1", RevokedAt: &now}, domain.CodeCredentialReviewAlreadyRevoked},
 		{"already expired", domain.Credential{ID: "c1", ExpiresAt: &past}, domain.CodeCredentialReviewAlreadyExpired},
@@ -3161,7 +3166,7 @@ func TestReject_NotPending(t *testing.T) {
 			innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{tt.cred}, nil)
 			uow := mocks.NewPropagatingUnitOfWork()
 			uow.On("Credential").Return(innerCredRepo)
-			svc := newCredentialServiceForReview(t, uow, innerCredRepo, new(mocks.MockRegistryService))
+			svc := newCredentialServiceForReview(t, uow, new(mocks.MockRegistryService))
 
 			_, err := svc.Reject(ctx, []CredentialRejection{{ID: "c1", Reason: "x"}})
 			var de *domain.Error
@@ -3212,7 +3217,7 @@ func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
 }
 
 func TestCredentialUpdate_ApprovedRow_Rejected(t *testing.T) {
-	testCredentialUpdateNotPending(t, domain.Credential{ID: "c1", ApprovedAt: lo.ToPtr(time.Now())})
+	testCredentialUpdateNotPending(t, domain.Credential{ID: "c1", ActivatedAt: lo.ToPtr(time.Now())})
 }
 
 func TestCredentialUpdate_RejectedRow_Rejected(t *testing.T) {
@@ -3633,7 +3638,7 @@ func TestResolveMetadataRejectsNonPending(t *testing.T) {
 		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
 		Name: "Cert", FileHash: "0xapproved1", IssuedAt: time.Now(),
 		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
-		ApprovedAt: &now,
+		ActivatedAt: &now,
 	})
 	require.NoError(t, err)
 	require.Len(t, stored, 1)
@@ -3708,7 +3713,7 @@ func TestApproveBlocksUnresolvedMetadata(t *testing.T) {
 	uow.On("Credential").Return(innerCredRepo)
 	regSvc := new(mocks.MockRegistryService)
 
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	_, err := svc.Approve(ctx, "c1")
 	var derr *domain.Error
@@ -3736,7 +3741,7 @@ func TestApproveAllowsResolvedMetadata(t *testing.T) {
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
-	svc := newCredentialServiceForReview(t, uow, innerCredRepo, regSvc)
+	svc := newCredentialServiceForReview(t, uow, regSvc)
 
 	out, err := svc.Approve(ctx, "c1")
 	require.NoError(t, err)

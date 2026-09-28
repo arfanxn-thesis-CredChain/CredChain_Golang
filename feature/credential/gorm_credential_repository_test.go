@@ -91,7 +91,7 @@ func TestGormCredentialVerificationPathExcludesPending(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "approved", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "Approved", FileHash: "0xapp", ApprovedAt: timePtr(time.Now())},
+		domain.Credential{ID: "approved", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "Approved", FileHash: "0xapp", ActivatedAt: timePtr(time.Now())},
 		domain.Credential{ID: "pending", HolderUserID: "h1", IssuerUserID: strPtr("i1"), Name: "Pending", FileHash: "0xpen"},
 	)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestGormCredentialFindByFileHashes(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa", ApprovedAt: timePtr(time.Now())},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("iss"), Name: "a", FileHash: "0xaa", ActivatedAt: timePtr(time.Now())},
 	)
 	require.NoError(t, err)
 

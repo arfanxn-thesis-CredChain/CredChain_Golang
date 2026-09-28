@@ -106,7 +106,7 @@ const (
 	metadataResolved credMetadata = iota
 	// metadataStaged — free text only, FKs null. A submission that named
 	// nothing the taxonomy knows; illegal on an approved row
-	// (chk_credentials_approved_metadata_resolved).
+	// (chk_credentials_activated_metadata_resolved).
 	metadataStaged
 	// metadataResolvedFromStaged — a reviewer ran ResolveMetadata: the FKs are
 	// filled in but the submitted name survives for audit, since ResolveMetadata
@@ -357,7 +357,7 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 		}
 		switch spec.outcome {
 		case outcomeApproved, outcomeRevoked:
-			c.ApprovedAt = &reviewedAt
+			c.ActivatedAt = &reviewedAt
 			c.IssuerUserID = &officerID
 		case outcomeRejected:
 			c.RejectedAt = &reviewedAt
@@ -648,7 +648,7 @@ func seedCredValidateSpecs(specs []seedCredSpec, byID map[string]domain.User) er
 func seedCredLastTouched(c domain.Credential) time.Time {
 	last := c.CreatedAt
 	for _, t := range []*time.Time{
-		c.ApprovedAt, c.RejectedAt, c.RevokedAt,
+		c.ActivatedAt, c.RejectedAt, c.RevokedAt,
 		c.ExtractEnqueuedAt, c.ExtractedAt, c.ExtractFailedAt,
 	} {
 		if t != nil && t.After(last) {

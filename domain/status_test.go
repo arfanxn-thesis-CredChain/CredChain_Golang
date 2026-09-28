@@ -19,16 +19,16 @@ func TestCredential_Status(t *testing.T) {
 		expected CredentialStatus
 	}{
 		{"pending when no timestamps", Credential{}, CredentialStatusPending},
-		{"approved when only approved_at", Credential{ApprovedAt: ts(now)}, CredentialStatusApproved},
+		{"approved when only activated_at", Credential{ActivatedAt: ts(now)}, CredentialStatusApproved},
 		{"rejected when only rejected_at", Credential{RejectedAt: ts(now)}, CredentialStatusRejected},
 		{"revoked when only revoked_at", Credential{RevokedAt: ts(now)}, CredentialStatusRevoked},
-		{"revoked beats approved", Credential{ApprovedAt: ts(now), RevokedAt: ts(now)}, CredentialStatusRevoked},
+		{"revoked beats approved", Credential{ActivatedAt: ts(now), RevokedAt: ts(now)}, CredentialStatusRevoked},
 		{"revoked beats rejected", Credential{RejectedAt: ts(now), RevokedAt: ts(now)}, CredentialStatusRevoked},
-		{"rejected beats approved", Credential{ApprovedAt: ts(now), RejectedAt: ts(now)}, CredentialStatusRejected},
-		{"revoked beats expired", Credential{ApprovedAt: ts(now), ExpiresAt: ts(past), RevokedAt: ts(now)}, CredentialStatusRevoked},
+		{"rejected beats approved", Credential{ActivatedAt: ts(now), RejectedAt: ts(now)}, CredentialStatusRejected},
+		{"revoked beats expired", Credential{ActivatedAt: ts(now), ExpiresAt: ts(past), RevokedAt: ts(now)}, CredentialStatusRevoked},
 		{"rejected beats expired", Credential{RejectedAt: ts(now), ExpiresAt: ts(past)}, CredentialStatusRejected},
-		{"expired when approved and expires_at in past", Credential{ApprovedAt: ts(now), ExpiresAt: ts(past)}, CredentialStatusExpired},
-		{"approved when approved and expires_at in future", Credential{ApprovedAt: ts(now), ExpiresAt: ts(future)}, CredentialStatusApproved},
+		{"expired when approved and expires_at in past", Credential{ActivatedAt: ts(now), ExpiresAt: ts(past)}, CredentialStatusExpired},
+		{"approved when approved and expires_at in future", Credential{ActivatedAt: ts(now), ExpiresAt: ts(future)}, CredentialStatusApproved},
 		{"expired when pending and expires_at in past", Credential{ExpiresAt: ts(past)}, CredentialStatusExpired},
 		{"pending when pending and expires_at in future", Credential{ExpiresAt: ts(future)}, CredentialStatusPending},
 	}

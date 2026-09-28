@@ -41,8 +41,8 @@ func TestRegistryService_IssueCredentials_PassesBusinessDatesToContract(t *testi
 	expiry := uint64(1735689600)
 
 	ids, err := svc.IssueCredentials(context.Background(), wallet,
-		CredentialIssuance{HolderAddress: wallet.Address, Hash: "0xhash1", URI: "u1", IssuedAt: issuedAt, ExpiresAt: expiry},
-		CredentialIssuance{HolderAddress: wallet.Address, Hash: "0xhash2", URI: "u2", IssuedAt: 0, ExpiresAt: 0},
+		CredentialIssuance{HolderAddress: wallet.Address, Hash: "0xhash1", URI: "u1", IssuedAt: issuedAt, ExpiresAt: expiry, Number: "CRED-NUM-1"},
+		CredentialIssuance{HolderAddress: wallet.Address, Hash: "0xhash2", URI: "u2", IssuedAt: 0, ExpiresAt: 0, Number: ""},
 	)
 	require.NoError(t, err)
 	require.Len(t, ids, 2)
@@ -50,6 +50,8 @@ func TestRegistryService_IssueCredentials_PassesBusinessDatesToContract(t *testi
 	require.Len(t, got.Credentials, 2)
 	assert.Equal(t, issuedAt, got.Credentials[0].IssuedAt, "issuedAt must reach the contract call args")
 	assert.Equal(t, expiry, got.Credentials[0].ExpiresAt, "expiresAt must reach the contract call args, not default to 0")
+	assert.Equal(t, "CRED-NUM-1", got.Credentials[0].Number, "number must reach the contract call args")
 	assert.Equal(t, uint64(0), got.Credentials[1].IssuedAt)
 	assert.Equal(t, uint64(0), got.Credentials[1].ExpiresAt, "no-expiry issuance writes 0 on chain")
+	assert.Equal(t, "", got.Credentials[1].Number)
 }

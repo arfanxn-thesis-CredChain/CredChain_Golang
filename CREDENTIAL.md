@@ -31,7 +31,7 @@
 | `IssuedAt` | `TIMESTAMP`, NOT NULL | Date printed on the physical credential (entered via form; defaults to now if omitted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
 | `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
-| `ApprovedAt` | `TIMESTAMP`, nullable | When approved or directly registered (mint time); drives `approved` lifecycle |
+| `ActivatedAt` | `TIMESTAMP`, nullable | When approved or directly registered (mint time); drives `approved` lifecycle |
 | `RejecterUserID` | `CHAR(26)` FK → `users.id`, nullable | Who rejected it |
 | `RejectedAt` | `TIMESTAMP`, nullable | When rejected; drives `rejected` lifecycle |
 | `RejectionReason` | `TEXT`, nullable | Why rejected |
@@ -196,15 +196,15 @@ There is no separate DB status column. `Credential.Status()` (`domain/credential
 | Status | Condition | Meaning |
 |--------|-----------|---------|
 | `pending` | no approval/rejection/revocation/past-expiry timestamp | Submitted, awaiting Issuer review |
-| `approved` | `approved_at IS NOT NULL` (not revoked, rejected, or expired) | Minted on-chain (approved via review if submitted; directly registered if issued by officer) |
+| `approved` | `activated_at IS NOT NULL` (not revoked, rejected, or expired) | Minted on-chain (approved via review if submitted; directly registered if issued by officer) |
 | `expired` | `expires_at IS NOT NULL AND expires_at <= NOW()` (not revoked or rejected) | Past expiration timestamp |
 | `rejected` | `rejected_at IS NOT NULL` (not revoked) | Reviewed and refused |
 | `revoked` | `revoked_at IS NOT NULL` | Previously approved, later invalidated |
 
 Notes:
 
-- `chk_credentials_approved_xor_rejected` makes approve/reject mutually exclusive at the DB level.
-- Directly-issued credentials are stamped `approved_at` at creation (never `pending`). In the presentation layer, active credentials with `submitter_user_id != holder_user_id` are labeled Registered ("Didaftarkan"), while those with `submitter_user_id == holder_user_id` are labeled Approved ("Disetujui"). Filter controls use Approved & Registered ("Disetujui & Didaftarkan") to encompass both origins.
+- `chk_credentials_activated_xor_rejected` makes approve/reject mutually exclusive at the DB level.
+- Directly-issued credentials are stamped `activated_at` at creation (never `pending`). In the presentation layer, active credentials with `submitter_user_id != holder_user_id` are labeled Registered ("Didaftarkan"), while those with `submitter_user_id == holder_user_id` are labeled Approved ("Disetujui"). Filter controls use Approved & Registered ("Disetujui & Didaftarkan") to encompass both origins.
 - Expiry is derived when `expires_at` is set and in the past (and the credential is not revoked or rejected).
 - The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
 
@@ -356,10 +356,10 @@ Self-submission pipeline: a holder submits a credential (possibly naming taxonom
 **Approve** (`Approve`, `credential_service.go:1213`) — `POST /api/credentials/batch/approve`:
 
 1. Refuses any credential with unresolved staged metadata — `CodeCredentialApproveUnresolvedMetadata` (401546, HTTP 422).
-2. The DB CHECK `chk_credentials_approved_metadata_resolved` backstops the type + organization half; the service enforces the JSONB competency half (`UnresolvedMetadata`, `domain/credential.go:143-158`) so the error is usable either way.
+2. The DB CHECK `chk_credentials_activated_metadata_resolved` backstops the type + organization half; the service enforces the JSONB competency half (`UnresolvedMetadata`, `domain/credential.go:143-158`) so the error is usable either way.
 3. Refuses any credential whose resolved type, organization, or competency has since been deactivated — `CodeCredentialApproveInactiveMetadata` (401547, HTTP 422). Resolution and approval are separate calls, potentially days apart; a taxonomy row can be retired in between, and the mint is a permanent soulbound NFT so this must be caught before minting, not after. The fetch preloads `type`/`issuer_organization`/`competencies` (no extra query) and `InactiveMetadata` (`domain/credential.go:184-199`) checks their `Active` flag; a nil relation is treated as fine since the unresolved check above already covers nil FKs.
 4. Approval and on-chain mint run in the **same unit of work** — a failed mint rolls the approval back and the rows stay pending.
-5. Stamps `issuer_user_id` with the approving officer ID, sets `approved_at` to now, and enqueues background OCR extraction.
+5. Stamps `issuer_user_id` with the approving officer ID, sets `activated_at` to now, and enqueues background OCR extraction.
 
 **Reject** (`Reject`, `credential_service.go:1554`) — `POST /api/credentials/batch/reject`:
 

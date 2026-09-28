@@ -227,11 +227,11 @@ func seedChainCredentials(
 		return fmt.Errorf("seed-chain credentials: read credentials: %w", err)
 	}
 
-	// Filter credentials that need to be on-chain: ApprovedAt != nil
+	// Filter credentials that need to be on-chain: ActivatedAt != nil
 	// Pending and rejected credentials do not exist on chain.
 	var onChainCreds []domain.Credential
 	for _, c := range creds {
-		if c.ApprovedAt != nil {
+		if c.ActivatedAt != nil {
 			onChainCreds = append(onChainCreds, c)
 		}
 	}
@@ -280,12 +280,17 @@ func seedChainCredentials(
 				if c.ExpiresAt != nil {
 					exp = uint64(c.ExpiresAt.Unix())
 				}
+				var num string
+				if c.Number != nil {
+					num = *c.Number
+				}
 				issuances[i] = chain.CredentialIssuance{
 					HolderAddress: holder.WalletAddress,
 					Hash:          c.FileHash,
 					URI:           c.ID,
 					IssuedAt:      uint64(c.IssuedAt.Unix()),
 					ExpiresAt:     exp,
+					Number:        num,
 				}
 			}
 

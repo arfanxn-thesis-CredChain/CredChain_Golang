@@ -140,12 +140,12 @@ func TestCredentialSeeder_SchemaInvariants(t *testing.T) {
 	activeHashes := make(map[string]bool)
 	orgNumbers := make(map[string]bool)
 	for _, c := range s.creds {
-		// chk_credentials_approved_xor_rejected
-		assert.False(t, c.ApprovedAt != nil && c.RejectedAt != nil,
+		// chk_credentials_activated_xor_rejected
+		assert.False(t, c.ActivatedAt != nil && c.RejectedAt != nil,
 			"%s: cannot be both approved and rejected", c.Name)
 
-		// chk_credentials_approved_metadata_resolved
-		if c.ApprovedAt != nil {
+		// chk_credentials_activated_metadata_resolved
+		if c.ActivatedAt != nil {
 			assert.NotNil(t, c.TypeID, "%s: approved row needs a resolved type", c.Name)
 			assert.NotNil(t, c.IssuerOrganizationID, "%s: approved row needs a resolved organization", c.Name)
 		}
@@ -192,7 +192,7 @@ func TestCredentialSeeder_WorkflowInvariants(t *testing.T) {
 			require.NotNil(t, c.IssuerUserID, "%s: direct issuance has an issuer", c.Name)
 			assert.Equal(t, c.SubmitterUserID, *c.IssuerUserID,
 				"%s: direct issuance issuer must be the submitting officer", c.Name)
-			assert.NotNil(t, c.ApprovedAt, "%s: direct issuance is approved at creation", c.Name)
+			assert.NotNil(t, c.ActivatedAt, "%s: direct issuance is approved at creation", c.Name)
 			assert.Nil(t, c.RejectedAt, "%s: a directly issued row is never rejected", c.Name)
 			continue
 		}
@@ -232,14 +232,14 @@ func TestCredentialSeeder_ReviewInvariants(t *testing.T) {
 				"%s: Approve refuses a row with unresolved metadata", c.Name)
 		case domain.CredentialStatusRevoked:
 			// Revoke requires the row to be approved first.
-			assert.NotNil(t, c.ApprovedAt, "%s: only an approved row can be revoked", c.Name)
+			assert.NotNil(t, c.ActivatedAt, "%s: only an approved row can be revoked", c.Name)
 			require.NotNil(t, c.RevokerUserID)
-			assert.True(t, c.RevokedAt.After(*c.ApprovedAt),
+			assert.True(t, c.RevokedAt.After(*c.ActivatedAt),
 				"%s: revocation comes after approval", c.Name)
 		}
 
-		if c.ApprovedAt != nil {
-			assert.False(t, c.ApprovedAt.Before(c.CreatedAt),
+		if c.ActivatedAt != nil {
+			assert.False(t, c.ActivatedAt.Before(c.CreatedAt),
 				"%s: approved before it existed", c.Name)
 		}
 		require.NotNil(t, c.UpdatedAt)
