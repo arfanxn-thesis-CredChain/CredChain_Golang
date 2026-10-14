@@ -22,6 +22,7 @@ import (
 	"CredChain_Golang/infrastructure/jobs"
 	"CredChain_Golang/infrastructure/storage"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/oklog/ulid/v2"
@@ -1741,14 +1742,80 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 
 // ── Verify ────────────────────────────────────────────────────────────────
 
-// Verify runs the cache → exact hash → fuzzy pipeline against the uploaded
+// Verify runs the exact hash → cache → fuzzy pipeline against the uploaded
 // file. Returns (verdictCode, matchedCredential, score, percent, error).
 func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error) {
 	uploadedHash := "0x" + hex.EncodeToString(ethCrypto.Keccak256(file.Data))
 
 	verifyQuery := &domainQuery.Query{Includes: []string{"holder", "issuer", "revoker"}}
 
-	// CACHE LOOKUP
+	// An approved exact-hash row always needs a live on-chain check, even when
+	// Mongo holds a previous verdict for this upload.
+	existing, err := s.repo.FindByFileHashes(ctx, []string{uploadedHash}, verifyQuery)
+	if err != nil {
+		return 0, nil, nil, nil, err
+	}
+	if len(existing) > 0 {
+		tokenIds := make([]*big.Int, 0, len(existing))
+		credByTokenId := make(map[string]*domain.Credential, len(existing))
+		for i := range existing {
+			if existing[i].TokenID != nil {
+				tid, ok := new(big.Int).SetString(*existing[i].TokenID, 10)
+				if ok && tid.Sign() > 0 {
+					tokenIds = append(tokenIds, tid)
+					credByTokenId[tid.String()] = &existing[i]
+				}
+			}
+		}
+		if len(tokenIds) > 0 {
+			onChainCreds, chainErr := s.registryService.GetCredentialsByIds(ctx, tokenIds)
+			if chainErr == nil {
+				var best *domain.Credential
+				var bestOnChain *contracts.CredentialRegistryCredential
+				bestIsRevoked := true
+				for i := range onChainCreds {
+					onChain := &onChainCreds[i]
+					if onChain.Id == nil {
+						continue
+					}
+					cred := credByTokenId[onChain.Id.String()]
+					if !verifyExactCredentialMatches(uploadedHash, cred, onChain) {
+						continue
+					}
+					revoked := onChain.RevokedAt != nil && onChain.RevokedAt.Sign() > 0
+					if best == nil || (bestIsRevoked && !revoked) ||
+						(bestIsRevoked == revoked && onChain.IssuedAt.Cmp(bestOnChain.IssuedAt) > 0) {
+						best = cred
+						bestOnChain = onChain
+						bestIsRevoked = revoked
+					}
+				}
+				if best != nil {
+					code := domain.CodeCredentialVerifyAuthentic
+					if bestIsRevoked {
+						code = domain.CodeCredentialVerifyRevoked
+					}
+					code = s.verifyApplyExpiry(code, best)
+					if code == domain.CodeCredentialVerifyAuthentic {
+						holderGone := best.Holder == nil || best.Holder.DeletedAt != nil
+						issuerGone := best.Issuer == nil || best.Issuer.DeletedAt != nil
+						if holderGone && issuerGone {
+							code = domain.CodeCredentialVerifyPartyDisabled
+						} else if holderGone {
+							code = domain.CodeCredentialVerifyHolderDisabled
+						} else if issuerGone {
+							code = domain.CodeCredentialVerifyIssuerDisabled
+						}
+					}
+					return code, best, nil, nil, nil
+				}
+			}
+		}
+		// No valid on-chain match found; retry the live check next time.
+		return domain.CodeCredentialVerifyIntegrityWarning, &existing[0], nil, nil, nil
+	}
+
+	// CACHE LOOKUP (no approved exact-hash row)
 	cached, err := s.verificationRepo.FindByUploadedFileHash(ctx, uploadedHash)
 	if err != nil {
 		return 0, nil, nil, nil, err
@@ -1780,70 +1847,6 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 			}
 		}
 		return code, cred, cached.SimilarityScore, cached.SimilarityPercent, nil
-	}
-
-	// EXACT-HASH PATH: Postgres bridge → on-chain cross-check
-	existing, err := s.repo.FindByFileHashes(ctx, []string{uploadedHash}, verifyQuery)
-	if err != nil {
-		return 0, nil, nil, nil, err
-	}
-	if len(existing) > 0 {
-		tokenIds := make([]*big.Int, 0, len(existing))
-		credByTokenId := make(map[string]*domain.Credential, len(existing))
-		for i := range existing {
-			if existing[i].TokenID != nil {
-				tid, ok := new(big.Int).SetString(*existing[i].TokenID, 10)
-				if ok {
-					tokenIds = append(tokenIds, tid)
-					credByTokenId[tid.String()] = &existing[i]
-				}
-			}
-		}
-		if len(tokenIds) > 0 {
-			onChainCreds, chainErr := s.registryService.GetCredentialsByIds(ctx, tokenIds)
-			if chainErr == nil {
-				var best *domain.Credential
-				var bestOnChain *contracts.CredentialRegistryCredential
-				bestIsRevoked := true
-				for i := range onChainCreds {
-					if onChainCreds[i].Hash != uploadedHash {
-						continue
-					}
-					revoked := onChainCreds[i].RevokedAt != nil && onChainCreds[i].RevokedAt.Cmp(big.NewInt(0)) > 0
-					if best == nil || (bestIsRevoked && !revoked) ||
-						(bestIsRevoked == revoked && onChainCreds[i].IssuedAt.Cmp(bestOnChain.IssuedAt) > 0) {
-						idStr := onChainCreds[i].Id.String()
-						best = credByTokenId[idStr]
-						bestOnChain = &onChainCreds[i]
-						bestIsRevoked = revoked
-					}
-				}
-				if best != nil {
-					code := domain.CodeCredentialVerifyAuthentic
-					if bestIsRevoked {
-						code = domain.CodeCredentialVerifyRevoked
-					}
-					code = s.verifyApplyExpiry(code, best)
-					if code == domain.CodeCredentialVerifyAuthentic {
-						holderGone := best.Holder == nil || best.Holder.DeletedAt != nil
-						issuerGone := best.Issuer == nil || best.Issuer.DeletedAt != nil
-						if holderGone && issuerGone {
-							code = domain.CodeCredentialVerifyPartyDisabled
-						} else if holderGone {
-							code = domain.CodeCredentialVerifyHolderDisabled
-						} else if issuerGone {
-							code = domain.CodeCredentialVerifyIssuerDisabled
-						}
-					}
-					s.verifyCacheVerdict(ctx, uploadedHash, code, &best.ID, nil, nil)
-					return code, best, nil, nil, nil
-				}
-			}
-		}
-		// No valid on-chain match found
-		code := domain.CodeCredentialVerifyIntegrityWarning
-		s.verifyCacheVerdict(ctx, uploadedHash, code, &existing[0].ID, nil, nil)
-		return code, &existing[0], nil, nil, nil
 	}
 
 	// FUZZY PATH
@@ -1893,6 +1896,28 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	code = s.verifyApplyExpiry(code, cred)
 	s.verifyCacheVerdict(ctx, uploadedHash, code, &best.CredentialID, &result.SimilarityScore, &result.SimilarityPercent)
 	return code, cred, &result.SimilarityScore, &result.SimilarityPercent, nil
+}
+
+// verifyExactCredentialMatches checks the issuance facts mirrored by Postgres
+// and the registry. Revocation clocks differ, so only their presence is compared.
+func verifyExactCredentialMatches(hash string, cred *domain.Credential, onChain *contracts.CredentialRegistryCredential) bool {
+	if cred == nil || onChain == nil || onChain.Id == nil || cred.TokenID == nil ||
+		onChain.Id.String() != *cred.TokenID || cred.FileHash != hash || onChain.Hash != hash ||
+		cred.ID == "" || onChain.Uri != cred.ID ||
+		cred.Holder == nil || cred.Holder.Id != cred.HolderUserID ||
+		cred.Issuer == nil || cred.IssuerUserID == nil || cred.Issuer.Id != *cred.IssuerUserID ||
+		!common.IsHexAddress(cred.Holder.WalletAddress) || !common.IsHexAddress(cred.Issuer.WalletAddress) ||
+		common.HexToAddress(cred.Holder.WalletAddress) == (common.Address{}) ||
+		common.HexToAddress(cred.Issuer.WalletAddress) == (common.Address{}) ||
+		onChain.Holder != common.HexToAddress(cred.Holder.WalletAddress) ||
+		onChain.Issuer != common.HexToAddress(cred.Issuer.WalletAddress) ||
+		cred.IssuedAt.IsZero() || onChain.IssuedAt == nil || onChain.ExpiresAt == nil || onChain.RevokedAt == nil ||
+		onChain.IssuedAt.Cmp(new(big.Int).SetUint64(credentialIssuedAtToChain(cred.IssuedAt))) != 0 ||
+		onChain.ExpiresAt.Cmp(new(big.Int).SetUint64(credentialExpiresAtToChain(cred.ExpiresAt))) != 0 ||
+		onChain.Number != credentialNumberToChain(cred.Number) {
+		return false
+	}
+	return (cred.RevokedAt != nil) == (onChain.RevokedAt.Sign() > 0)
 }
 
 // verifyApplyExpiry overrides an authentic verdict with expired when the

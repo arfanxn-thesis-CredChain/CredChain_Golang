@@ -3,6 +3,7 @@ package credential
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -283,6 +284,30 @@ func newIssueRepos() (*mockCredentialTypeRepository, *mockCredentialIssuerOrgani
 	return typeRepo, orgRepo, compRepo
 }
 
+const (
+	verifyFileHash     = "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f"
+	verifyHolderWallet = "0x1234567890abcdef1234567890abcdef12345678"
+	verifyIssuerWallet = "0xabcdef1234567890abcdef1234567890abcdef12"
+)
+
+func exactVerifyCredential(id string, token string, hash string) domain.Credential {
+	return domain.Credential{
+		ID: id, TokenID: lo.ToPtr(token), FileHash: hash,
+		HolderUserID: "holder-1", IssuerUserID: lo.ToPtr("issuer-1"),
+		Holder:   &domain.User{Id: "holder-1", WalletAddress: verifyHolderWallet},
+		Issuer:   &domain.User{Id: "issuer-1", WalletAddress: verifyIssuerWallet},
+		IssuedAt: time.Unix(1000, 0).UTC(),
+	}
+}
+
+func exactVerifyChain(id string, token int64, hash string) contracts.CredentialRegistryCredential {
+	return contracts.CredentialRegistryCredential{
+		Id: big.NewInt(token), Hash: hash, Uri: id,
+		Holder: common.HexToAddress(verifyHolderWallet), Issuer: common.HexToAddress(verifyIssuerWallet),
+		IssuedAt: big.NewInt(1000), ExpiresAt: big.NewInt(0), RevokedAt: big.NewInt(0),
+	}
+}
+
 func TestVerify_CacheHit(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
@@ -300,6 +325,7 @@ func TestVerify_CacheHit(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:     credID,
@@ -340,6 +366,7 @@ func TestVerify_CacheHit_RevokedCredential(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
@@ -382,6 +409,7 @@ func TestVerify_CacheHit_RevokedOverridesPartyDisabled(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
@@ -421,6 +449,7 @@ func TestVerify_CacheHit_NonAuthenticPreserved(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyTampered,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
@@ -458,6 +487,7 @@ func TestVerify_CacheHit_CredentialNotFound(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(nil, nil)
 
@@ -485,23 +515,12 @@ func TestVerify_ExactAuthentic(t *testing.T) {
 		regSvc:   &mocks.MockRegistryService{},
 	}
 
-	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
-		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: nil, Holder: &domain.User{}, Issuer: &domain.User{}, TokenID: lo.ToPtr("12345")},
+		exactVerifyCredential("cred-1", "12345", verifyFileHash),
 	}, nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
-			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
-			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-			Revoker:   common.Address{},
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-			Uri:       "testUri",
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("cred-1", 12345, verifyFileHash)}, nil,
 	)
-	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -528,23 +547,12 @@ func TestVerify_ExactRevoked(t *testing.T) {
 	}
 
 	now := time.Now()
-	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
-	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
-		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: &now, TokenID: lo.ToPtr("12345")},
-	}, nil)
-	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
-			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
-			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-			Revoker:   common.Address{},
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(2000),
-			Uri:       "testUri",
-		}}, nil,
-	)
-	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
+	matched := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+	matched.RevokedAt = &now
+	onChain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+	onChain.RevokedAt = big.NewInt(2000)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{matched}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -569,17 +577,12 @@ func TestVerify_ExactIntegrityWarning(t *testing.T) {
 		regSvc:   &mocks.MockRegistryService{},
 	}
 
-	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
-		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: nil, TokenID: lo.ToPtr("12345")},
+		exactVerifyCredential("cred-1", "12345", verifyFileHash),
 	}, nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:   big.NewInt(99999),
-			Hash: "0xnonmatchinghash00000000000000000000000000000000000000000000000000",
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("cred-1", 99999, verifyFileHash)}, nil,
 	)
-	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -589,6 +592,195 @@ func TestVerify_ExactIntegrityWarning(t *testing.T) {
 	assert.NotNil(t, cred)
 	assert.Nil(t, score)
 	assert.Nil(t, percent)
+}
+
+func TestVerify_ExactMetadataMismatch(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*domain.Credential, *contracts.CredentialRegistryCredential)
+	}{
+		{"token ID", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.TokenID = lo.ToPtr("99999") }},
+		{"DB hash", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.FileHash = "different" }},
+		{"chain hash", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.Hash = "different" }},
+		{"holder wallet", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			chain.Holder = common.HexToAddress(verifyIssuerWallet)
+		}},
+		{"issuer wallet", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			chain.Issuer = common.HexToAddress(verifyHolderWallet)
+		}},
+		{"URI", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.Uri = "other" }},
+		{"issue date", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			chain.IssuedAt = big.NewInt(1001)
+		}},
+		{"expiry", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			chain.ExpiresAt = big.NewInt(2000)
+		}},
+		{"number", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.Number = "other" }},
+		{"missing token ID", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.Id = nil }},
+		{"missing issue date", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.IssuedAt = nil }},
+		{"missing expiry", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.ExpiresAt = nil }},
+		{"missing revocation", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) { chain.RevokedAt = nil }},
+		{"missing holder", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.Holder = nil }},
+		{"missing issuer", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.Issuer = nil }},
+		{"holder relation ID", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.Holder.Id = "other" }},
+		{"issuer relation ID", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) { c.Issuer.Id = "other" }},
+		{"invalid holder wallet", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) {
+			c.Holder.WalletAddress = "invalid"
+		}},
+		{"zero issuer wallet", func(c *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			c.Issuer.WalletAddress = "0x0000000000000000000000000000000000000000"
+			chain.Issuer = common.Address{}
+		}},
+		{"DB revoked only", func(c *domain.Credential, _ *contracts.CredentialRegistryCredential) {
+			now := time.Now()
+			c.RevokedAt = &now
+		}},
+		{"chain revoked only", func(_ *domain.Credential, chain *contracts.CredentialRegistryCredential) {
+			chain.RevokedAt = big.NewInt(2000)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			cred := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+			chain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+			tt.mutate(&cred, &chain)
+			m := &testCredentialMocks{
+				credRepo: &mocks.MockCredentialRepository{},
+				verRepo:  &mocks.MockCredentialVerificationRepository{},
+				aiClient: &mocks.MockPythonAIClient{},
+				regSvc:   &mocks.MockRegistryService{},
+			}
+			m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
+			m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
+
+			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			require.NoError(t, err)
+			assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
+			require.NotNil(t, matched)
+			assert.Equal(t, "cred-1", matched.ID)
+			m.verRepo.AssertNotCalled(t, "FindByUploadedFileHash", mock.Anything, mock.Anything)
+			m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+			m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestVerify_ExactNullableFieldsAndSecondPrecision(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	cred := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+	cred.IssuedAt = time.Unix(1000, 123456789).UTC()
+	activatedAt := time.Unix(3000, 0).UTC()
+	cred.ActivatedAt = &activatedAt
+	chain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{}, verRepo: &mocks.MockCredentialVerificationRepository{},
+		regSvc: &mocks.MockRegistryService{},
+	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
+
+	code, _, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+	require.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
+}
+
+func TestVerify_ExactNumberAndExpiry(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	cred := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+	cred.Number = lo.ToPtr("CERT-123")
+	expires := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	cred.ExpiresAt = &expires
+	chain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+	chain.Number = "CERT-123"
+	chain.ExpiresAt = new(big.Int).SetUint64(credentialExpiresAtToChain(&expires))
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{}, verRepo: &mocks.MockCredentialVerificationRepository{},
+		regSvc: &mocks.MockRegistryService{},
+	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
+
+	code, _, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+	require.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
+}
+
+func TestVerify_ExactCandidateRanking(t *testing.T) {
+	tests := []struct {
+		name     string
+		firstBad bool
+		revoke   bool
+		wantID   string
+		wantCode int
+	}{
+		{"inconsistent newer cannot outrank valid", true, false, "older", domain.CodeCredentialVerifyAuthentic},
+		{"non-revoked beats newer revoked", false, true, "older", domain.CodeCredentialVerifyAuthentic},
+		{"newer valid wins", false, false, "newer", domain.CodeCredentialVerifyAuthentic},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			older := exactVerifyCredential("older", "1", verifyFileHash)
+			newer := exactVerifyCredential("newer", "2", verifyFileHash)
+			newer.IssuedAt = time.Unix(2000, 0).UTC()
+			oldChain := exactVerifyChain("older", 1, verifyFileHash)
+			newChain := exactVerifyChain("newer", 2, verifyFileHash)
+			newChain.IssuedAt = big.NewInt(2000)
+			if tt.firstBad {
+				newChain.Uri = "wrong"
+			}
+			if tt.revoke {
+				now := time.Now()
+				newer.RevokedAt = &now
+				newChain.RevokedAt = big.NewInt(3000)
+			}
+			m := &testCredentialMocks{
+				credRepo: &mocks.MockCredentialRepository{}, verRepo: &mocks.MockCredentialVerificationRepository{},
+				regSvc: &mocks.MockRegistryService{}, aiClient: &mocks.MockPythonAIClient{},
+			}
+			m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{older, newer}, nil)
+			m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.MatchedBy(func(ids []*big.Int) bool {
+				return len(ids) == 2 && ids[0].Int64() == 1 && ids[1].Int64() == 2
+			})).Return([]contracts.CredentialRegistryCredential{newChain, oldChain}, nil)
+
+			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, code)
+			require.NotNil(t, matched)
+			assert.Equal(t, tt.wantID, matched.ID)
+			m.regSvc.AssertNumberOfCalls(t, "GetCredentialsByIds", 1)
+			m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestVerify_ExactBypassesCachedVerdict(t *testing.T) {
+	for _, cachedCode := range []int{domain.CodeCredentialVerifyAuthentic, domain.CodeCredentialVerifyNoMatch} {
+		t.Run(fmt.Sprint(cachedCode), func(t *testing.T) {
+			user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+			cred := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+			chain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+			chain.Uri = "wrong"
+			m := &testCredentialMocks{
+				credRepo: &mocks.MockCredentialRepository{}, verRepo: &mocks.MockCredentialVerificationRepository{},
+				regSvc: &mocks.MockRegistryService{}, aiClient: &mocks.MockPythonAIClient{},
+			}
+			m.credRepo.On("FindByFileHashes", mock.Anything, []string{verifyFileHash}, mock.Anything).Return([]domain.Credential{cred}, nil)
+			m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
+			m.verRepo.On("FindByUploadedFileHash", mock.Anything, verifyFileHash).Return(&domain.CredentialVerification{VerdictCode: cachedCode}, nil)
+
+			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			require.NoError(t, err)
+			assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
+			require.NotNil(t, matched)
+			assert.Equal(t, cred.ID, matched.ID)
+			m.regSvc.AssertNumberOfCalls(t, "GetCredentialsByIds", 1)
+			m.verRepo.AssertNotCalled(t, "FindByUploadedFileHash", mock.Anything, mock.Anything)
+			m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+			m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+		})
+	}
 }
 
 func TestVerify_ExactExpired(t *testing.T) {
@@ -604,23 +796,12 @@ func TestVerify_ExactExpired(t *testing.T) {
 	}
 
 	past := time.Now().Add(-24 * time.Hour)
-	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
-	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
-		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: nil, ExpiresAt: &past, Holder: &domain.User{}, Issuer: &domain.User{}, TokenID: lo.ToPtr("12345")},
-	}, nil)
-	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
-			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
-			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-			Revoker:   common.Address{},
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-			Uri:       "testUri",
-		}}, nil,
-	)
-	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
+	matched := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+	matched.ExpiresAt = &past
+	onChain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+	onChain.ExpiresAt = new(big.Int).SetUint64(credentialExpiresAtToChain(&past))
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{matched}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -648,23 +829,14 @@ func TestVerify_RevokedBeatsExpired(t *testing.T) {
 
 	now := time.Now()
 	past := now.Add(-24 * time.Hour)
-	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
-	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{
-		{ID: "cred-1", FileHash: "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f", RevokedAt: &now, ExpiresAt: &past, TokenID: lo.ToPtr("12345")},
-	}, nil)
-	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Holder:    common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
-			Hash:      "0x1b2fd4f3ca18fadafcd57a833257bbd533935aa2849e92e34c79387577fc725f",
-			Issuer:    common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-			Revoker:   common.Address{},
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(2000),
-			Uri:       "testUri",
-		}}, nil,
-	)
-	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
+	matched := exactVerifyCredential("cred-1", "12345", verifyFileHash)
+	matched.RevokedAt = &now
+	matched.ExpiresAt = &past
+	onChain := exactVerifyChain("cred-1", 12345, verifyFileHash)
+	onChain.RevokedAt = big.NewInt(2000)
+	onChain.ExpiresAt = new(big.Int).SetUint64(credentialExpiresAtToChain(&past))
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{matched}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
 	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
@@ -695,6 +867,7 @@ func TestVerify_CacheHit_ExpiredReEvaluated(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:        credID,
@@ -733,6 +906,7 @@ func TestVerify_NoExpiryUnchanged(t *testing.T) {
 		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
 		MatchedCredentialID: &credID,
 	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{}, nil)
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(cached, nil)
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(&domain.Credential{
 		ID:     credID,
@@ -1642,13 +1816,11 @@ func TestVerify_HolderDisabled_OverridesAuthentic(t *testing.T) {
 	holder.DeletedAt = &delTime
 	issuer := fixtures.NewDomainUser(fixtures.WithID("issuer-1"), fixtures.WithRole(domain.RoleIssuer))
 
-	cred := domain.Credential{
-		ID:           "c1",
-		HolderUserID: "holder-1",
-		IssuerUserID: lo.ToPtr("issuer-1"),
-		Holder:       &holder,
-		Issuer:       &issuer,
-	}
+	cred := exactVerifyCredential("c1", "12345", verifyFileHash)
+	holder.WalletAddress = verifyHolderWallet
+	issuer.WalletAddress = verifyIssuerWallet
+	cred.Holder = &holder
+	cred.Issuer = &issuer
 	m := &testCredentialMocks{
 		credRepo: &mocks.MockCredentialRepository{},
 		verRepo:  &mocks.MockCredentialVerificationRepository{},
@@ -1658,12 +1830,7 @@ func TestVerify_HolderDisabled_OverridesAuthentic(t *testing.T) {
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return((*domain.CredentialVerification)(nil), nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Hash:      "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("c1", 12345, verifyFileHash)}, nil,
 	)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{func() domain.Credential {
 		c := cred
@@ -1673,7 +1840,7 @@ func TestVerify_HolderDisabled_OverridesAuthentic(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyHolderDisabled, code)
 }
@@ -1687,13 +1854,11 @@ func TestVerify_IssuerDisabled_OverridesAuthentic(t *testing.T) {
 	issuer := fixtures.NewDomainUser(fixtures.WithID("issuer-1"), fixtures.WithRole(domain.RoleIssuer))
 	issuer.DeletedAt = &delTime
 
-	cred := domain.Credential{
-		ID:           "c1",
-		HolderUserID: "holder-1",
-		IssuerUserID: lo.ToPtr("issuer-1"),
-		Holder:       &holder,
-		Issuer:       &issuer,
-	}
+	cred := exactVerifyCredential("c1", "12345", verifyFileHash)
+	holder.WalletAddress = verifyHolderWallet
+	issuer.WalletAddress = verifyIssuerWallet
+	cred.Holder = &holder
+	cred.Issuer = &issuer
 	m := &testCredentialMocks{
 		credRepo: &mocks.MockCredentialRepository{},
 		verRepo:  &mocks.MockCredentialVerificationRepository{},
@@ -1703,12 +1868,7 @@ func TestVerify_IssuerDisabled_OverridesAuthentic(t *testing.T) {
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return((*domain.CredentialVerification)(nil), nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Hash:      "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("c1", 12345, verifyFileHash)}, nil,
 	)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{func() domain.Credential {
 		c := cred
@@ -1718,7 +1878,7 @@ func TestVerify_IssuerDisabled_OverridesAuthentic(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyIssuerDisabled, code)
 }
@@ -1733,13 +1893,11 @@ func TestVerify_PartyDisabled_BothDeleted(t *testing.T) {
 	issuer := fixtures.NewDomainUser(fixtures.WithID("issuer-1"), fixtures.WithRole(domain.RoleIssuer))
 	issuer.DeletedAt = &delTime
 
-	cred := domain.Credential{
-		ID:           "c1",
-		HolderUserID: "holder-1",
-		IssuerUserID: lo.ToPtr("issuer-1"),
-		Holder:       &holder,
-		Issuer:       &issuer,
-	}
+	cred := exactVerifyCredential("c1", "12345", verifyFileHash)
+	holder.WalletAddress = verifyHolderWallet
+	issuer.WalletAddress = verifyIssuerWallet
+	cred.Holder = &holder
+	cred.Issuer = &issuer
 	m := &testCredentialMocks{
 		credRepo: &mocks.MockCredentialRepository{},
 		verRepo:  &mocks.MockCredentialVerificationRepository{},
@@ -1749,12 +1907,7 @@ func TestVerify_PartyDisabled_BothDeleted(t *testing.T) {
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return((*domain.CredentialVerification)(nil), nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Hash:      "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("c1", 12345, verifyFileHash)}, nil,
 	)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{func() domain.Credential {
 		c := cred
@@ -1764,7 +1917,7 @@ func TestVerify_PartyDisabled_BothDeleted(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyPartyDisabled, code)
 }
@@ -1779,14 +1932,12 @@ func TestVerify_DoesNotOverrideRevoked_WhenHolderDeleted(t *testing.T) {
 	issuer := fixtures.NewDomainUser(fixtures.WithID("issuer-1"), fixtures.WithRole(domain.RoleIssuer))
 
 	now := time.Now()
-	cred := domain.Credential{
-		ID:           "c1",
-		HolderUserID: "holder-1",
-		IssuerUserID: lo.ToPtr("issuer-1"),
-		Holder:       &holder,
-		Issuer:       &issuer,
-		RevokedAt:    &now,
-	}
+	cred := exactVerifyCredential("c1", "12345", verifyFileHash)
+	holder.WalletAddress = verifyHolderWallet
+	issuer.WalletAddress = verifyIssuerWallet
+	cred.Holder = &holder
+	cred.Issuer = &issuer
+	cred.RevokedAt = &now
 	m := &testCredentialMocks{
 		credRepo: &mocks.MockCredentialRepository{},
 		verRepo:  &mocks.MockCredentialVerificationRepository{},
@@ -1796,12 +1947,11 @@ func TestVerify_DoesNotOverrideRevoked_WhenHolderDeleted(t *testing.T) {
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return((*domain.CredentialVerification)(nil), nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Hash:      "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(2000),
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{func() contracts.CredentialRegistryCredential {
+			chain := exactVerifyChain("c1", 12345, verifyFileHash)
+			chain.RevokedAt = big.NewInt(2000)
+			return chain
+		}()}, nil,
 	)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{func() domain.Credential {
 		c := cred
@@ -1811,23 +1961,19 @@ func TestVerify_DoesNotOverrideRevoked_WhenHolderDeleted(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
 }
 
-func TestVerify_PartyDisabled_MissingHolderTreatedAsDisabled(t *testing.T) {
+func TestVerify_PartyDisabled_MissingHolderWarnsIntegrity(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
 	issuer := fixtures.NewDomainUser(fixtures.WithID("issuer-1"), fixtures.WithRole(domain.RoleIssuer))
-	cred := domain.Credential{
-		ID:           "c1",
-		HolderUserID: "holder-1",
-		IssuerUserID: lo.ToPtr("issuer-1"),
-		Holder:       nil,
-		Issuer:       &issuer,
-	}
+	cred := exactVerifyCredential("c1", "12345", verifyFileHash)
+	cred.Holder = nil
+	cred.Issuer = &issuer
 	m := &testCredentialMocks{
 		credRepo: &mocks.MockCredentialRepository{},
 		verRepo:  &mocks.MockCredentialVerificationRepository{},
@@ -1837,12 +1983,7 @@ func TestVerify_PartyDisabled_MissingHolderTreatedAsDisabled(t *testing.T) {
 	}
 	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return((*domain.CredentialVerification)(nil), nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return(
-		[]contracts.CredentialRegistryCredential{{
-			Id:        big.NewInt(12345),
-			Hash:      "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
-			IssuedAt:  big.NewInt(1000),
-			RevokedAt: big.NewInt(0),
-		}}, nil,
+		[]contracts.CredentialRegistryCredential{exactVerifyChain("c1", 12345, verifyFileHash)}, nil,
 	)
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{func() domain.Credential {
 		c := cred
@@ -1852,9 +1993,9 @@ func TestVerify_PartyDisabled_MissingHolderTreatedAsDisabled(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
 	assert.NoError(t, err)
-	assert.Equal(t, domain.CodeCredentialVerifyHolderDisabled, code)
+	assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
 }
 
 func TestVerify_DoesNotOverrideTampered_WhenHolderDeleted(t *testing.T) {
