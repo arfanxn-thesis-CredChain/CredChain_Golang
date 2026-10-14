@@ -19,6 +19,7 @@ type UserHandler interface {
 	Store(c *gin.Context)
 	Update(c *gin.Context)
 	UpdateSelfEmail(c *gin.Context)
+	UpdateSelfLanguage(c *gin.Context)
 	UpdateRole(c *gin.Context)
 	Delete(c *gin.Context)
 	TransferSuperAdmin(c *gin.Context)
@@ -117,6 +118,27 @@ func (h *userHandler) Store(c *gin.Context) {
 		users[i] = response.FromDomainUser(u)
 	}
 	responder.Send(c, domain.CodeUserStoreSuccess, users)
+}
+
+func (h *userHandler) UpdateSelfLanguage(c *gin.Context) {
+	authUser := httpContext.MustGetUser(c.Request.Context())
+	var req UserUpdateSelfLanguageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	language, err := h.userSvc.UpdateLanguage(c.Request.Context(), authUser.Id, req.Language)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeUserUpdateSuccess, gin.H{"language": language})
 }
 
 func (h *userHandler) UpdateSelfEmail(c *gin.Context) {

@@ -166,6 +166,26 @@ func TestUserStoreInput_ToDomain(t *testing.T) {
 	})
 }
 
+func TestUserUpdateSelfLanguageRequest_Validate(t *testing.T) {
+	for _, tc := range []struct {
+		language domain.Language
+		valid    bool
+	}{
+		{domain.LanguageID, true},
+		{domain.LanguageEN, true},
+		{"", false},
+		{"fr", false},
+		{"EN", false},
+	} {
+		err := (UserUpdateSelfLanguageRequest{Language: tc.language}).Validate()
+		if tc.valid {
+			assert.NoError(t, err)
+		} else {
+			assert.Error(t, err)
+		}
+	}
+}
+
 func TestUserUpdateSelfEmailRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name      string

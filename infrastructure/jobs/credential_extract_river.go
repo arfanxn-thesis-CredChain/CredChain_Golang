@@ -30,6 +30,7 @@ func (CredentialExtractArgs) Kind() string { return "credential_extract" }
 // Enqueuer abstracts River job insertion for the feature layer.
 type Enqueuer interface {
 	EnqueueExtract(ctx context.Context, args CredentialExtractArgs) error
+	EnqueueCredentialNotifications(ctx context.Context, args []CredentialNotificationArgs) error
 }
 
 // CredentialExtractWorker performs credential extraction jobs via River.

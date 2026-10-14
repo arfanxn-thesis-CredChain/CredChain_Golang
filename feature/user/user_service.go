@@ -29,6 +29,7 @@ type UserService interface {
 	FindByIds(ctx context.Context, ids ...string) ([]domain.User, error)
 	Update(ctx context.Context, users ...domain.User) ([]domain.User, error)
 	UpdateEmail(ctx context.Context, id string, email string, idToken string) (string, error)
+	UpdateLanguage(ctx context.Context, id string, language domain.Language) (domain.Language, error)
 	UpdateRole(ctx context.Context, updates ...domain.UserRoleUpdate) ([]domain.User, int64, error)
 	Store(ctx context.Context, users ...domain.User) ([]domain.User, error)
 	Delete(ctx context.Context, ids ...string) (int64, error)
@@ -329,6 +330,30 @@ func (s *userService) Update(ctx context.Context, users ...domain.User) ([]domai
 		return nil
 	})
 	return updated, err
+}
+
+func (s *userService) UpdateLanguage(ctx context.Context, id string, language domain.Language) (domain.Language, error) {
+	if language != domain.LanguageID && language != domain.LanguageEN {
+		return "", validation.Errors{"language": validation.NewError("validation_language_invalid", "language must be id or en")}
+	}
+	user, err := s.userRepo.Find(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) || user == nil && err == nil {
+		return "", domain.NewError(domain.CodeUserFetchNotFound, domain.WithMetadata("user_id", id))
+	}
+	if err != nil {
+		return "", err
+	}
+	if user.DeletedAt != nil {
+		return "", domain.NewError(domain.CodeUserFetchNotFound, domain.WithMetadata("user_id", id))
+	}
+	updated, err := s.userRepo.Update(ctx, domain.User{Id: id, Language: language})
+	if err != nil {
+		return "", err
+	}
+	if len(updated) != 1 {
+		return "", domain.NewError(domain.CodeUserFetchNotFound, domain.WithMetadata("user_id", id))
+	}
+	return updated[0].Language, nil
 }
 
 func (s *userService) UpdateEmail(ctx context.Context, id string, email string, idToken string) (string, error) {

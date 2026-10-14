@@ -169,7 +169,8 @@ CredChain_Golang/
                           gorm_overview_repository.go (+ tests)
   infrastructure/
     ai/pyai/client.go   → Python AI service HTTP client (no tests)
-    jobs/               → River workers for async credential extraction
+    jobs/               → River workers for async credential extraction and lifecycle notifications
+    mail/               → SMTP client, HTML email renderer, and notification templates
     chain/              → go-ethereum chain infrastructure
       contracts/        → abigen-generated bindings (DO NOT EDIT)
       bindings.go       → AuthorityBinding + RegistryBinding interfaces
@@ -609,6 +610,12 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | `CREDENTIAL_EXTRACT_WORKER_COUNT` | no | — | Credential extract worker count |
 | `CREDENTIAL_EXTRACT_WORKER_POLL_SECONDS` | no | — | Credential extract poll interval |
 | `CREDENTIAL_EXTRACT_WORKER_MAX_ATTEMPTS` | no | — | Credential extract max attempts |
+| `MAIL_HOST` / `SMTP_HOST` | no | — | SMTP host; empty disables email notifications |
+| `MAIL_PORT` / `SMTP_PORT` | no | `587` | SMTP server port (1-65535) |
+| `MAIL_USERNAME` / `SMTP_USERNAME` | no | — | SMTP authentication username (paired with password) |
+| `MAIL_PASSWORD` / `SMTP_PASSWORD` | no | — | SMTP authentication password (paired with username) |
+| `MAIL_FROM` / `SMTP_FROM` | if mail enabled | — | Sender email address (e.g. `no-reply@credchain.com`) |
+| `APP_BASE_URL` | if mail enabled | `http://localhost:5173` | Frontend application base URL for notification action links |
 
 ## Testing
 

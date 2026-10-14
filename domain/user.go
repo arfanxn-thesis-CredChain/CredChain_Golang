@@ -90,6 +90,13 @@ func (g Gender) String() string {
 	return string(g)
 }
 
+type Language string
+
+const (
+	LanguageID Language = "id"
+	LanguageEN Language = "en"
+)
+
 // UserRoleUpdate defines a single target role update for a user
 type UserRoleUpdate struct {
 	UserID string
@@ -104,6 +111,7 @@ type User struct {
 	UnitID                    *string        `json:"unit_id"`
 	JoinedYear                *int           `json:"joined_year"`
 	Email                     string         `json:"email"`
+	Language                  Language       `json:"language"`
 	BirthDate                 *time.Time     `json:"birth_date"`
 	Gender                    *Gender        `json:"gender"`
 	Meta                      map[string]any `json:"meta"`

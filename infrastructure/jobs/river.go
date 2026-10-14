@@ -44,19 +44,44 @@ func (e *RiverEnqueuer) EnqueueExtract(ctx context.Context, args CredentialExtra
 	return err
 }
 
-// NewRiverClient creates a pgx pool + River client with the extraction worker,
+func (e *RiverEnqueuer) EnqueueCredentialNotifications(ctx context.Context, args []CredentialNotificationArgs) error {
+	if len(args) == 0 {
+		return nil
+	}
+	params := make([]river.InsertManyParams, len(args))
+	for i, a := range args {
+		params[i] = river.InsertManyParams{
+			Args: a,
+			InsertOpts: &river.InsertOpts{
+				MaxAttempts: 5,
+				UniqueOpts:  river.UniqueOpts{ByArgs: true},
+			},
+		}
+	}
+	_, err := e.client.InsertMany(ctx, params)
+	return err
+}
+
+// NewRiverClient creates a pgx pool + River client with the extraction and notification workers,
 // and registers lifecycle start/stop. Returns the client and an Enqueuer.
-func NewRiverClient(lc fx.Lifecycle, cfg *config.Config, worker *CredentialExtractWorker, logger *zap.Logger) (Enqueuer, error) {
+func NewRiverClient(
+	lc fx.Lifecycle,
+	cfg *config.Config,
+	extractWorker *CredentialExtractWorker,
+	notificationWorker *CredentialNotificationWorker,
+	logger *zap.Logger,
+) (Enqueuer, error) {
 	pool, err := pgxpool.New(context.Background(), *cfg.PostgresDSN)
 	if err != nil {
 		return nil, err
 	}
 	workers := river.NewWorkers()
-	river.AddWorker(workers, worker)
+	river.AddWorker(workers, extractWorker)
+	river.AddWorker(workers, notificationWorker)
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: *cfg.RiverMaxWorkers}},
 		Workers:      workers,
-		ErrorHandler: worker,
+		ErrorHandler: extractWorker,
 	})
 	if err != nil {
 		pool.Close()

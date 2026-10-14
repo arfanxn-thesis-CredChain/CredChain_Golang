@@ -214,5 +214,21 @@
     "error_credential_metadata_resolve_target_inactive": "One or more referenced taxonomy rows are inactive.",
     "error_credential_metadata_resolve_number_duplicate": "Number already in use for this issuer organization.",
     "error_credential_approve_unresolved_metadata": "This credential has unresolved metadata and cannot be approved.",
-    "error_credential_approve_inactive_metadata": "This credential references inactive metadata and cannot be approved."
+    "error_credential_approve_inactive_metadata": "This credential references inactive metadata and cannot be approved.",
+    "validation_language_invalid": "Language must be id or en.",
+    "mail_credential_approved_title": "Credential Submission Approved",
+    "mail_credential_approved_message": "Your credential submission has been reviewed and approved. Your credential is now active.",
+    "mail_credential_rejected_title": "Credential Submission Rejected",
+    "mail_credential_rejected_message": "Your credential submission has been reviewed and rejected. Please sign in to view details.",
+    "mail_credential_registered_title": "Credential Registered",
+    "mail_credential_registered_message": "A new credential has been registered directly for you by the issuing authority.",
+    "mail_credential_revoked_title": "Credential Revoked",
+    "mail_credential_revoked_message": "Your credential has been revoked by the issuing authority. Please sign in to view details.",
+    "mail_credential_greeting": "Hello {{.Name}}",
+    "mail_credential_default_name": "User",
+    "mail_credential_number": "Credential Number",
+    "mail_credential_event_time": "Event Time",
+    "mail_credential_view": "View Credential",
+    "mail_fallback": "If the buttons above do not work, please use this link:",
+    "mail_footer": "All rights reserved. This is an automated system notification. Please do not reply to this email."
 }

@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -71,6 +73,16 @@ type Config struct {
 	CredentialExtractWorkerMaxAttempts *int
 	StoragePath                        *string
 	CredentialFileStoragePath          *string
+	MailHost                           *string
+	MailPort                           *int
+	MailUsername                       *string
+	MailPassword                       *string
+	MailFrom                           *string
+	AppBaseURL                         *string
+}
+
+func (c *Config) IsMailEnabled() bool {
+	return c.MailHost != nil && *c.MailHost != ""
 }
 
 func getIntEnv(key string, defaultVal *int) *int {
@@ -135,6 +147,7 @@ func NewConfig(envPath string) (*Config, error) {
 	defaultCredentialExtractWorkerMaxAttempts := 3
 	defaultStoragePath := "uploads"
 	defaultCredentialFileStoragePath := "credentials"
+	defaultMailPort := 587
 
 	cfg := &Config{
 		GinPort:                            getEnv("GIN_PORT", lo.ToPtr("8080")),
@@ -195,6 +208,12 @@ func NewConfig(envPath string) (*Config, error) {
 		CredentialExtractWorkerMaxAttempts: getIntEnv("CREDENTIAL_EXTRACT_WORKER_MAX_ATTEMPTS", &defaultCredentialExtractWorkerMaxAttempts),
 		StoragePath:                        getEnv("STORAGE_PATH", &defaultStoragePath),
 		CredentialFileStoragePath:          getEnv("CREDENTIAL_FILE_STORAGE_PATH", &defaultCredentialFileStoragePath),
+		MailHost:                           getEnv("MAIL_HOST", getEnv("SMTP_HOST", nil)),
+		MailPort:                           getIntEnv("MAIL_PORT", getIntEnv("SMTP_PORT", &defaultMailPort)),
+		MailUsername:                       getEnv("MAIL_USERNAME", getEnv("SMTP_USERNAME", nil)),
+		MailPassword:                       getEnv("MAIL_PASSWORD", getEnv("SMTP_PASSWORD", nil)),
+		MailFrom:                           getEnv("MAIL_FROM", getEnv("SMTP_FROM", nil)),
+		AppBaseURL:                         getEnv("APP_BASE_URL", nil),
 	}
 
 	if cfg.JWTSecret == nil {
@@ -227,6 +246,33 @@ func NewConfig(envPath string) (*Config, error) {
 		}
 		if ss == "none" && (cfg.CookieSecure == nil || !*cfg.CookieSecure) {
 			return nil, fmt.Errorf("cookie_samesite=none requires cookie_secure=true")
+		}
+	}
+
+	if cfg.IsMailEnabled() {
+		if cfg.MailPort == nil || *cfg.MailPort <= 0 || *cfg.MailPort > 65535 {
+			return nil, fmt.Errorf("mail_port must be between 1 and 65535")
+		}
+		if cfg.MailFrom == nil || *cfg.MailFrom == "" {
+			return nil, fmt.Errorf("mail_from is required when mail is enabled")
+		}
+		if _, err := mail.ParseAddress(*cfg.MailFrom); err != nil {
+			return nil, fmt.Errorf("mail_from must be a valid email address: %w", err)
+		}
+		if cfg.AppBaseURL == nil || *cfg.AppBaseURL == "" {
+			return nil, fmt.Errorf("app_base_url is required when mail is enabled")
+		}
+		u, err := url.Parse(*cfg.AppBaseURL)
+		if err != nil || !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return nil, fmt.Errorf("app_base_url must be an absolute HTTP or HTTPS URL without query, fragment, or userinfo")
+		}
+		hasUser := cfg.MailUsername != nil && *cfg.MailUsername != ""
+		hasPass := cfg.MailPassword != nil && *cfg.MailPassword != ""
+		if hasUser && !hasPass {
+			return nil, fmt.Errorf("mail_password is required when mail_username is set")
+		}
+		if hasPass && !hasUser {
+			return nil, fmt.Errorf("mail_username is required when mail_password is set")
 		}
 	}
 

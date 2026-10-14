@@ -231,6 +231,12 @@ func (r *gormUserRepository) updateBatchCase(ctx context.Context, users []domain
 		}
 		return nil, false
 	})
+	addCol("language", func(u domain.User) (interface{}, bool) {
+		if u.Language != "" {
+			return string(u.Language), true
+		}
+		return nil, false
+	})
 	addCol("birth_date", func(u domain.User) (interface{}, bool) {
 		if u.BirthDate != nil {
 			return *u.BirthDate, true
@@ -334,6 +340,9 @@ func (r *gormUserRepository) Store(ctx context.Context, users ...domain.User) ([
 	// Convert to model and batch INSERT
 	modelUsers := make([]model.User, len(users))
 	for i, u := range users {
+		if u.Language == "" {
+			u.Language = domain.LanguageID
+		}
 		modelUsers[i] = model.FromDomainUser(u)
 	}
 

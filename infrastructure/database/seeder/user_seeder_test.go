@@ -43,6 +43,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.Len(t, superAdmins, 1)
 	assert.Equal(t, "arfan2173@gmail.com", superAdmins[0].Email)
 	assert.Equal(t, "Muhammad Arfan", *superAdmins[0].Name)
+	assert.Equal(t, domain.LanguageID, superAdmins[0].Language, "wallet index 1 must seed Indonesian")
 	assert.NotNil(t, superAdmins[0].Number)
 	assert.True(t, len(*superAdmins[0].Number) == 18)
 	assert.NotNil(t, superAdmins[0].Meta)
@@ -54,6 +55,7 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, admins, 1)
 	assert.Equal(t, "arfanforproject@gmail.com", admins[0].Email)
+	assert.Equal(t, domain.LanguageEN, admins[0].Language, "wallet index 2 must seed English")
 	assert.NotNil(t, admins[0].Number)
 	assert.Nil(t, admins[0].Meta)
 	assert.Nil(t, admins[0].DeletedAt)
@@ -101,6 +103,14 @@ func TestUserSeeder_Seeds15Users(t *testing.T) {
 	assert.Equal(t, 15, total)
 
 	allUsers := append(append(superAdmins, admins...), append(issuers, holders...)...)
+	languages := make(map[domain.Language]bool)
+	for _, u := range allUsers {
+		assert.Contains(t, []domain.Language{domain.LanguageID, domain.LanguageEN}, u.Language)
+		languages[u.Language] = true
+	}
+	assert.True(t, languages[domain.LanguageID])
+	assert.True(t, languages[domain.LanguageEN])
+
 	for _, u := range allUsers {
 		assert.NotNil(t, u.JoinedYear, "all seeded users must have a joined year: %s", u.Email)
 		if u.JoinedYear != nil {
@@ -171,11 +181,13 @@ func TestUserSeeder_DeterministicRandomUsers(t *testing.T) {
 		assert.Equal(t, issuers1[i].Number, issuers2[i].Number)
 		assert.Equal(t, issuers1[i].Id, issuers2[i].Id, "user id must be deterministic")
 		assert.Equal(t, issuers1[i].JoinedYear, issuers2[i].JoinedYear, "joined year must be deterministic")
+		assert.Equal(t, issuers1[i].Language, issuers2[i].Language, "language must be deterministic")
 	}
 	for i := range holders1 {
 		assert.Equal(t, holders1[i].Email, holders2[i].Email)
 		assert.Equal(t, holders1[i].Number, holders2[i].Number)
 		assert.Equal(t, holders1[i].Id, holders2[i].Id, "user id must be deterministic")
 		assert.Equal(t, holders1[i].JoinedYear, holders2[i].JoinedYear, "joined year must be deterministic")
+		assert.Equal(t, holders1[i].Language, holders2[i].Language, "language must be deterministic")
 	}
 }

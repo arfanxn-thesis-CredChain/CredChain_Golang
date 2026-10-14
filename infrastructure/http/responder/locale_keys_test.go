@@ -129,6 +129,9 @@ func TestLocaleTemplateKeys_BackedByCodeOrAutoInject(t *testing.T) {
 				if autoInjectedKeys[placeholder] {
 					continue
 				}
+				if k == "mail_credential_greeting" && placeholder == "Name" {
+					continue // CredentialNotificationWorker supplies Name via go-i18n TemplateData.
+				}
 				if metaKeys[placeholder] {
 					continue
 				}

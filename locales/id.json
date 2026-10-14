@@ -214,5 +214,21 @@
     "error_credential_metadata_resolve_target_inactive": "Satu atau lebih entri taksonomi yang dirujuk tidak aktif.",
     "error_credential_metadata_resolve_number_duplicate": "Nomor sudah digunakan untuk organisasi penerbit ini.",
     "error_credential_approve_unresolved_metadata": "Kredensial ini memiliki metadata yang belum terselesaikan dan tidak dapat disetujui.",
-    "error_credential_approve_inactive_metadata": "Kredensial ini merujuk metadata yang tidak aktif dan tidak dapat disetujui."
+    "error_credential_approve_inactive_metadata": "Kredensial ini merujuk metadata yang tidak aktif dan tidak dapat disetujui.",
+    "validation_language_invalid": "Bahasa harus id atau en.",
+    "mail_credential_approved_title": "Pengajuan Kredensial Disetujui",
+    "mail_credential_approved_message": "Pengajuan kredensial Anda telah ditinjau dan disetujui. Kredensial Anda sekarang aktif.",
+    "mail_credential_rejected_title": "Pengajuan Kredensial Ditolak",
+    "mail_credential_rejected_message": "Pengajuan kredensial Anda telah ditinjau dan ditolak. Silakan masuk untuk melihat detail.",
+    "mail_credential_registered_title": "Kredensial Didaftarkan",
+    "mail_credential_registered_message": "Sebuah kredensial baru telah didaftarkan langsung untuk Anda oleh pihak penerbit.",
+    "mail_credential_revoked_title": "Kredensial Dicabut",
+    "mail_credential_revoked_message": "Kredensial Anda telah dicabut oleh pihak penerbit. Silakan masuk untuk melihat detail.",
+    "mail_credential_greeting": "Halo {{.Name}}",
+    "mail_credential_default_name": "Pengguna",
+    "mail_credential_number": "Nomor Kredensial",
+    "mail_credential_event_time": "Waktu Peristiwa",
+    "mail_credential_view": "Lihat Kredensial",
+    "mail_fallback": "Jika tombol di atas tidak berfungsi, gunakan tautan berikut:",
+    "mail_footer": "Seluruh hak cipta dilindungi. Ini adalah notifikasi otomatis sistem. Mohon tidak membalas email ini."
 }

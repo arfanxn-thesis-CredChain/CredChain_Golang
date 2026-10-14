@@ -81,6 +81,16 @@ func (r UserStoreRequest) ToDomain() []domain.User {
 	return users
 }
 
+type UserUpdateSelfLanguageRequest struct {
+	Language domain.Language `json:"language"`
+}
+
+func (r UserUpdateSelfLanguageRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Language, validation.Required, validation.In(domain.LanguageID, domain.LanguageEN)),
+	)
+}
+
 type UserUpdateSelfEmailRequest struct {
 	Email   string `json:"email"`
 	IdToken string `json:"id_token"`

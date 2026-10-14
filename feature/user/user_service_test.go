@@ -36,6 +36,32 @@ func ctxWithAuth(u *domain.User) context.Context {
 	return context.WithValue(context.Background(), httpContext.UserKey, u)
 }
 
+func TestUserService_UpdateLanguage(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	user := fixtures.NewDomainUser(fixtures.WithID("self-user"))
+	repo.On("Find", mock.Anything, "self-user").Return(&user, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(users []domain.User) bool {
+		return len(users) == 1 && users[0].Id == "self-user" && users[0].Language == domain.LanguageEN && users[0].Email == ""
+	})).Return([]domain.User{{Id: "self-user", Language: domain.LanguageEN}}, nil)
+	svc := NewUserService(UserServiceParams{UserRepo: repo})
+	language, err := svc.UpdateLanguage(context.Background(), "self-user", domain.LanguageEN)
+	require.NoError(t, err)
+	assert.Equal(t, domain.LanguageEN, language)
+	repo.AssertExpectations(t)
+}
+
+func TestUserService_UpdateLanguage_RejectsDeletedUser(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	user := fixtures.NewDomainUser(fixtures.WithID("deleted-user"))
+	now := time.Now()
+	user.DeletedAt = &now
+	repo.On("Find", mock.Anything, "deleted-user").Return(&user, nil)
+	svc := NewUserService(UserServiceParams{UserRepo: repo})
+	_, err := svc.UpdateLanguage(context.Background(), "deleted-user", domain.LanguageEN)
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 func TestUserService_Store_PolicyFails(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
 	uow := &mocks.MockUnitOfWork{}

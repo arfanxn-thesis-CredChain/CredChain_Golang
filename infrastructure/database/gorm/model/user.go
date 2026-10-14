@@ -14,6 +14,7 @@ type User struct {
 	UnitID                    *string        `gorm:"type:char(26);column:unit_id;index" json:"unit_id"`
 	JoinedYear                *int           `gorm:"column:joined_year;index" json:"joined_year"`
 	Email                     string         `gorm:"type:varchar(255);uniqueIndex;column:email" json:"email"`
+	Language                  string         `gorm:"type:varchar(2);column:language;default:id;not null" json:"language"`
 	Gender                    *string        `gorm:"type:gender;column:gender" json:"gender"`
 	BirthDate                 *time.Time     `gorm:"column:birth_date" json:"birth_date"`
 	Meta                      map[string]any `gorm:"type:jsonb;serializer:json;column:meta" json:"meta"`
@@ -43,6 +44,7 @@ func (m *User) ToDomain() domain.User {
 		UnitID:                    m.UnitID,
 		JoinedYear:                m.JoinedYear,
 		Email:                     m.Email,
+		Language:                  domain.Language(m.Language),
 		Gender:                    gender,
 		BirthDate:                 m.BirthDate,
 		Meta:                      m.Meta,
@@ -72,6 +74,7 @@ func FromDomainUser(u domain.User) User {
 		UnitID:                    u.UnitID,
 		JoinedYear:                u.JoinedYear,
 		Email:                     u.Email,
+		Language:                  string(u.Language),
 		Gender:                    gender,
 		BirthDate:                 u.BirthDate,
 		Meta:                      u.Meta,

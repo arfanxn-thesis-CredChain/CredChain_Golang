@@ -686,6 +686,43 @@ River jobs live in Postgres (`river_jobs` table) but use a separate `pgx` connec
 
 ---
 
+## Credential Lifecycle Notifications
+
+Holders receive asynchronous email notifications for four lifecycle events:
+
+1. **`approved`**: Credential submission approved by an Issuer+.
+2. **`rejected`**: Credential submission rejected by an Issuer+.
+3. **`registered`**: Credential issued directly by an Issuer+ (bypassing submission).
+4. **`revoked`**: Credential revoked by an Issuer+.
+
+### Architecture & Trigger Points
+
+```
+Lifecycle Mutation (Issue / Approve / Reject / Revoke)
+  │
+  ├── 1. On-Chain Transaction / DB Mutation (Go, sync)
+  ├── 2. Commit DB Transaction (Go, sync - GORM UoW or issueCommit)
+  └── 3. Post-Commit Enqueue (Go, async - context.WithoutCancel with 5s timeout)
+         │
+         └── River Queue (Postgres river_jobs)
+              │
+              └── CredentialNotificationWorker (async)
+                   ├── 1. Fetch current holder user via UserRepository.Find
+                   ├── 2. Render HTML/text in recipient's current saved language (id or en)
+                   └── 3. Deliver via bounded SMTP (net/smtp + STARTTLS)
+```
+
+- **Post-commit execution**: Notifications are enqueued strictly after database commits and on-chain transactions succeed. If a transaction fails or rolls back, no notification is queued.
+- **Delivery limits & fault tolerance**:
+  - Enqueue failures are logged and swallowed; mutation endpoints always return success.
+  - Job uniqueness is keyed by `(credential_id, event)` with up to 5 retry attempts.
+  - Non-retryable conditions (deleted user, missing user, empty email) cancel the job (`river.JobCancel`).
+  - Transport failures (SMTP network/auth) trigger exponential backoff retries.
+  - Commit-to-enqueue crashes may drop notifications; SMTP acceptance race may cause duplicate emails. No in-app notification DB tables or outbox pattern are maintained.
+- **Security & Privacy**: Email payloads contain no sensitive attributes, file paths, or rejection reasons. Emails link directly to authenticated `/credentials/:id` route.
+
+---
+
 ## Cross-Repo Integration
 
 - **`../CredChain_Solidity/CredentialRegistry.sol`** — ERC-721 soulbound token, `credentialHashToStatus` mapping, CredentialStatus enum. Used by `chain.RegistryService` via abigen bindings.

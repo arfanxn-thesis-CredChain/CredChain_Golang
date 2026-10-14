@@ -36,6 +36,10 @@ func (m *mockUserService) Update(ctx context.Context, users ...domain.User) ([]d
 func (m *mockUserService) UpdateEmail(ctx context.Context, id string, email string, idToken string) (string, error) {
 	panic("not implemented")
 }
+func (m *mockUserService) UpdateLanguage(ctx context.Context, id string, language domain.Language) (domain.Language, error) {
+	args := m.Called(ctx, id, language)
+	return args.Get(0).(domain.Language), args.Error(1)
+}
 func (m *mockUserService) UpdateRole(ctx context.Context, updates ...domain.UserRoleUpdate) ([]domain.User, int64, error) {
 	panic("not implemented")
 }
@@ -50,6 +54,38 @@ func (m *mockUserService) TransferSuperAdmin(ctx context.Context, targetId strin
 }
 func (m *mockUserService) Restore(ctx context.Context, ids []string) ([]domain.User, int64, error) {
 	panic("not implemented")
+}
+
+func TestUserHandler_UpdateSelfLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		language domain.Language
+		status   int
+	}{
+		{"valid", domain.LanguageEN, http.StatusOK},
+		{"invalid", "fr", http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			authUser := fixtures.NewDomainUser(fixtures.WithID("self-user"))
+			c, rr := gintest.NewContext(t,
+				gintest.WithMethod(http.MethodPut),
+				gintest.WithPath("/api/users/self/language"),
+				gintest.WithBody(UserUpdateSelfLanguageRequest{Language: tc.language}),
+				gintest.WithUser(&authUser),
+				gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)),
+			)
+			svc := &mockUserService{}
+			if tc.status == http.StatusOK {
+				svc.On("UpdateLanguage", mock.Anything, "self-user", domain.LanguageEN).Return(domain.LanguageEN, nil)
+			}
+			(&userHandler{userSvc: svc}).UpdateSelfLanguage(c)
+			assert.Equal(t, tc.status, rr.Code)
+			if tc.status == http.StatusOK {
+				assert.Contains(t, rr.Body.String(), `"language":"en"`)
+			}
+			svc.AssertExpectations(t)
+		})
+	}
 }
 
 func TestUserHandler_TransferSuperAdmin_ValidationError(t *testing.T) {

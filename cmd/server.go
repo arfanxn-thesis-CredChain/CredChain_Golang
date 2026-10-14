@@ -18,6 +18,7 @@ import (
 	"CredChain_Golang/infrastructure/i18n"
 	infraJobs "CredChain_Golang/infrastructure/jobs"
 	infraLogger "CredChain_Golang/infrastructure/logger"
+	infraMail "CredChain_Golang/infrastructure/mail"
 	"CredChain_Golang/infrastructure/oauth"
 	"CredChain_Golang/infrastructure/storage"
 
@@ -81,6 +82,8 @@ var serverCmd = &cobra.Command{
 				meta.NewMetaService,
 				meta.NewMetaHandler,
 				infraJobs.NewCredentialExtractWorker,
+				infraJobs.NewCredentialNotificationWorker,
+				infraMail.ProvideMailer,
 				infraJobs.NewRiverClient,
 				func(db *gorm.DB) domain.UnitOfWork {
 					return gormInfra.NewGormUnitOfWork(db,

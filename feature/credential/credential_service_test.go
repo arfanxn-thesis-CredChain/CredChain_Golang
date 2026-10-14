@@ -71,6 +71,10 @@ func (m *localMockEnqueuer) EnqueueExtract(ctx context.Context, args jobs.Creden
 	return m.Called(ctx, args).Error(0)
 }
 
+func (m *localMockEnqueuer) EnqueueCredentialNotifications(ctx context.Context, args []jobs.CredentialNotificationArgs) error {
+	return m.Called(ctx, args).Error(0)
+}
+
 // ── Inline repo mocks for the issue endpoint (B2) ──────────────────────────
 
 type mockCredentialTypeRepository struct{ mock.Mock }

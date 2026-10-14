@@ -47,6 +47,24 @@ func TestGormUserRepository_CountByUnitIds(t *testing.T) {
 	assert.Equal(t, int64(1), single)
 }
 
+func TestGormUserRepository_LanguageDefaultsAndUpdates(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	stored, err := repo.Store(ctx, fixtures.NewDomainUser(fixtures.WithID("language-user"), fixtures.WithEmail("language@x.com")))
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	assert.Equal(t, domain.LanguageID, stored[0].Language)
+
+	updated, err := repo.Update(ctx, domain.User{Id: "language-user", Language: domain.LanguageEN})
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	assert.Equal(t, domain.LanguageEN, updated[0].Language)
+
+	unchanged, err := repo.Update(ctx, domain.User{Id: "language-user", Email: "renamed@x.com"})
+	require.NoError(t, err)
+	assert.Equal(t, domain.LanguageEN, unchanged[0].Language)
+}
+
 func TestGormUserRepository_Store_PreservesProvidedID(t *testing.T) {
 	repo := newRepo(t)
 	u := fixtures.NewDomainUser(fixtures.WithID("custom-id"), fixtures.WithEmail("custom@x.com"))

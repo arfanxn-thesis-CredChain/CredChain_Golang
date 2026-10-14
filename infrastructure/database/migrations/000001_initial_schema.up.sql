@@ -33,6 +33,7 @@ CREATE TABLE users (
     name VARCHAR(256),
     number VARCHAR(256) UNIQUE,
     email VARCHAR(256) UNIQUE NOT NULL,
+    language VARCHAR(2) NOT NULL DEFAULT 'id' CHECK (language IN ('id', 'en')),
     gender gender,
     birth_date DATE,
     meta JSONB,

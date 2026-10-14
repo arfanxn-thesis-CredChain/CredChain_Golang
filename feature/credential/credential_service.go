@@ -652,6 +652,8 @@ func (s *credentialService) Issue(ctx context.Context, items []CredentialIssuanc
 		return nil, err
 	}
 
+	s.enqueueLifecycleNotifications(ctx, committed, jobs.NotificationEventRegistered)
+
 	return committed, nil
 }
 
@@ -1297,6 +1299,9 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		approved = updated
 		return nil
 	})
+	if err == nil && len(approved) > 0 {
+		s.enqueueLifecycleNotifications(ctx, approved, jobs.NotificationEventApproved)
+	}
 	return approved, err
 }
 
@@ -1606,6 +1611,9 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 		rejected, err = uow.Credential().Update(ctx, updates...)
 		return err
 	})
+	if err == nil && len(rejected) > 0 {
+		s.enqueueLifecycleNotifications(ctx, rejected, jobs.NotificationEventRejected)
+	}
 	return rejected, err
 }
 
@@ -1724,6 +1732,9 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 		if delErr := s.verificationRepo.DeleteByUploadedFileHashes(ctx, fileHashes); delErr != nil {
 			s.logger.Warn("failed to delete verification cache entries after revoke", zap.Error(delErr), zap.Strings("file_hashes", fileHashes))
 		}
+	}
+	if err == nil && len(revoked) > 0 {
+		s.enqueueLifecycleNotifications(ctx, revoked, jobs.NotificationEventRevoked)
 	}
 	return revoked, err
 }

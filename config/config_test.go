@@ -200,3 +200,128 @@ func TestNewConfig_IssuingOrganizationName_Set(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "University of Indonesia", *cfg.IssuingOrganizationName)
 }
+
+func TestNewConfig_MailConfig_DisabledWhenHostEmpty(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "")
+	t.Setenv("SMTP_HOST", "")
+
+	cfg, err := NewConfig(".env.nonexistent")
+	assert.NoError(t, err)
+	assert.False(t, cfg.IsMailEnabled())
+}
+
+func TestNewConfig_MailConfig_MissingFrom_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173")
+	t.Setenv("MAIL_FROM", "")
+	t.Setenv("SMTP_FROM", "")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mail_from")
+}
+
+func TestNewConfig_MailConfig_InvalidFrom_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_FROM", "not-an-email")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mail_from")
+}
+
+func TestNewConfig_MailConfig_MissingAppBaseURL_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_FROM", "noreply@credchain.com")
+	t.Setenv("APP_BASE_URL", "")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "app_base_url")
+}
+
+func TestNewConfig_MailConfig_InvalidAppBaseURL_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_FROM", "noreply@credchain.com")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173/path?query=1#frag")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "app_base_url")
+}
+
+func TestNewConfig_MailConfig_InvalidPort_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_PORT", "0")
+	t.Setenv("MAIL_FROM", "noreply@credchain.com")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mail_port")
+}
+
+func TestNewConfig_MailConfig_MismatchedAuth_ReturnsError(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_PORT", "2525")
+	t.Setenv("MAIL_FROM", "noreply@credchain.com")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173")
+	t.Setenv("MAIL_USERNAME", "someuser")
+	t.Setenv("MAIL_PASSWORD", "")
+
+	_, err := NewConfig(".env.nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mail_password")
+}
+
+func TestNewConfig_MailConfig_ValidConfig(t *testing.T) {
+	t.Setenv("JWT_SECRET", "my-secret")
+	t.Setenv("WALLET_ENCRYPTION_KEY", "my-wallet-key-exactly-32-chars-x")
+	t.Setenv("FILE_ENCRYPTION_KEY", "my-file-key-exactly-32-chars-xxx")
+	t.Setenv("ISSUING_ORGANIZATION_NAME", "Test Org")
+	t.Setenv("MAIL_HOST", "sandbox.smtp.mailtrap.io")
+	t.Setenv("MAIL_PORT", "2525")
+	t.Setenv("MAIL_USERNAME", "test-username")
+	t.Setenv("MAIL_PASSWORD", "test-password")
+	t.Setenv("MAIL_FROM", "noreply@credchain.com")
+	t.Setenv("APP_BASE_URL", "http://localhost:5173")
+
+	cfg, err := NewConfig(".env.nonexistent")
+	assert.NoError(t, err)
+	assert.True(t, cfg.IsMailEnabled())
+	assert.Equal(t, "sandbox.smtp.mailtrap.io", *cfg.MailHost)
+	assert.Equal(t, 2525, *cfg.MailPort)
+	assert.Equal(t, "test-username", *cfg.MailUsername)
+	assert.Equal(t, "test-password", *cfg.MailPassword)
+	assert.Equal(t, "noreply@credchain.com", *cfg.MailFrom)
+	assert.Equal(t, "http://localhost:5173", *cfg.AppBaseURL)
+}

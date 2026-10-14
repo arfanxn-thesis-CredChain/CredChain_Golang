@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -100,6 +102,7 @@ func RegisterRoutes(p RouteParams) {
 				users.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.UserHandler.Paginate)
 				users.GET("/self", p.UserHandler.Self)
 				users.PUT("/self/email", p.UserHandler.UpdateSelfEmail)
+				users.PUT("/self/language", p.UserHandler.UpdateSelfLanguage)
 				users.GET("/self/credentials", p.CredentialHandler.SelfPaginate)
 				users.GET("/self/credentials/:id", p.CredentialHandler.SelfFind)
 				users.POST("/self/transfer-super-admin", gin.HandlerFunc(p.SuperAdminRoleMiddleware), p.UserHandler.TransferSuperAdmin)
@@ -169,21 +172,29 @@ func RegisterRoutes(p RouteParams) {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	p.Lifecycle.Append(fx.Hook{
+	p.Lifecycle.Append(serverHook(srv, p.Logger))
+}
+
+func serverHook(srv *http.Server, logger *zap.Logger) fx.Hook {
+	return fx.Hook{
 		OnStart: func(context.Context) error {
+			listener, err := net.Listen("tcp", srv.Addr)
+			if err != nil {
+				return fmt.Errorf("listen on %s: %w", srv.Addr, err)
+			}
+			logger.Info("credchain golang backend starting", zap.String("address", srv.Addr))
 			go func() {
-				p.Logger.Info("credchain golang backend starting", zap.String("port", *p.Config.GinPort))
-				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					p.Logger.Error("server failed to start", zap.Error(err))
+				if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+					logger.Error("server stopped unexpectedly", zap.Error(err))
 				}
 			}()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			p.Logger.Info("stopping server")
+			logger.Info("stopping server")
 			shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			return srv.Shutdown(shutdownCtx)
 		},
-	})
+	}
 }

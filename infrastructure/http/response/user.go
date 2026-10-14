@@ -8,20 +8,21 @@ import (
 // User is the response DTO for user data.
 // Excludes sensitive fields like EncryptedWalletPrivateKey.
 type User struct {
-	ID            string         `json:"id"`
-	Name          *string        `json:"name"`
-	Number        *string        `json:"number"`
-	UnitID        *string        `json:"unit_id"`
-	JoinedYear    *int           `json:"joined_year"`
-	Email         string         `json:"email"`
-	BirthDate     *time.Time     `json:"birth_date"`
-	Gender        *domain.Gender `json:"gender"`
-	Meta          map[string]any `json:"meta"`
-	Role          domain.Role    `json:"role"`
-	WalletAddress string         `json:"wallet_address"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     *time.Time     `json:"updated_at"`
-	DeletedAt     *time.Time     `json:"deleted_at"`
+	ID            string          `json:"id"`
+	Name          *string         `json:"name"`
+	Number        *string         `json:"number"`
+	UnitID        *string         `json:"unit_id"`
+	JoinedYear    *int            `json:"joined_year"`
+	Email         string          `json:"email"`
+	Language      domain.Language `json:"language"`
+	BirthDate     *time.Time      `json:"birth_date"`
+	Gender        *domain.Gender  `json:"gender"`
+	Meta          map[string]any  `json:"meta"`
+	Role          domain.Role     `json:"role"`
+	WalletAddress string          `json:"wallet_address"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     *time.Time      `json:"updated_at"`
+	DeletedAt     *time.Time      `json:"deleted_at"`
 }
 
 // FromDomainUser converts a domain User entity to a response User DTO.
@@ -33,6 +34,7 @@ func FromDomainUser(u domain.User) User {
 		UnitID:        u.UnitID,
 		JoinedYear:    u.JoinedYear,
 		Email:         u.Email,
+		Language:      u.Language,
 		BirthDate:     u.BirthDate,
 		Gender:        u.Gender,
 		Meta:          u.Meta,
@@ -53,6 +55,7 @@ func (u *User) ToDomain() domain.User {
 		UnitID:        u.UnitID,
 		JoinedYear:    u.JoinedYear,
 		Email:         u.Email,
+		Language:      u.Language,
 		BirthDate:     u.BirthDate,
 		Gender:        u.Gender,
 		Meta:          u.Meta,

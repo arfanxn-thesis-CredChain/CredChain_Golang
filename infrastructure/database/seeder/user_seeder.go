@@ -197,13 +197,21 @@ func (s *UserSeeder) seedBuildUser(p seedBuildUserParams) domain.User {
 	return domain.User{
 		Id:   deterministicULID(p.index),
 		Name: lo.ToPtr(p.name), Number: lo.ToPtr(p.number),
-		Email:  p.email,
-		Gender: p.gender, BirthDate: p.birthDate,
+		Email:    p.email,
+		Language: seedUserLanguage(p.index),
+		Gender:   p.gender, BirthDate: p.birthDate,
 		JoinedYear: lo.ToPtr(seedJoinedYear(p.createdAt, p.index)),
 		Meta:       p.meta, Role: p.role,
 		WalletAddress: address, EncryptedWalletPrivateKey: encryptedKey,
 		CreatedAt: p.createdAt, UpdatedAt: updatedAt, DeletedAt: p.deletedAt,
 	}
+}
+
+func seedUserLanguage(index uint32) domain.Language {
+	if index%2 == 0 {
+		return domain.LanguageEN
+	}
+	return domain.LanguageID
 }
 
 func seedMnemonic(cfg *config.Config) string {
