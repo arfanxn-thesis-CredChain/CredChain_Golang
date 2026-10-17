@@ -1556,27 +1556,98 @@ func TestRevoke_NotApproved(t *testing.T) {
 	}
 }
 
-func TestRevoke_AlreadyExpired(t *testing.T) {
+func TestRevoke_ActivatedExpired(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 	past := time.Now().Add(-1 * time.Hour)
+	tokID := "1"
+	target := domain.Credential{ID: "c1", TokenID: &tokID, ActivatedAt: &past, ExpiresAt: &past}
 
 	innerCredRepo := &mocks.MockCredentialRepository{}
 	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
-		[]domain.Credential{{ID: "c1", ActivatedAt: &past, ExpiresAt: &past}}, nil)
+		[]domain.Credential{target}, nil)
+	innerCredRepo.On("Update", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		updates := args.Get(1).([]domain.Credential)
+		require.Len(t, updates, 1)
+		assert.Equal(t, "c1", updates[0].ID)
+		assert.NotNil(t, updates[0].RevokedAt)
+		assert.Equal(t, user.Id, *updates[0].RevokerUserID)
+		assert.Nil(t, updates[0].ExpiresAt, "revocation must not overwrite expiration history")
+	}).Return([]domain.Credential{func() domain.Credential {
+		revoked := target
+		revoked.RevokedAt = lo.ToPtr(time.Now())
+		return revoked
+	}()}, nil)
 	uow := mocks.NewPropagatingUnitOfWork()
 	uow.On("Credential").Return(innerCredRepo)
 
+	regSvc := &mocks.MockRegistryService{}
+	regSvc.On("RevokeCredentials", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	svc := &credentialService{
-		uow:    uow,
-		policy: &credentialPolicy{},
-		logger: zap.NewNop(),
+		uow: uow, registryService: regSvc, policy: &credentialPolicy{}, logger: zap.NewNop(),
 	}
+	revoked, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
+	require.NoError(t, err)
+	require.Len(t, revoked, 1)
+	assert.Equal(t, domain.CredentialStatusRevoked, revoked[0].Status())
+	assert.Equal(t, past, *revoked[0].ExpiresAt)
+	innerCredRepo.AssertCalled(t, "Update", mock.Anything, mock.Anything)
+	regSvc.AssertCalled(t, "RevokeCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRevoke_ExpiredWithoutActivation(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	past := time.Now().Add(-1 * time.Hour)
+	innerCredRepo := &mocks.MockCredentialRepository{}
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "c1", ExpiresAt: &past}}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	regSvc := &mocks.MockRegistryService{}
+	svc := &credentialService{uow: uow, registryService: regSvc, policy: &credentialPolicy{}, logger: zap.NewNop()}
 	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
 	var domErr *domain.Error
-	if assert.ErrorAs(t, err, &domErr) {
-		assert.Equal(t, domain.CodeCredentialRevokeAlreadyExpired, domErr.Code)
-	}
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialRevokeNotApproved, domErr.Code)
+	innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	regSvc.AssertNotCalled(t, "RevokeCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRevoke_RejectedAfterActivation(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	now := time.Now()
+	innerCredRepo := &mocks.MockCredentialRepository{}
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "c1", ActivatedAt: &now, RejectedAt: &now}}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	regSvc := &mocks.MockRegistryService{}
+	svc := &credentialService{uow: uow, registryService: regSvc, policy: &credentialPolicy{}, logger: zap.NewNop()}
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "c1"}})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialRevokeNotApproved, domErr.Code)
+	innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	regSvc.AssertNotCalled(t, "RevokeCredentials", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRevoke_RejectsWholeBatchWhenUnactivatedExpired(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+	past := time.Now().Add(-time.Hour)
+	innerCredRepo := &mocks.MockCredentialRepository{}
+	innerCredRepo.On("FindByIds", mock.Anything, []string{"active", "expired-pending"}, (*domainQuery.Query)(nil)).Return(
+		[]domain.Credential{{ID: "active", ActivatedAt: &past}, {ID: "expired-pending", ExpiresAt: &past}}, nil)
+	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("Credential").Return(innerCredRepo)
+	svc := &credentialService{uow: uow, policy: &credentialPolicy{}, logger: zap.NewNop()}
+	_, err := svc.Revoke(ctx, []CredentialRevocation{{ID: "active"}, {ID: "expired-pending"}})
+	var domErr *domain.Error
+	require.ErrorAs(t, err, &domErr)
+	assert.Equal(t, domain.CodeCredentialRevokeNotApproved, domErr.Code)
+	innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
 
 func TestRevoke_ChainRollback(t *testing.T) {

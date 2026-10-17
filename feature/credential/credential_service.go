@@ -1676,20 +1676,9 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 				domain.WithMetadata("credential_ids", alreadyRevoked))
 		}
 
-		alreadyExpired := []string{}
-		for _, t := range targets {
-			if t.Status() == domain.CredentialStatusExpired {
-				alreadyExpired = append(alreadyExpired, t.ID)
-			}
-		}
-		if len(alreadyExpired) > 0 {
-			return domain.NewError(domain.CodeCredentialRevokeAlreadyExpired,
-				domain.WithMetadata("credential_ids", alreadyExpired))
-		}
-
 		notApproved := []string{}
 		for _, t := range targets {
-			if t.Status() != domain.CredentialStatusApproved {
+			if t.ActivatedAt == nil || t.RejectedAt != nil {
 				notApproved = append(notApproved, t.ID)
 			}
 		}
