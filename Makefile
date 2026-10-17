@@ -111,7 +111,7 @@ logs:
 
 dev-up:
 	-docker network create credchain
-	docker compose up -d anvil postgres mongo
+	docker compose up --wait --wait-timeout 120 anvil postgres mongo
 	cd ../CredChain_Python && docker compose up -d --build
 	ENV_FILE=.env python3 scripts/setup-contracts.py
 	go run main.go migrate up --env .env
