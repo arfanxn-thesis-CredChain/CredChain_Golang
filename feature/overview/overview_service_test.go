@@ -28,6 +28,14 @@ func (m *mockOverviewRepo) CredentialCounts(ctx context.Context, q *domainQuery.
 	return args.Get(0).(*domain.OverviewCredentialCounts), args.Error(1)
 }
 
+func (m *mockOverviewRepo) CredentialRecap(ctx context.Context, asOf time.Time) ([]domain.CredentialRecapRow, error) {
+	args := m.Called(ctx, asOf)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.CredentialRecapRow), args.Error(1)
+}
+
 func (m *mockOverviewRepo) UserCounts(ctx context.Context, q *domainQuery.Query) (*domain.OverviewUserCounts, error) {
 	args := m.Called(ctx, q)
 	if args.Get(0) == nil {
@@ -281,5 +289,73 @@ func hasFilter(q *domainQuery.Query, column string, operator domainQuery.Operato
 	}
 	return false
 }
+
+func TestCredentialRecap_IssuerAndDenied(t *testing.T) {
+	issuer := &domain.User{Id: "issuer", Role: domain.RoleIssuer}
+	svc, repo, _, _, c := setupTestService(t, issuer)
+	units := &mockUnitRepo{}
+	svc.unitRepo = units
+	repo.On("CredentialRecap", mock.Anything, mock.AnythingOfType("time.Time")).Return([]domain.CredentialRecapRow{{TotalHolders: 1}}, nil).Once()
+	units.On("Get", mock.Anything, (*domainQuery.Query)(nil)).Return([]domain.UserUnit{{Id: "unit", Name: "Unit", Active: false}}, nil).Once()
+	got, err := svc.CredentialRecap(c.Request.Context())
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 1)
+	require.Len(t, got.Units, 1)
+	assert.False(t, got.Units[0].Active)
+	assert.WithinDuration(t, time.Now(), got.AsOf, time.Second)
+	repo.AssertExpectations(t)
+	units.AssertExpectations(t)
+	for _, role := range []domain.Role{domain.RoleHolder, domain.RoleNone} {
+		user := &domain.User{Id: "denied", Role: role}
+		deniedSvc, deniedRepo, _, _, deniedCtx := setupTestService(t, user)
+		deniedSvc.unitRepo = new(mockUnitRepo)
+		_, err := deniedSvc.CredentialRecap(deniedCtx.Request.Context())
+		require.Error(t, err)
+		deniedRepo.AssertNotCalled(t, "CredentialRecap", mock.Anything, mock.Anything)
+	}
+}
+
+func TestCredentialRecap_QueryErrors(t *testing.T) {
+	issuer := &domain.User{Id: "issuer", Role: domain.RoleIssuer}
+	for _, failUnits := range []bool{false, true} {
+		svc, repo, _, _, c := setupTestService(t, issuer)
+		units := new(mockUnitRepo)
+		svc.unitRepo = units
+		if failUnits {
+			repo.On("CredentialRecap", mock.Anything, mock.Anything).Return([]domain.CredentialRecapRow{}, nil)
+			units.On("Get", mock.Anything, (*domainQuery.Query)(nil)).Return(nil, errors.New("unit query failed"))
+		} else {
+			repo.On("CredentialRecap", mock.Anything, mock.Anything).Return(nil, errors.New("recap query failed"))
+		}
+		_, err := svc.CredentialRecap(c.Request.Context())
+		require.Error(t, err)
+	}
+}
+
+type mockUnitRepo struct{ mock.Mock }
+
+func (m *mockUnitRepo) Get(ctx context.Context, q *domainQuery.Query) ([]domain.UserUnit, error) {
+	args := m.Called(ctx, q)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.UserUnit), args.Error(1)
+}
+func (m *mockUnitRepo) Store(context.Context, ...domain.UserUnit) ([]domain.UserUnit, error) {
+	return nil, nil
+}
+func (m *mockUnitRepo) Find(context.Context, string) (*domain.UserUnit, error) { return nil, nil }
+func (m *mockUnitRepo) FindByIds(context.Context, ...string) ([]domain.UserUnit, error) {
+	return nil, nil
+}
+func (m *mockUnitRepo) Update(context.Context, ...domain.UserUnit) ([]domain.UserUnit, error) {
+	return nil, nil
+}
+func (m *mockUnitRepo) UpdateParent(context.Context, string, *string) error { return nil }
+func (m *mockUnitRepo) FindWithDescendants(context.Context, string) ([]domain.UserUnit, error) {
+	return nil, nil
+}
+func (m *mockUnitRepo) Destroy(context.Context, ...string) (int64, error)          { return 0, nil }
+func (m *mockUnitRepo) CountByParentIds(context.Context, ...string) (int64, error) { return 0, nil }
 
 func ptrStr(s string) *string { return &s }

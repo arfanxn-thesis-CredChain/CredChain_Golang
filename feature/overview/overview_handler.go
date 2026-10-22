@@ -11,6 +11,7 @@ import (
 
 type OverviewHandler interface {
 	Get(c *gin.Context)
+	CredentialRecap(c *gin.Context)
 }
 
 type overviewHandler struct {
@@ -24,6 +25,16 @@ type OverviewHandlerParams struct {
 
 func NewOverviewHandler(p OverviewHandlerParams) OverviewHandler {
 	return &overviewHandler{svc: p.Svc}
+}
+
+func (h *overviewHandler) CredentialRecap(c *gin.Context) {
+	recap, err := h.svc.CredentialRecap(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeOverviewSuccess, recap)
 }
 
 func (h *overviewHandler) Get(c *gin.Context) {

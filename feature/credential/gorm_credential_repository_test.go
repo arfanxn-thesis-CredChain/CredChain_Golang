@@ -1183,6 +1183,38 @@ func TestGormCredentialGet_FilterByIssuerUserId(t *testing.T) {
 	})
 }
 
+func TestGet_ApprovedStatusFiltersBeforePagination(t *testing.T) {
+	repo := openCredRepo(t)
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	rows := []model.Credential{
+		{Id: "expired", HolderUserId: "h1", Name: "expired", FileHash: "expired", IssuedAt: now, ActivatedAt: &past, ExpiresAt: &past},
+		{Id: "rejected", HolderUserId: "h1", Name: "rejected", FileHash: "rejected", IssuedAt: now.Add(-time.Minute), ActivatedAt: &past, RejectedAt: &past},
+		{Id: "valid", HolderUserId: "h1", Name: "valid", FileHash: "valid", IssuedAt: now.Add(-2 * time.Minute), ActivatedAt: &past, ExtractFailedAt: &past},
+		{Id: "revoked", HolderUserId: "h1", Name: "revoked", FileHash: "revoked", IssuedAt: now.Add(-3 * time.Minute), ActivatedAt: &past, RevokedAt: &past},
+	}
+	require.NoError(t, repo.db.Create(&rows).Error)
+	q := &domainQuery.Query{Filters: []domainQuery.Filter{domainQuery.NewFilter("status", domainQuery.OperatorEqual, "approved"), domainQuery.NewFilter("holder_user_id", domainQuery.OperatorEqual, "h1")}, Sorts: []domainQuery.Sort{{Column: "issued_at", Order: domainQuery.SortDesc}}, Page: 1, Limit: 1}
+	got, total, err := repo.Get(context.Background(), q)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, got, 1)
+	assert.Equal(t, "valid", got[0].ID)
+}
+
+func TestGet_InvalidStatusCannotBypassFilter(t *testing.T) {
+	repo := openCredRepo(t)
+	now := time.Now()
+	require.NoError(t, repo.db.Create(&model.Credential{Id: "c1", HolderUserId: "h1", Name: "pending", FileHash: "c1", IssuedAt: now}).Error)
+	for _, filter := range []domainQuery.Filter{
+		domainQuery.NewFilter("status", domainQuery.OperatorEqual, "pending"),
+		domainQuery.NewFilter("status", domainQuery.OperatorNotEqual, "approved"),
+	} {
+		_, _, err := repo.Get(context.Background(), &domainQuery.Query{Filters: []domainQuery.Filter{filter}})
+		require.Error(t, err)
+	}
+}
+
 func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
 	repo := openCredRepo(t)
 	ctx := context.Background()

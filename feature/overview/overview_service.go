@@ -16,12 +16,14 @@ import (
 
 type OverviewService interface {
 	Get(ctx context.Context, q *domainQuery.Query) (*response.Overview, error)
+	CredentialRecap(ctx context.Context) (*response.CredentialRecap, error)
 }
 
 type overviewService struct {
 	overviewRepo domain.OverviewRepository
 	credRepo     domain.CredentialRepository
 	userRepo     domain.UserRepository
+	unitRepo     domain.UserUnitRepository
 	cfg          *config.Config
 	chainClient  *chain.Client
 }
@@ -31,6 +33,7 @@ type OverviewServiceParams struct {
 	OverviewRepo domain.OverviewRepository
 	CredRepo     domain.CredentialRepository
 	UserRepo     domain.UserRepository
+	UnitRepo     domain.UserUnitRepository
 	Config       *config.Config
 	ChainClient  *chain.Client
 }
@@ -40,9 +43,33 @@ func NewOverviewService(p OverviewServiceParams) OverviewService {
 		overviewRepo: p.OverviewRepo,
 		credRepo:     p.CredRepo,
 		userRepo:     p.UserRepo,
+		unitRepo:     p.UnitRepo,
 		cfg:          p.Config,
 		chainClient:  p.ChainClient,
 	}
+}
+
+func (s *overviewService) CredentialRecap(ctx context.Context) (*response.CredentialRecap, error) {
+	if httpContext.MustGetUser(ctx).Role.Rank() < domain.RoleIssuer.Rank() {
+		return nil, domain.NewError(domain.CodeAuthForbidden)
+	}
+	asOf := time.Now().UTC()
+	rows, err := s.overviewRepo.CredentialRecap(ctx, asOf)
+	if err != nil {
+		return nil, domain.NewError(domain.CodeOverviewInternal, domain.WithError(err))
+	}
+	units, err := s.unitRepo.Get(ctx, nil)
+	if err != nil {
+		return nil, domain.NewError(domain.CodeOverviewInternal, domain.WithError(err))
+	}
+	result := &response.CredentialRecap{AsOf: asOf, Rows: rows, Units: make([]response.CredentialRecapUnit, len(units))}
+	if result.Rows == nil {
+		result.Rows = []domain.CredentialRecapRow{}
+	}
+	for i, u := range units {
+		result.Units[i] = response.CredentialRecapUnit{ID: u.Id, ParentID: u.ParentId, Name: u.Name, Active: u.Active}
+	}
+	return result, nil
 }
 
 func (s *overviewService) Get(ctx context.Context, q *domainQuery.Query) (*response.Overview, error) {
@@ -130,7 +157,7 @@ func (s *overviewService) Get(ctx context.Context, q *domainQuery.Query) (*respo
 func buildRecentActiveCredentialQuery(dateFrom, dateTo time.Time, limit int, holderID *string) *domainQuery.Query {
 	q := &domainQuery.Query{
 		Filters: []domainQuery.Filter{
-			{Column: "revoked_at", Operator: domainQuery.OperatorNull},
+			{Column: "status", Operator: domainQuery.OperatorEqual, Values: []string{"approved"}},
 			{Column: "issued_at", Operator: domainQuery.OperatorBetween, Values: []string{
 				dateFrom.Format("2006-01-02"), dateTo.Format("2006-01-02"),
 			}},

@@ -97,6 +97,7 @@ func RegisterRoutes(p RouteParams) {
 		{
 			secure.POST("/auth/logout", gin.HandlerFunc(p.LogoutRateLimitMiddleware), p.AuthHandler.Logout)
 			secure.GET("/overview", p.OverviewHandler.Get)
+			secure.GET("/overview/credential-recap", gin.HandlerFunc(p.IssuerRoleMiddleware), p.OverviewHandler.CredentialRecap)
 			users := secure.Group("/users")
 			{
 				users.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.UserHandler.Paginate)

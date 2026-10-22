@@ -106,6 +106,7 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/user-units/:id` | PUT | Authenticated | Admin+ |
 | `/api/user-units/:id` | DELETE | Authenticated | Admin+ |
 | `/api/overview` | GET | Authenticated | Any — role-conditional response (Holder: own data; Issuer+: system-wide) |
+| `/api/overview/credential-recap` | GET | Authenticated | Issuer+ — current-holder grouped snapshot; middleware and service role guard |
 
 **Role middlewares** (`infrastructure/http/middleware/auth.go:94-146`):
 - `AdminRoleMiddleware` → checks `HasRoleOrAbove(ctx, wallet, RoleAdmin)` on-chain

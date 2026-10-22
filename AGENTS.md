@@ -462,7 +462,8 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | POST/PUT/DELETE | `/api/competencies[/:id]` | Issuer+ | Competency CRUD |
 | GET | `/api/user-units` | Authenticated | List organizational units |
 | POST/PUT/DELETE | `/api/user-units[/:id]` | Admin+ | User unit CRUD |
-| GET | `/api/overview` | Authenticated (no role gate) | Role-conditional dashboard: credential counts, user counts, recents, chain details. Optional `?limit=N` controls recent items per category (default 5). Issuer+ get system-wide data; Holder get own only. |
+| GET | `/api/overview` | Authenticated (no role gate) | Role-conditional dashboard: credential counts, user counts, recents, chain details. Optional `?limit=N` controls recent items per category (default 5). Issuer+ get system-wide data; Holder get own only. Active/revoked use lifecycle timestamps (not OCR); pending/failed remain extraction counts and can overlap lifecycle categories. |
+| GET | `/api/overview/credential-recap` | Issuer+ | Current-holder snapshot independent of Overview activity date: `{as_of,rows,units}`. Rows group by nullable exact `unit_id` and `joined_year`, include zero-credential holders, and partition credential counts into active/pending/rejected/expired/revoked at `as_of`. Units include `{id,parent_id,name,active}` (including inactive). No pagination. Existing overview tiles count broader populations and use activity dates, so their totals need not equal the recap. |
 
 ### Database
 

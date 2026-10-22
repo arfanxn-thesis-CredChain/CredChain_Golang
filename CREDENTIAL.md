@@ -30,7 +30,7 @@
 | `ExtractedAt` | `TIMESTAMP`, nullable | When extraction completed successfully |
 | `IssuedAt` | `TIMESTAMP`, NOT NULL | Date printed on the physical credential (entered via form; defaults to now if omitted) |
 | `RevokedAt` | `TIMESTAMP`, nullable | When credential was revoked |
-| `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated only on the verification path |
+| `ExpiresAt` | `TIMESTAMP`, nullable | Expiry; evaluated by `Credential.Status()`, Overview lifecycle counts and verification |
 | `ActivatedAt` | `TIMESTAMP`, nullable | When approved or directly registered (mint time); drives `approved` lifecycle |
 | `RejecterUserID` | `CHAR(26)` FK → `users.id`, nullable | Who rejected it |
 | `RejectedAt` | `TIMESTAMP`, nullable | When rejected; drives `rejected` lifecycle |
@@ -205,7 +205,7 @@ Notes:
 
 - `chk_credentials_activated_xor_rejected` makes approve/reject mutually exclusive at the DB level.
 - Directly-issued credentials are stamped `activated_at` at creation (never `pending`). In the presentation layer, active credentials with `submitter_user_id != holder_user_id` are labeled Registered ("Didaftarkan"), while those with `submitter_user_id == holder_user_id` are labeled Approved ("Disetujui"). Filter controls use Approved & Registered ("Disetujui & Didaftarkan") to encompass both origins.
-- Expiry is derived when `expires_at` is set and in the past (and the credential is not revoked or rejected).
+- Expiry is derived when `expires_at <= now`, including an unactivated submission; revocation and rejection take precedence. `GET /api/credentials?filters=status=approved` returns only active (approved/registered), unexpired, non-rejected, non-revoked records; the predicate is applied before pagination.
 - The on-chain `CredentialStatus` enum (None/Issued/Revoked) is separate and reflects the chain state rather than DB state.
 
 ---

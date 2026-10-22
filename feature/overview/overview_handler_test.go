@@ -19,6 +19,14 @@ import (
 
 type mockSvc struct{ mock.Mock }
 
+func (m *mockSvc) CredentialRecap(ctx context.Context) (*response.CredentialRecap, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*response.CredentialRecap), args.Error(1)
+}
+
 func (m *mockSvc) Get(ctx context.Context, q *domainQuery.Query) (*response.Overview, error) {
 	args := m.Called(ctx, q)
 	if args.Get(0) == nil {
@@ -55,6 +63,26 @@ func TestHandlerGet_IssuerSuccess(t *testing.T) {
 	assert.NotNil(t, data["credential_counts"])
 	assert.NotNil(t, data["user_counts"])
 	assert.NotNil(t, data["chain_details"])
+}
+
+func TestHandlerCredentialRecap_Envelope(t *testing.T) {
+	svc := new(mockSvc)
+	handler := NewOverviewHandler(OverviewHandlerParams{Svc: svc})
+	c, rr := gintest.NewContext(t, gintest.WithUser(&domain.User{Role: domain.RoleIssuer}), gintest.WithI18nBundle(gintest.LoadTestI18nBundle(t)))
+	svc.On("CredentialRecap", mock.Anything).Return(&response.CredentialRecap{AsOf: time.Now(), Rows: []domain.CredentialRecapRow{}, Units: []response.CredentialRecapUnit{}}, nil)
+	handler.CredentialRecap(c)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			Rows  []domain.CredentialRecapRow    `json:"rows"`
+			Units []response.CredentialRecapUnit `json:"units"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	assert.Equal(t, domain.CodeOverviewSuccess, body.Code)
+	require.NotNil(t, body.Data.Rows)
+	require.NotNil(t, body.Data.Units)
 }
 
 func TestHandlerGet_HolderSuccess(t *testing.T) {

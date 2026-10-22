@@ -1,6 +1,22 @@
 package response
 
-import "CredChain_Golang/domain"
+import (
+	"CredChain_Golang/domain"
+	"time"
+)
+
+type CredentialRecap struct {
+	AsOf  time.Time                   `json:"as_of"`
+	Rows  []domain.CredentialRecapRow `json:"rows"`
+	Units []CredentialRecapUnit       `json:"units"`
+}
+
+type CredentialRecapUnit struct {
+	ID       string  `json:"id"`
+	ParentID *string `json:"parent_id"`
+	Name     string  `json:"name"`
+	Active   bool    `json:"active"`
+}
 
 type Overview struct {
 	CredentialCounts *OverviewCredentialCounts `json:"credential_counts,omitempty"`

@@ -166,6 +166,7 @@ var virtualFilterColumns = map[string]bool{
 	"competency_id":    true,
 	"holder_unit_name": true,
 	"holder_unit_id":   true,
+	"status":           true,
 }
 
 // applyVirtualFilters consumes virtual filters from the query and appends
@@ -177,6 +178,8 @@ func (r *gormCredentialRepository) applyVirtualFilters(db *gorm.DB, query *domai
 	remaining := query.Filters[:0]
 	for _, f := range query.Filters {
 		switch {
+		case f.Column == "status" && f.Operator == domainQuery.OperatorEqual && len(f.Values) == 1 && f.Values[0] == "approved":
+			db = db.Where("credentials.activated_at IS NOT NULL AND credentials.revoked_at IS NULL AND credentials.rejected_at IS NULL AND (credentials.expires_at IS NULL OR credentials.expires_at > ?)", time.Now())
 		case f.Column == "competency_name" && f.Operator == domainQuery.OperatorLike:
 			db = db.Where(`EXISTS (SELECT 1 FROM competency_credential cc
 				JOIN competencies comp ON comp.id = cc.competency_id
@@ -215,6 +218,13 @@ func (r *gormCredentialRepository) applyVirtualFilters(db *gorm.DB, query *domai
 // corresponding GORM Preload runs — a single batch IN-clause query per
 // Preload regardless of result size.
 func (r *gormCredentialRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.Credential, int, error) {
+	if query != nil {
+		for _, f := range query.Filters {
+			if f.Column == "status" && (f.Operator != domainQuery.OperatorEqual || len(f.Values) != 1 || f.Values[0] != "approved") {
+				return nil, 0, domain.NewError(domain.CodeSystemValidation)
+			}
+		}
+	}
 	db := r.db.WithContext(ctx).Model(&model.Credential{})
 
 	if needsHolderJoin(query) {

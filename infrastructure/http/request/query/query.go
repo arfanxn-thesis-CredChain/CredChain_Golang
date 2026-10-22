@@ -34,9 +34,12 @@ func validateFilter(value interface{}) error {
 	if filter == "" {
 		return nil
 	}
-	_, _, _, err := parseFilterString(filter)
+	column, op, values, err := parseFilterString(filter)
 	if err != nil {
 		return validation.NewError("validation_syntax_invalid", "has invalid syntax")
+	}
+	if column == "status" && (op != domainQuery.OperatorEqual || len(values) != 1 || values[0] != "approved") {
+		return validation.NewError("validation_syntax_invalid", "status supports only =approved")
 	}
 	return nil
 }
