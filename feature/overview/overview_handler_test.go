@@ -44,7 +44,7 @@ func TestHandlerGet_IssuerSuccess(t *testing.T) {
 
 	now := time.Now()
 	svc.On("Get", mock.Anything, mock.Anything).Return(&response.Overview{
-		CredentialCounts: &response.OverviewCredentialCounts{Total: 10, Active: 8, Revoked: 1, Pending: 1, Failed: 1},
+		CredentialCounts: &response.OverviewCredentialCounts{Total: 10, Active: 8, PendingReview: 2, Rejected: 3, Expired: 4, Revoked: 1, Pending: 1, Failed: 1},
 		UserCounts:       &response.OverviewUserCounts{Total: 5, Holder: 3, Issuer: 1, Admin: 1, Active: 4, Trashed: 1},
 		Recents: &response.OverviewRecents{
 			ActiveCredentials: []response.Credential{{ID: "c1", Name: "Degree", IssuedAt: now}},
@@ -61,6 +61,10 @@ func TestHandlerGet_IssuerSuccess(t *testing.T) {
 
 	data := body["data"].(map[string]interface{})
 	assert.NotNil(t, data["credential_counts"])
+	counts := data["credential_counts"].(map[string]interface{})
+	assert.Equal(t, float64(2), counts["pending_review"])
+	assert.Equal(t, float64(3), counts["rejected"])
+	assert.Equal(t, float64(4), counts["expired"])
 	assert.NotNil(t, data["user_counts"])
 	assert.NotNil(t, data["chain_details"])
 }
@@ -105,6 +109,10 @@ func TestHandlerGet_HolderSuccess(t *testing.T) {
 
 	data := body["data"].(map[string]interface{})
 	assert.NotNil(t, data["credential_counts"])
+	counts := data["credential_counts"].(map[string]interface{})
+	assert.Equal(t, float64(0), counts["pending_review"])
+	assert.Equal(t, float64(0), counts["rejected"])
+	assert.Equal(t, float64(0), counts["expired"])
 	assert.Nil(t, data["user_counts"])
 	assert.Nil(t, data["chain_details"])
 }

@@ -21,7 +21,8 @@ func NewGormOverviewRepository(db *gorm.DB) domain.OverviewRepository {
 func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domainQuery.Query, holderUserID *string) (*domain.OverviewCredentialCounts, error) {
 	dateFrom, dateTo := extractDateRange(q)
 
-	type row struct{ Total, Active, Revoked, Pending, Failed int }
+	now := time.Now()
+	type row struct{ Total, Active, PendingReview, Rejected, Expired, Revoked, Pending, Failed int }
 
 	if holderUserID == nil {
 		var result row
@@ -32,17 +33,28 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 				 WHERE revoked_at IS NULL AND rejected_at IS NULL AND activated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)
 				 AND issued_at BETWEEN ? AND ?) AS active,
 				(SELECT COUNT(*) FROM credentials
+				 WHERE activated_at IS NULL AND rejected_at IS NULL
+				 AND issued_at BETWEEN ? AND ?) AS pending_review,
+				(SELECT COUNT(*) FROM credentials
+				 WHERE rejected_at IS NOT NULL
+				 AND issued_at BETWEEN ? AND ?) AS rejected,
+				(SELECT COUNT(*) FROM credentials
+				 WHERE activated_at IS NOT NULL AND revoked_at IS NULL AND expires_at <= ?
+				 AND issued_at BETWEEN ? AND ?) AS expired,
+				(SELECT COUNT(*) FROM credentials
 				 WHERE revoked_at IS NOT NULL
 				 AND issued_at BETWEEN ? AND ?) AS revoked,
 				(SELECT COUNT(*) FROM credentials
 				 WHERE extract_enqueued_at IS NOT NULL AND extracted_at IS NULL AND extract_failed_at IS NULL AND issued_at BETWEEN ? AND ?) AS pending,
 				(SELECT COUNT(*) FROM credentials
 				 WHERE extract_failed_at IS NOT NULL AND issued_at BETWEEN ? AND ?) AS failed
-		`, dateFrom, dateTo, time.Now(), dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo).Scan(&result).Error
+		`, dateFrom, dateTo, now, dateFrom, dateTo,
+			dateFrom, dateTo, dateFrom, dateTo, now, dateFrom, dateTo,
+			dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo).Scan(&result).Error
 		if err != nil {
 			return nil, err
 		}
-		return &domain.OverviewCredentialCounts{Total: result.Total, Active: result.Active, Revoked: result.Revoked, Pending: result.Pending, Failed: result.Failed}, nil
+		return &domain.OverviewCredentialCounts{Total: result.Total, Active: result.Active, PendingReview: result.PendingReview, Rejected: result.Rejected, Expired: result.Expired, Revoked: result.Revoked, Pending: result.Pending, Failed: result.Failed}, nil
 	}
 
 	var result row
@@ -53,6 +65,15 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 			 WHERE holder_user_id = ? AND revoked_at IS NULL AND rejected_at IS NULL AND activated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)
 			 AND issued_at BETWEEN ? AND ?) AS active,
 			(SELECT COUNT(*) FROM credentials
+			 WHERE holder_user_id = ? AND activated_at IS NULL AND rejected_at IS NULL
+			 AND issued_at BETWEEN ? AND ?) AS pending_review,
+			(SELECT COUNT(*) FROM credentials
+			 WHERE holder_user_id = ? AND rejected_at IS NOT NULL
+			 AND issued_at BETWEEN ? AND ?) AS rejected,
+			(SELECT COUNT(*) FROM credentials
+			 WHERE holder_user_id = ? AND activated_at IS NOT NULL AND revoked_at IS NULL AND expires_at <= ?
+			 AND issued_at BETWEEN ? AND ?) AS expired,
+			(SELECT COUNT(*) FROM credentials
 			 WHERE holder_user_id = ? AND revoked_at IS NOT NULL
 			 AND issued_at BETWEEN ? AND ?) AS revoked,
 			(SELECT COUNT(*) FROM credentials
@@ -61,7 +82,10 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 			 WHERE holder_user_id = ? AND extract_failed_at IS NOT NULL AND issued_at BETWEEN ? AND ?) AS failed
 	`,
 		*holderUserID, dateFrom, dateTo,
-		*holderUserID, time.Now(), dateFrom, dateTo,
+		*holderUserID, now, dateFrom, dateTo,
+		*holderUserID, dateFrom, dateTo,
+		*holderUserID, dateFrom, dateTo,
+		*holderUserID, now, dateFrom, dateTo,
 		*holderUserID, dateFrom, dateTo,
 		*holderUserID, dateFrom, dateTo,
 		*holderUserID, dateFrom, dateTo,
@@ -69,7 +93,7 @@ func (r *gormOverviewRepository) CredentialCounts(ctx context.Context, q *domain
 	if err != nil {
 		return nil, err
 	}
-	return &domain.OverviewCredentialCounts{Total: result.Total, Active: result.Active, Revoked: result.Revoked, Pending: result.Pending, Failed: result.Failed}, nil
+	return &domain.OverviewCredentialCounts{Total: result.Total, Active: result.Active, PendingReview: result.PendingReview, Rejected: result.Rejected, Expired: result.Expired, Revoked: result.Revoked, Pending: result.Pending, Failed: result.Failed}, nil
 }
 
 func (r *gormOverviewRepository) CredentialRecap(ctx context.Context, asOf time.Time) ([]domain.CredentialRecapRow, error) {

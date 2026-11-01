@@ -9,11 +9,14 @@ import (
 )
 
 func TestFromDomainOverviewCredentialCounts(t *testing.T) {
-	d := domain.OverviewCredentialCounts{Total: 10, Active: 8, Revoked: 1, Pending: 1, Failed: 1}
+	d := domain.OverviewCredentialCounts{Total: 10, Active: 8, PendingReview: 2, Rejected: 3, Expired: 4, Revoked: 1, Pending: 1, Failed: 1}
 	r := FromDomainOverviewCredentialCounts(d)
 
 	assert.Equal(t, 10, r.Total)
 	assert.Equal(t, 8, r.Active)
+	assert.Equal(t, 2, r.PendingReview)
+	assert.Equal(t, 3, r.Rejected)
+	assert.Equal(t, 4, r.Expired)
 	assert.Equal(t, 1, r.Revoked)
 	assert.Equal(t, 1, r.Pending)
 	assert.Equal(t, 1, r.Failed)

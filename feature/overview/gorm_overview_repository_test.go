@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/tests/db"
 
@@ -224,6 +226,73 @@ func TestCredentialCounts_LifecycleNotExtraction(t *testing.T) {
 		assert.Equal(t, 1, counts.Revoked)
 		assert.Equal(t, 1, counts.Failed)
 	}
+}
+
+func TestCredentialCounts_MatchListFilters(t *testing.T) {
+	g := db.OpenInMemorySQLite(t)
+	now := time.Now().UTC()
+	past := now.Add(-24 * time.Hour)
+	issued := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	creds := []model.Credential{
+		{Id: "active", HolderUserId: "h1", FileHash: "1", IssuedAt: issued, ActivatedAt: &past},
+		{Id: "active-failed", HolderUserId: "h1", FileHash: "2", IssuedAt: issued, ActivatedAt: &past, ExtractedAt: &past, ExtractFailedAt: &past},
+		{Id: "active-pending", HolderUserId: "h1", FileHash: "3", IssuedAt: issued, ActivatedAt: &past, ExtractEnqueuedAt: &past},
+		{Id: "pending", HolderUserId: "h1", FileHash: "4", IssuedAt: issued},
+		{Id: "pending-expired", HolderUserId: "h1", FileHash: "5", IssuedAt: issued, ExpiresAt: &past},
+		{Id: "expired", HolderUserId: "h1", FileHash: "6", IssuedAt: issued, ActivatedAt: &past, ExpiresAt: &past},
+		{Id: "rejected", HolderUserId: "h1", FileHash: "7", IssuedAt: issued, RejectedAt: &past, ExpiresAt: &past},
+		{Id: "revoked", HolderUserId: "h1", FileHash: "8", IssuedAt: issued, ActivatedAt: &past, RevokedAt: &past, ExpiresAt: &past},
+		{Id: "other-holder", HolderUserId: "h2", FileHash: "9", IssuedAt: issued},
+		{Id: "outside-date", HolderUserId: "h1", FileHash: "10", IssuedAt: issued.AddDate(-1, 0, 0), RejectedAt: &past},
+	}
+	require.NoError(t, g.Create(&creds).Error)
+	for _, holderID := range []*string{nil, ptr("h1"), ptr("empty")} {
+		for _, dateFiltered := range []bool{false, true} {
+			q := &domainQuery.Query{}
+			listScope := []domainQuery.Filter{}
+			if dateFiltered {
+				q.Filters = []domainQuery.Filter{{Column: "date", Operator: domainQuery.OperatorBetween, Values: []string{"2026-01-01", "2026-01-31"}}}
+				listScope = append(listScope, domainQuery.Filter{Column: "issued_at", Operator: domainQuery.OperatorBetween, Values: []string{"2026-01-01", "2026-01-31"}})
+			}
+			if holderID != nil {
+				listScope = append(listScope, domainQuery.Filter{Column: "holder_user_id", Operator: domainQuery.OperatorEqual, Values: []string{*holderID}})
+			}
+			counts, err := NewGormOverviewRepository(g).CredentialCounts(context.Background(), q, holderID)
+			require.NoError(t, err)
+			checks := []struct {
+				count   int
+				filters []domainQuery.Filter
+			}{
+				{counts.Total, nil},
+				{counts.Active, []domainQuery.Filter{{Column: "status", Operator: domainQuery.OperatorEqual, Values: []string{"approved"}}}},
+				{counts.PendingReview, []domainQuery.Filter{{Column: "activated_at", Operator: domainQuery.OperatorNull}, {Column: "rejected_at", Operator: domainQuery.OperatorNull}}},
+				{counts.Rejected, []domainQuery.Filter{{Column: "rejected_at", Operator: domainQuery.OperatorNotNull}}},
+				{counts.Expired, []domainQuery.Filter{{Column: "activated_at", Operator: domainQuery.OperatorNotNull}, {Column: "revoked_at", Operator: domainQuery.OperatorNull}, {Column: "expires_at", Operator: domainQuery.OperatorLessThanOrEqual, Values: []string{now.Format(time.RFC3339Nano)}}}},
+				{counts.Revoked, []domainQuery.Filter{{Column: "revoked_at", Operator: domainQuery.OperatorNotNull}}},
+				{counts.Pending, []domainQuery.Filter{{Column: "extract_enqueued_at", Operator: domainQuery.OperatorNotNull}, {Column: "extracted_at", Operator: domainQuery.OperatorNull}, {Column: "extract_failed_at", Operator: domainQuery.OperatorNull}}},
+				{counts.Failed, []domainQuery.Filter{{Column: "extract_failed_at", Operator: domainQuery.OperatorNotNull}}},
+			}
+			for _, check := range checks {
+				filters := append(append([]domainQuery.Filter{}, listScope...), check.filters...)
+				_, total, err := credential.NewGormCredentialRepository(g).Get(context.Background(), &domainQuery.Query{Filters: filters})
+				require.NoError(t, err)
+				assert.EqualValues(t, total, check.count, "filters: %+v", filters)
+			}
+			if holderID != nil && *holderID == "h1" {
+				assert.Equal(t, 2, counts.PendingReview)
+				assert.Equal(t, 1, counts.Expired)
+				assert.Equal(t, 3, counts.Active)
+				assert.Equal(t, 1, counts.Pending)
+				assert.Equal(t, 1, counts.Failed)
+			}
+		}
+	}
+}
+
+func TestCredentialCounts_Empty(t *testing.T) {
+	counts, err := NewGormOverviewRepository(db.OpenInMemorySQLite(t)).CredentialCounts(context.Background(), &domainQuery.Query{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, &domain.OverviewCredentialCounts{}, counts)
 }
 
 func ptr[T any](v T) *T { return &v }

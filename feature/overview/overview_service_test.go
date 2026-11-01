@@ -155,7 +155,7 @@ func TestGet_Issuer(t *testing.T) {
 	svc, repo, credRepo, userRepo, ginCtx := setupTestService(t, issuer)
 	q := &domainQuery.Query{}
 
-	repo.On("CredentialCounts", mock.Anything, q, (*string)(nil)).Return(&domain.OverviewCredentialCounts{Total: 10, Active: 8, Revoked: 1, Pending: 1, Failed: 1}, nil)
+	repo.On("CredentialCounts", mock.Anything, q, (*string)(nil)).Return(&domain.OverviewCredentialCounts{Total: 10, Active: 8, PendingReview: 2, Rejected: 3, Expired: 4, Revoked: 1, Pending: 1, Failed: 1}, nil)
 	repo.On("UserCounts", mock.Anything, q).Return(&domain.OverviewUserCounts{Total: 5, Holder: 3, Issuer: 1, Admin: 1, Active: 4, Trashed: 1}, nil)
 	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
 	userRepo.On("Get", mock.Anything, mock.Anything).Return(
@@ -166,6 +166,9 @@ func TestGet_Issuer(t *testing.T) {
 
 	assert.NotNil(t, result.CredentialCounts)
 	assert.Equal(t, 10, result.CredentialCounts.Total)
+	assert.Equal(t, 2, result.CredentialCounts.PendingReview)
+	assert.Equal(t, 3, result.CredentialCounts.Rejected)
+	assert.Equal(t, 4, result.CredentialCounts.Expired)
 	assert.NotNil(t, result.UserCounts)
 	assert.Equal(t, 5, result.UserCounts.Total)
 	assert.NotNil(t, result.Recents)
@@ -184,7 +187,7 @@ func TestGet_Holder(t *testing.T) {
 	svc, repo, credRepo, _, ginCtx := setupTestService(t, holder)
 	q := &domainQuery.Query{}
 
-	repo.On("CredentialCounts", mock.Anything, q, &holder.Id).Return(&domain.OverviewCredentialCounts{Total: 5, Active: 4, Revoked: 1, Pending: 0, Failed: 0}, nil)
+	repo.On("CredentialCounts", mock.Anything, q, &holder.Id).Return(&domain.OverviewCredentialCounts{Total: 5, Active: 4, PendingReview: 2, Rejected: 3, Expired: 4, Revoked: 1, Pending: 0, Failed: 0}, nil)
 	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
 
 	result, err := svc.Get(ginCtx.Request.Context(), q)
@@ -192,6 +195,9 @@ func TestGet_Holder(t *testing.T) {
 
 	assert.NotNil(t, result.CredentialCounts)
 	assert.Equal(t, 5, result.CredentialCounts.Total)
+	assert.Equal(t, 2, result.CredentialCounts.PendingReview)
+	assert.Equal(t, 3, result.CredentialCounts.Rejected)
+	assert.Equal(t, 4, result.CredentialCounts.Expired)
 	assert.Nil(t, result.UserCounts)
 	assert.NotNil(t, result.Recents)
 	assert.Nil(t, result.ChainDetails)
@@ -217,7 +223,7 @@ func TestGet_LimitParam(t *testing.T) {
 
 	q := &domainQuery.Query{Limit: 3}
 
-	repo.On("CredentialCounts", mock.Anything, q, (*string)(nil)).Return(&domain.OverviewCredentialCounts{Total: 10, Active: 8, Revoked: 1, Pending: 1, Failed: 1}, nil)
+	repo.On("CredentialCounts", mock.Anything, q, (*string)(nil)).Return(&domain.OverviewCredentialCounts{Total: 10, Active: 8, PendingReview: 2, Rejected: 3, Expired: 4, Revoked: 1, Pending: 1, Failed: 1}, nil)
 	repo.On("UserCounts", mock.Anything, q).Return(&domain.OverviewUserCounts{Total: 5, Holder: 3, Issuer: 1, Admin: 1, Active: 4, Trashed: 1}, nil)
 	credRepo.On("Get", mock.Anything, mock.MatchedBy(func(q2 *domainQuery.Query) bool {
 		return q2.Limit == 3

@@ -8,11 +8,14 @@ import (
 )
 
 type OverviewCredentialCounts struct {
-	Total   int
-	Active  int
-	Revoked int
-	Pending int
-	Failed  int
+	Total         int
+	Active        int
+	PendingReview int
+	Rejected      int
+	Expired       int
+	Revoked       int
+	Pending       int
+	Failed        int
 }
 
 type OverviewUserCounts struct {

@@ -26,16 +26,20 @@ type Overview struct {
 }
 
 type OverviewCredentialCounts struct {
-	Total   int `json:"total"`
-	Active  int `json:"active"`
-	Revoked int `json:"revoked"`
-	Pending int `json:"pending"`
-	Failed  int `json:"failed"`
+	Total         int `json:"total"`
+	Active        int `json:"active"`
+	PendingReview int `json:"pending_review"`
+	Rejected      int `json:"rejected"`
+	Expired       int `json:"expired"`
+	Revoked       int `json:"revoked"`
+	Pending       int `json:"pending"`
+	Failed        int `json:"failed"`
 }
 
 func FromDomainOverviewCredentialCounts(d domain.OverviewCredentialCounts) OverviewCredentialCounts {
 	return OverviewCredentialCounts{
 		Total: d.Total, Active: d.Active, Revoked: d.Revoked,
+		PendingReview: d.PendingReview, Rejected: d.Rejected, Expired: d.Expired,
 		Pending: d.Pending, Failed: d.Failed,
 	}
 }
