@@ -21,12 +21,12 @@ func TestQueryRequest_Validate_BadFilterSyntax(t *testing.T) {
 	assert.Error(t, r.Validate())
 }
 
-func TestQueryRequest_Validate_StatusOnlyApprovedEquality(t *testing.T) {
+func TestQueryRequest_Validate_StatusEquality(t *testing.T) {
 	for _, tc := range []struct {
 		filter string
 		valid  bool
 	}{
-		{"status=approved", true}, {"status=pending", false}, {"status!=approved", false}, {"status_=", false},
+		{"status=approved", true}, {"status=pending", true}, {"status=rejected", true}, {"status=unknown", false}, {"status!=approved", false}, {"status_=", false},
 	} {
 		err := (&QueryRequest{Filters: []string{tc.filter}}).Validate()
 		if tc.valid {

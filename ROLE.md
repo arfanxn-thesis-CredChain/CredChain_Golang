@@ -314,6 +314,22 @@ Verify credential (public)      ✓      ✓       ✓       ✓       ✓
 
 **Taxonomy writes are Issuer+ by design, not Admin+.** The metadata resolver is an Issuer, so a reviewer who could create a taxonomy row but not rename a typo'd one would be stuck. `POST` was previously unguarded — any authenticated holder could create globally-visible taxonomy rows — so the write role was deliberately lowered from Admin+ to Issuer+ (still above Holder) rather than left open.
 
+### Reference Read Visibility (Taxonomy Lookups)
+
+`GET /api/credential-types`, `GET /api/issuer-organizations`, `GET /api/competencies` share identical endpoints across all authenticated roles without client-facing visibility query parameters:
+
+- **Service-Owned Policy:** The HTTP handler binds `requestQuery.QueryRequest` into `domainQuery.Query`. Reference services (`credential_type_service.go`, `issuer_organization_service.go`, `competency_service.go`) inspect the authenticated user (`httpContext.GetUser(ctx)`).
+- **Holder Scoping:** When caller rank is below Issuer (`u.Role.Rank() < RoleIssuer.Rank()`), the service sanitizes any client-supplied `holder_user_id` and injects `domainQuery.NewFilter("holder_user_id", domainQuery.OperatorEqual, u.Id)`.
+- **Repository Execution:** Repositories remain pure and decoupled from HTTP context. In their filter processing loops, they apply the table-qualified visibility predicate before `Count(&total)` and pagination:
+  ```sql
+  ((<table_name>.activated_at IS NOT NULL AND <table_name>.rejected_at IS NULL AND <table_name>.active = ?) OR
+   (<table_name>.submitter_user_id = ? AND (<table_name>.activated_at IS NULL OR <table_name>.rejected_at IS NOT NULL)))
+  ```
+- **Visibility Matrix:**
+  - **Holder:** Receives approved active records (`activated_at IS NOT NULL AND rejected_at IS NULL AND active = true`) and own pending or rejected proposals (`submitter_user_id = user.id`). Approved inactive records (`active = false`) are excluded, even if originally submitted by that Holder. Other users' pending/rejected proposals remain hidden.
+  - **Issuer, Admin, SuperAdmin:** Full visibility across all lifecycle and activation states (active, inactive, pending, rejected).
+- **Historical Credentials:** Existing issued credentials retain historical inactive reference names through embedded relations; reference scoping restricts reference collection lookups only.
+
 ---
 
 ## Special Flows

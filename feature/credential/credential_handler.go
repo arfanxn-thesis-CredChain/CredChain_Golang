@@ -43,8 +43,6 @@ type CredentialHandler interface {
 	SelfFind(c *gin.Context)
 	DownloadFile(c *gin.Context)
 	LinkCompetencies(c *gin.Context)
-	ResolveMetadata(c *gin.Context)
-	SuggestMetadata(c *gin.Context)
 }
 
 // ── Implementation & constructor ──────────────────────────────────────────
@@ -338,20 +336,17 @@ func (h *credentialHandler) Submit(c *gin.Context) {
 			return
 		}
 		serviceItems[i] = CredentialSubmission{
-			Name:                            it.Name,
-			TypeID:                          it.TypeID,
-			SubmittedTypeName:               it.SubmittedTypeName,
-			IssuerOrganizationID:            it.IssuerOrganizationID,
-			SubmittedIssuerOrganizationName: it.SubmittedIssuerOrganizationName,
-			Number:                          it.Number,
-			IssuedAt:                        parseDatePtr(it.IssuedAt),
-			ExpiresAt:                       parseDatePtr(it.ExpiresAt),
-			CompetencyIDs:                   it.CompetencyIDs,
-			SubmittedCompetencyNames:        it.SubmittedCompetencyNames,
-			Meta:                            it.Meta,
-			Filename:                        filename,
-			MIMEType:                        mime,
-			FileBytes:                       fileBytes,
+			Name:                 it.Name,
+			TypeID:               it.TypeID,
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			Number:               it.Number,
+			IssuedAt:             parseDatePtr(it.IssuedAt),
+			ExpiresAt:            parseDatePtr(it.ExpiresAt),
+			CompetencyIDs:        it.CompetencyIDs,
+			Meta:                 it.Meta,
+			Filename:             filename,
+			MIMEType:             mime,
+			FileBytes:            fileBytes,
 		}
 	}
 
@@ -599,45 +594,6 @@ func (h *credentialHandler) LinkCompetencies(c *gin.Context) {
 		gin.H{"credential_id": id, "competency_ids": req.CompetencyIDs})
 }
 
-// ── ResolveMetadata ─────────────────────────────────────────────────────────
-
-// ResolveMetadata links or creates taxonomy rows for a pending credential's
-// staged free-text names. Issuer+ (route-guarded).
-func (h *credentialHandler) ResolveMetadata(c *gin.Context) {
-	var req CredentialResolveMetadataRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
-		return
-	}
-	if err := req.Validate(); err != nil {
-		responder.SendValidationError(c, err)
-		return
-	}
-
-	out, err := h.credSvc.ResolveMetadata(c.Request.Context(), req.ToResolution(c.Param("id")))
-	if err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
-		return
-	}
-	responder.Send(c, domain.CodeCredentialMetadataResolveSuccess, response.FromDomainCredential(*out))
-}
-
-// ── SuggestMetadata ─────────────────────────────────────────────────────────
-
-// SuggestMetadata returns fuzzy-matched taxonomy candidates for each
-// unresolved staged name on a credential. Issuer+ (route-guarded).
-func (h *credentialHandler) SuggestMetadata(c *gin.Context) {
-	out, err := h.credSvc.SuggestMetadataMatches(c.Request.Context(), c.Param("id"))
-	if err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
-		return
-	}
-	responder.Send(c, domain.CodeCredentialMetadataSuggestSuccess, out)
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 // mapCredentialsToResponse converts domain credentials to response DTOs.
@@ -807,6 +763,25 @@ func buildSubmitItems(form *multipart.Form) ([]CredentialSubmitInput, error) {
 	values := form.Value
 	files := form.File
 
+	verrs := validation.Errors{}
+	for k := range values {
+		if idx, ok := parseItemIndex(k); ok {
+			prefix := fmt.Sprintf("credentials.%d", idx)
+			if strings.HasSuffix(k, "[submitted_type_name]") {
+				verrs[prefix+".submitted_type_name"] = validation.NewError("validation_submitted_type_name_forbidden", "free-text reference names are no longer supported; provide type_id of an approved type")
+			}
+			if strings.HasSuffix(k, "[submitted_issuer_organization_name]") {
+				verrs[prefix+".submitted_issuer_organization_name"] = validation.NewError("validation_submitted_org_name_forbidden", "free-text reference names are no longer supported; provide issuer_organization_id of an approved organization")
+			}
+			if strings.HasSuffix(k, "[submitted_competency_names]") {
+				verrs[prefix+".submitted_competency_names"] = validation.NewError("validation_submitted_competency_names_forbidden", "free-text reference names are no longer supported; provide competency_ids of approved competencies")
+			}
+		}
+	}
+	if len(verrs) > 0 {
+		return nil, verrs
+	}
+
 	idxSet := make(map[int]bool)
 	for k := range values {
 		if idx, ok := parseItemIndex(k); ok {
@@ -832,19 +807,11 @@ func buildSubmitItems(form *multipart.Form) ([]CredentialSubmitInput, error) {
 		}
 		key = "credentials[" + strconv.Itoa(i) + "][type_id]"
 		if v, ok := values[key]; ok && len(v) > 0 {
-			items[i].TypeID = &v[0]
-		}
-		key = "credentials[" + strconv.Itoa(i) + "][submitted_type_name]"
-		if v, ok := values[key]; ok && len(v) > 0 {
-			items[i].SubmittedTypeName = &v[0]
+			items[i].TypeID = v[0]
 		}
 		key = "credentials[" + strconv.Itoa(i) + "][issuer_organization_id]"
 		if v, ok := values[key]; ok && len(v) > 0 {
-			items[i].IssuerOrganizationID = &v[0]
-		}
-		key = "credentials[" + strconv.Itoa(i) + "][submitted_issuer_organization_name]"
-		if v, ok := values[key]; ok && len(v) > 0 {
-			items[i].SubmittedIssuerOrganizationName = &v[0]
+			items[i].IssuerOrganizationID = v[0]
 		}
 		key = "credentials[" + strconv.Itoa(i) + "][number]"
 		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {
@@ -871,10 +838,6 @@ func buildSubmitItems(form *multipart.Form) ([]CredentialSubmitInput, error) {
 				}
 			}
 			items[i].CompetencyIDs = ids
-		}
-		key = "credentials[" + strconv.Itoa(i) + "][submitted_competency_names]"
-		if v, ok := values[key]; ok && len(v) > 0 {
-			items[i].SubmittedCompetencyNames = v
 		}
 		key = "credentials[" + strconv.Itoa(i) + "][meta]"
 		if v, ok := values[key]; ok && len(v) > 0 && v[0] != "" {

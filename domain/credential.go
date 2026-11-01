@@ -41,19 +41,6 @@ const (
 	CredentialStatusExpired  CredentialStatus = "expired"
 )
 
-// SubmittedCompetency is one entry of credentials.submitted_competencies.
-// Name is what the submitter typed; ResolvedID is stamped by a reviewer once
-// the name is linked to (or created as) a competencies row.
-type SubmittedCompetency struct {
-	Name       string  `json:"name"`
-	ResolvedID *string `json:"resolved_id"`
-}
-
-// SubmittedCompetencies is the JSONB column type. Serialization is handled by
-// the GORM model layer (serializer:json, same as Meta) — this type carries no
-// Scan/Value of its own.
-type SubmittedCompetencies []SubmittedCompetency
-
 // Credential represents a row in the credentials table.
 //
 // FileHash is the keccak256 of the raw file bytes, used by the on-chain
@@ -68,42 +55,33 @@ type SubmittedCompetencies []SubmittedCompetency
 // They are populated by the repository when the caller's query includes
 // "holder", "issuer", or "revoker" in its Includes slice.
 type Credential struct {
-	ID              string  `json:"id"`
-	HolderUserID    string  `json:"holder_user_id"`
-	SubmitterUserID string  `json:"submitter_user_id"`
-	IssuerUserID    *string `json:"issuer_user_id"`
-	// SubmittedIssuerOrganizationName / SubmittedTypeName hold the free text a
-	// submitter typed when no taxonomy row matched. The paired ID stays nil
-	// until a reviewer resolves it; an approved credential always has both IDs.
-	SubmittedIssuerOrganizationName *string        `json:"submitted_issuer_organization_name"`
-	IssuerOrganizationID            *string        `json:"issuer_organization_id"`
-	SubmittedTypeName               *string        `json:"submitted_type_name"`
-	TypeID                          *string        `json:"type_id"`
-	Number                          *string        `json:"number"`
-	RevokerUserID                   *string        `json:"revoker_user_id"`
-	Name                            string         `json:"name"`
-	Meta                            map[string]any `json:"meta"`
-	// SubmittedCompetencies stages competency names that had no row at submit
-	// time. ResolvedID is stamped in place by the reviewer; the name survives
-	// for audit even after resolution, and on rejected rows stays unresolved.
-	SubmittedCompetencies SubmittedCompetencies `json:"submitted_competencies"`
-	TokenID               *string               `json:"token_id"`
-	FileHash              string                `json:"file_hash"`
-	FileURI               *string               `json:"file_uri"`
-	ExtractEnqueuedAt     *time.Time            `json:"extract_enqueued_at"`
-	ExtractedAt           *time.Time            `json:"extracted_at"`
-	ExtractFailedAt       *time.Time            `json:"extract_failed_at"`
-	ExtractError          *string               `json:"extract_error"`
-	IssuedAt              time.Time             `json:"issued_at"`
-	RevokedAt             *time.Time            `json:"revoked_at"`
-	RevocationReason      *string               `json:"revocation_reason"`
-	ExpiresAt             *time.Time            `json:"expires_at"`
-	ActivatedAt           *time.Time            `json:"activated_at"`
-	RejecterUserID        *string               `json:"rejecter_user_id"`
-	RejectedAt            *time.Time            `json:"rejected_at"`
-	RejectionReason       *string               `json:"rejection_reason"`
-	CreatedAt             time.Time             `json:"created_at"`
-	UpdatedAt             *time.Time            `json:"updated_at"`
+	ID                   string         `json:"id"`
+	HolderUserID         string         `json:"holder_user_id"`
+	SubmitterUserID      string         `json:"submitter_user_id"`
+	IssuerUserID         *string        `json:"issuer_user_id"`
+	IssuerOrganizationID string         `json:"issuer_organization_id"`
+	TypeID               string         `json:"type_id"`
+	Number               *string        `json:"number"`
+	RevokerUserID        *string        `json:"revoker_user_id"`
+	Name                 string         `json:"name"`
+	Meta                 map[string]any `json:"meta"`
+	TokenID              *string        `json:"token_id"`
+	FileHash             string         `json:"file_hash"`
+	FileURI              *string        `json:"file_uri"`
+	ExtractEnqueuedAt    *time.Time     `json:"extract_enqueued_at"`
+	ExtractedAt          *time.Time     `json:"extracted_at"`
+	ExtractFailedAt      *time.Time     `json:"extract_failed_at"`
+	ExtractError         *string        `json:"extract_error"`
+	IssuedAt             time.Time      `json:"issued_at"`
+	RevokedAt            *time.Time     `json:"revoked_at"`
+	RevocationReason     *string        `json:"revocation_reason"`
+	ExpiresAt            *time.Time     `json:"expires_at"`
+	ActivatedAt          *time.Time     `json:"activated_at"`
+	RejecterUserID       *string        `json:"rejecter_user_id"`
+	RejectedAt           *time.Time     `json:"rejected_at"`
+	RejectionReason      *string        `json:"rejection_reason"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            *time.Time     `json:"updated_at"`
 
 	// Preloaded relations (populated by repository when query.Includes contains
 	// "holder", "issuer", "revoker", or "rejecter"). json:"-" so they never leak through
@@ -161,27 +139,6 @@ func (c *Credential) ExtractState() ExtractState {
 		return ExtractStatePending
 	}
 	return ExtractStateUnextracted
-}
-
-// UnresolvedMetadata returns the metadata kinds still awaiting reviewer
-// resolution, in a stable order: "type", "issuer_organization", "competency".
-// An empty result means the credential is safe to approve. Competencies are
-// unresolved as a group — one unresolved entry blocks the whole set.
-func (c *Credential) UnresolvedMetadata() []string {
-	var out []string
-	if c.TypeID == nil {
-		out = append(out, "type")
-	}
-	if c.IssuerOrganizationID == nil {
-		out = append(out, "issuer_organization")
-	}
-	for _, sc := range c.SubmittedCompetencies {
-		if sc.ResolvedID == nil {
-			out = append(out, "competency")
-			break
-		}
-	}
-	return out
 }
 
 // InactiveMetadata returns the metadata kinds whose resolved taxonomy row is no

@@ -273,14 +273,19 @@ func (r *captureStoreCredentialRepository) Store(ctx context.Context, credential
 // newIssueRepos returns three mocks preconfigured for a valid issuance:
 // an active type, an existing org, and no competencies in the batch.
 func newIssueRepos() (*mockCredentialTypeRepository, *mockCredentialIssuerOrganizationRepository, *mockCompetencyRepository) {
+	now := time.Now()
 	typeRepo := &mockCredentialTypeRepository{}
 	typeRepo.On("Find", mock.Anything, mock.Anything).
-		Return(&domain.CredentialType{Id: "type-1", Active: true}, nil)
+		Return(&domain.CredentialType{Id: "type-1", Active: true, ActivatedAt: &now}, nil)
 	orgRepo := &mockCredentialIssuerOrganizationRepository{}
 	orgRepo.On("Find", mock.Anything, mock.Anything).
-		Return(&domain.CredentialIssuerOrganization{Id: "org-1", Active: true}, nil)
+		Return(&domain.CredentialIssuerOrganization{Id: "org-1", Active: true, ActivatedAt: &now}, nil)
 	compRepo := &mockCompetencyRepository{}
-	compRepo.On("FindByIds", mock.Anything, mock.Anything).Return([]domain.Competency{}, nil)
+	compRepo.On("FindByIds", mock.Anything, mock.Anything).
+		Return([]domain.Competency{
+			{Id: "comp-a", Active: true, ActivatedAt: &now},
+			{Id: "comp-b", Active: true, ActivatedAt: &now},
+		}, nil)
 	return typeRepo, orgRepo, compRepo
 }
 
@@ -2720,8 +2725,8 @@ func TestIssue_SetsSubmitterApproverAndCompetencyLinks(t *testing.T) {
 		require.NotNil(t, c.IssuerUserID)
 		assert.Equal(t, issuer.Id, *c.IssuerUserID)
 		assert.Equal(t, c.SubmitterUserID, *c.IssuerUserID)
-		assert.Equal(t, "type-1", *c.TypeID)
-		assert.Equal(t, "org-1", *c.IssuerOrganizationID)
+		assert.Equal(t, "type-1", c.TypeID)
+		assert.Equal(t, "org-1", c.IssuerOrganizationID)
 		assert.Equal(t, "N-001", *c.Number)
 		assert.Equal(t, historicalIssuedAt, c.IssuedAt)
 		require.NotNil(t, c.ActivatedAt)
@@ -2761,10 +2766,11 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 	)
 
 	ctx := context.Background()
-	if _, err := typeRepo.Store(ctx, domain.CredentialType{Id: "t1", Name: "Degree", Active: true}); err != nil {
+	now := time.Now()
+	if _, err := typeRepo.Store(ctx, domain.CredentialType{Id: "t1", Name: "Degree", Active: true, ActivatedAt: &now}); err != nil {
 		t.Fatalf("seed type: %v", err)
 	}
-	if _, err := orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI", Active: true}); err != nil {
+	if _, err := orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI", Active: true, ActivatedAt: &now}); err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
 
@@ -2799,7 +2805,7 @@ func TestSubmit_DuplicateFileRejectedAtSubmission(t *testing.T) {
 
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	first := CredentialSubmission{
-		Name: "Degree", TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+		Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
 		IssuedAt: &issuedAt, FileBytes: []byte("same-bytes"),
 		Filename: "a.pdf", MIMEType: "application/pdf",
 	}
@@ -2821,7 +2827,7 @@ func TestSubmit_LeavesExtractTimestampsNil(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	submitted, err := svc.Submit(ctx, []CredentialSubmission{
 		{
-			Name: "Degree", TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+			Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
 			IssuedAt: &issuedAt, FileBytes: []byte("b"),
 			Filename: "a.pdf", MIMEType: "application/pdf",
 		},
@@ -2852,7 +2858,7 @@ func TestSubmit_HappyPathStoresPendingCredential(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	submitted, err := svc.Submit(ctx, []CredentialSubmission{
 		{
-			Name: "Degree", TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+			Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
 			Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("c"),
 			Filename: "a.pdf", MIMEType: "application/pdf",
 		},
@@ -2864,6 +2870,8 @@ func TestSubmit_HappyPathStoresPendingCredential(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "N-001", *stored.Number)
 	assert.Equal(t, domain.CredentialStatusPending, stored.Status())
+	assert.Equal(t, "t1", stored.TypeID)
+	assert.Equal(t, "o1", stored.IssuerOrganizationID)
 }
 
 func TestSubmit_TypeNotFound(t *testing.T) {
@@ -2875,7 +2883,7 @@ func TestSubmit_TypeNotFound(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	_, err := svc.Submit(ctx, []CredentialSubmission{
 		{
-			Name: "Degree", TypeID: strPtr("missing-type"), IssuerOrganizationID: strPtr("o1"),
+			Name: "Degree", TypeID: "missing-type", IssuerOrganizationID: "o1",
 			IssuedAt: &issuedAt, FileBytes: []byte("d"),
 			Filename: "a.pdf", MIMEType: "application/pdf",
 		},
@@ -2894,7 +2902,7 @@ func TestSubmit_NumberDuplicate(t *testing.T) {
 	number := "N-001"
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	first := CredentialSubmission{
-		Name: "Degree", TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+		Name: "Degree", TypeID: "t1", IssuerOrganizationID: "o1",
 		Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("x"),
 		Filename: "a.pdf", MIMEType: "application/pdf",
 	}
@@ -2902,7 +2910,7 @@ func TestSubmit_NumberDuplicate(t *testing.T) {
 	require.NoError(t, err)
 
 	second := CredentialSubmission{
-		Name: "Diploma", TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
+		Name: "Diploma", TypeID: "t1", IssuerOrganizationID: "o1",
 		Number: &number, IssuedAt: &issuedAt, FileBytes: []byte("y"),
 		Filename: "b.pdf", MIMEType: "application/pdf",
 	}
@@ -2912,44 +2920,12 @@ func TestSubmit_NumberDuplicate(t *testing.T) {
 	assert.Contains(t, verrs, "credentials.0.number", "duplicate number rejected on second submission")
 }
 
-func TestSubmitStagesUnknownMetadataNames(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-
-	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
-	ctx := ctxWithAuth(&authUser)
-
-	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	submitted, err := svc.Submit(ctx, []CredentialSubmission{
-		{
-			Name:                            "Degree",
-			SubmittedTypeName:               strPtr("Unknown Type"),
-			SubmittedIssuerOrganizationName: strPtr("Unknown Org"),
-			SubmittedCompetencyNames:        []string{"Unknown Comp"},
-			IssuedAt:                        &issuedAt, FileBytes: []byte("stage"),
-			Filename: "a.pdf", MIMEType: "application/pdf",
-		},
-	})
-	require.NoError(t, err)
-	require.Len(t, submitted, 1)
-
-	stored, err := repo.Find(ctx, submitted[0].ID, nil)
-	require.NoError(t, err)
-	assert.Nil(t, stored.TypeID)
-	require.NotNil(t, stored.SubmittedTypeName)
-	assert.Equal(t, "Unknown Type", *stored.SubmittedTypeName)
-	assert.Nil(t, stored.IssuerOrganizationID)
-	require.NotNil(t, stored.SubmittedIssuerOrganizationName)
-	assert.Equal(t, "Unknown Org", *stored.SubmittedIssuerOrganizationName)
-	require.Len(t, stored.SubmittedCompetencies, 1)
-	assert.Equal(t, "Unknown Comp", stored.SubmittedCompetencies[0].Name)
-	assert.Nil(t, stored.SubmittedCompetencies[0].ResolvedID)
-}
-
-func TestSubmitResolvesKnownMetadataNames(t *testing.T) {
+func TestSubmit_WithCompetencyIDs_LinksDirectly(t *testing.T) {
 	svc, repo := newCredentialServiceWithSQLite(t)
 
 	ctx := context.Background()
-	_, err := svc.competencyRepo.Store(ctx, domain.Competency{Id: "comp1", Name: "Networking", Active: true})
+	now := time.Now()
+	_, err := svc.competencyRepo.Store(ctx, domain.Competency{Id: "comp1", Name: "Networking", Active: true, ActivatedAt: &now})
 	require.NoError(t, err)
 
 	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
@@ -2958,12 +2934,14 @@ func TestSubmitResolvesKnownMetadataNames(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	submitted, err := svc.Submit(authCtx, []CredentialSubmission{
 		{
-			Name:                            "Degree",
-			SubmittedTypeName:               strPtr("degree"),
-			SubmittedIssuerOrganizationName: strPtr("ui"),
-			SubmittedCompetencyNames:        []string{"networking"},
-			IssuedAt:                        &issuedAt, FileBytes: []byte("resolve"),
-			Filename: "a.pdf", MIMEType: "application/pdf",
+			Name:                 "Degree",
+			TypeID:               "t1",
+			IssuerOrganizationID: "o1",
+			CompetencyIDs:        []string{"comp1"},
+			IssuedAt:             &issuedAt,
+			FileBytes:            []byte("competency-link"),
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
 		},
 	})
 	require.NoError(t, err)
@@ -2971,16 +2949,111 @@ func TestSubmitResolvesKnownMetadataNames(t *testing.T) {
 
 	stored, err := repo.Find(authCtx, submitted[0].ID, nil)
 	require.NoError(t, err)
-	require.NotNil(t, stored.TypeID)
-	assert.Equal(t, "t1", *stored.TypeID)
-	assert.Nil(t, stored.SubmittedTypeName)
-	require.NotNil(t, stored.IssuerOrganizationID)
-	assert.Equal(t, "o1", *stored.IssuerOrganizationID)
-	assert.Nil(t, stored.SubmittedIssuerOrganizationName)
-	require.Len(t, stored.SubmittedCompetencies, 1)
-	assert.Equal(t, "networking", stored.SubmittedCompetencies[0].Name)
-	require.NotNil(t, stored.SubmittedCompetencies[0].ResolvedID)
-	assert.Equal(t, "comp1", *stored.SubmittedCompetencies[0].ResolvedID)
+	assert.Equal(t, "t1", stored.TypeID)
+	assert.Equal(t, "o1", stored.IssuerOrganizationID)
+
+	require.NoError(t, svc.uow.Execute(authCtx, func(uow domain.UnitOfWork) error {
+		links, err := uow.CompetencyCredential().FindByCredentialId(authCtx, submitted[0].ID)
+		if err != nil {
+			return err
+		}
+		require.Len(t, links, 1)
+		assert.Equal(t, "comp1", links[0].CompetencyId)
+		assert.Equal(t, submitted[0].ID, links[0].CredentialId)
+		return nil
+	}))
+}
+
+func TestSubmit_RejectsPendingOrInactiveReferences(t *testing.T) {
+	svc, _ := newCredentialServiceWithSQLite(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Pending type (ActivatedAt is nil)
+	_, err := svc.typeRepo.Store(ctx, domain.CredentialType{Id: "type-pending", Name: "Pending Type", Active: false})
+	require.NoError(t, err)
+
+	// Inactive type (Active is false, ActivatedAt set)
+	_, err = svc.typeRepo.Store(ctx, domain.CredentialType{Id: "type-inactive", Name: "Inactive Type", Active: false, ActivatedAt: &now})
+	require.NoError(t, err)
+
+	// Pending org
+	_, err = svc.orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "org-pending", Name: "Pending Org", Active: false})
+	require.NoError(t, err)
+
+	// Inactive org
+	_, err = svc.orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "org-inactive", Name: "Inactive Org", Active: false, ActivatedAt: &now})
+	require.NoError(t, err)
+
+	// Pending competency
+	_, err = svc.competencyRepo.Store(ctx, domain.Competency{Id: "comp-pending", Name: "Pending Comp", Active: false})
+	require.NoError(t, err)
+
+	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	authCtx := ctxWithAuth(&authUser)
+	issuedAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+
+	// Test pending type rejection
+	_, err = svc.Submit(authCtx, []CredentialSubmission{
+		{
+			Name:                 "Degree",
+			TypeID:               "type-pending",
+			IssuerOrganizationID: "o1",
+			IssuedAt:             &issuedAt,
+			FileBytes:            []byte("f1"),
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
+		},
+	})
+	var verrs validation.Errors
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.type_id")
+
+	// Test inactive type rejection
+	_, err = svc.Submit(authCtx, []CredentialSubmission{
+		{
+			Name:                 "Degree",
+			TypeID:               "type-inactive",
+			IssuerOrganizationID: "o1",
+			IssuedAt:             &issuedAt,
+			FileBytes:            []byte("f2"),
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
+		},
+	})
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.type_id")
+
+	// Test pending org rejection
+	_, err = svc.Submit(authCtx, []CredentialSubmission{
+		{
+			Name:                 "Degree",
+			TypeID:               "t1",
+			IssuerOrganizationID: "org-pending",
+			IssuedAt:             &issuedAt,
+			FileBytes:            []byte("f3"),
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
+		},
+	})
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.issuer_organization_id")
+
+	// Test pending competency rejection
+	_, err = svc.Submit(authCtx, []CredentialSubmission{
+		{
+			Name:                 "Degree",
+			TypeID:               "t1",
+			IssuerOrganizationID: "o1",
+			CompetencyIDs:        []string{"comp-pending"},
+			IssuedAt:             &issuedAt,
+			FileBytes:            []byte("f4"),
+			Filename:             "a.pdf",
+			MIMEType:             "application/pdf",
+		},
+	})
+	require.ErrorAs(t, err, &verrs)
+	assert.Contains(t, verrs, "credentials.0.competency_ids")
 }
 
 func TestSubmitRejectsUnknownIDs(t *testing.T) {
@@ -2993,8 +3066,8 @@ func TestSubmitRejectsUnknownIDs(t *testing.T) {
 	_, err := svc.Submit(ctx, []CredentialSubmission{
 		{
 			Name:                 "Degree",
-			TypeID:               strPtr("missing-type"),
-			IssuerOrganizationID: strPtr("missing-org"),
+			TypeID:               "missing-type",
+			IssuerOrganizationID: "missing-org",
 			CompetencyIDs:        []string{"missing-comp"},
 			IssuedAt:             &issuedAt, FileBytes: []byte("reject"),
 			Filename: "a.pdf", MIMEType: "application/pdf",
@@ -3016,7 +3089,7 @@ func TestSubmitRejectsUnknownIDs(t *testing.T) {
 	assert.Equal(t, "validation_issue_competency_not_found", obj.Code())
 }
 
-func TestSubmitRequiresTypeIdOrName(t *testing.T) {
+func TestSubmitRequiresTypeAndOrgIDs(t *testing.T) {
 	svc, _ := newCredentialServiceWithSQLite(t)
 
 	authUser := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
@@ -3073,23 +3146,20 @@ func newCredentialServiceForReview(t *testing.T, uow domain.UnitOfWork, regSvc *
 var approveIncludesQuery = &domainQuery.Query{Includes: []string{"type", "issuer_organization", "competencies"}}
 
 func reviewPendingCredential() domain.Credential {
+	now := time.Now()
 	return domain.Credential{
 		ID: "c1", HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"), Name: "Degree", FileHash: "0x1",
+		TypeID: "t1", IssuerOrganizationID: "o1", Name: "Degree", FileHash: "0x1",
 		FileURI: lo.ToPtr("f.pdf"), IssuedAt: time.Now(),
+		Type:               &domain.CredentialType{Id: "t1", Name: "Diploma", Active: true, ActivatedAt: &now},
+		IssuerOrganization: &domain.CredentialIssuerOrganization{Id: "o1", Name: "University", Active: true, ActivatedAt: &now},
+		Competencies:       []domain.Competency{{Id: "comp1", Name: "Algorithms", Active: true, ActivatedAt: &now}},
 	}
 }
 
-// reviewPendingCredentialWithActiveRelations is reviewPendingCredential plus
-// preloaded, active taxonomy relations — the shape FindByIds now returns for
-// Approve. Use this as the base for inactive-metadata guard tests, mutating
-// exactly one relation's Active flag per test.
+// reviewPendingCredentialWithActiveRelations returns reviewPendingCredential with active relations.
 func reviewPendingCredentialWithActiveRelations() domain.Credential {
-	c := reviewPendingCredential()
-	c.Type = &domain.CredentialType{Id: "t1", Name: "Diploma", Active: true}
-	c.IssuerOrganization = &domain.CredentialIssuerOrganization{Id: "o1", Name: "University", Active: true}
-	c.Competencies = []domain.Competency{{Id: "comp1", Name: "Algorithms", Active: true}}
-	return c
+	return reviewPendingCredential()
 }
 
 func TestApprove_ChainFailure_RollsBackAndStaysPending(t *testing.T) {
@@ -3282,32 +3352,6 @@ func TestApprove_ActiveMetadata_Approves(t *testing.T) {
 	regSvc.AssertCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// TestApprove_UnresolvedBeforeInactive_OrderingPreserved: a nil FK can never
-// be inactive, but the reverse — an inactive relation alongside a still-nil
-// FK elsewhere — must surface the unresolved error first. The reviewer needs
-// to resolve before they can even see the inactive-metadata error.
-func TestApprove_UnresolvedBeforeInactive_OrderingPreserved(t *testing.T) {
-	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
-	ctx := ctxWithAuth(&user)
-
-	pending := reviewPendingCredentialWithActiveRelations()
-	pending.TypeID = nil
-	pending.Type = nil // unresolved: no relation to preload
-	pending.IssuerOrganization.Active = false
-
-	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
-	uow := mocks.NewPropagatingUnitOfWork()
-	uow.On("Credential").Return(innerCredRepo)
-	regSvc := new(mocks.MockRegistryService)
-	svc := newCredentialServiceForReview(t, uow, regSvc)
-
-	_, err := svc.Approve(ctx, "c1")
-	var de *domain.Error
-	require.ErrorAs(t, err, &de)
-	assert.Equal(t, domain.CodeCredentialApproveUnresolvedMetadata, de.Code)
-}
-
 func TestReject_HappyPath(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
@@ -3399,8 +3443,8 @@ func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
 		ID:                   "c1",
-		IssuerOrganizationID: strPtr("org-1"),
-		TypeID:               strPtr("type-1"),
+		IssuerOrganizationID: "org-1",
+		TypeID:               "type-1",
 		Number:               lo.ToPtr("N-001"),
 		Name:                 "old",
 	}
@@ -3408,8 +3452,8 @@ func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
 		ID:                   "c1",
 		Name:                 "new",
 		Number:               lo.ToPtr("N-002"),
-		TypeID:               strPtr("type-2"),
-		IssuerOrganizationID: strPtr("org-2"),
+		TypeID:               "type-2",
+		IssuerOrganizationID: "org-2",
 		IssuedAt:             time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 		ExpiresAt:            lo.ToPtr(time.Date(2027, 8, 1, 0, 0, 0, 0, time.UTC)),
 		Meta:                 map[string]any{"k": "v"},
@@ -3418,10 +3462,11 @@ func TestCredentialUpdate_PendingRow_EditsAllFields(t *testing.T) {
 	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
 	credRepo.On("Get", mock.Anything, mock.Anything).Return([]domain.Credential{}, 0, nil)
 	credRepo.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{updated}, nil)
+	now := time.Now()
 	typeRepo := &mockCredentialTypeRepository{}
-	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: true}, nil)
+	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: true, ActivatedAt: &now}, nil)
 	orgRepo := &mockCredentialIssuerOrganizationRepository{}
-	orgRepo.On("Find", mock.Anything, "org-2").Return(&domain.CredentialIssuerOrganization{Id: "org-2", Active: true}, nil)
+	orgRepo.On("Find", mock.Anything, "org-2").Return(&domain.CredentialIssuerOrganization{Id: "org-2", Active: true, ActivatedAt: &now}, nil)
 	svc := &credentialService{repo: credRepo, typeRepo: typeRepo, orgRepo: orgRepo, logger: zap.NewNop()}
 
 	got, err := svc.Update(ctx, updated)
@@ -3461,7 +3506,7 @@ func testCredentialUpdateNotPending(t *testing.T, target domain.Credential) {
 func TestCredentialUpdate_TypeInactiveRejected(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
-		ID: "c1", IssuerOrganizationID: strPtr("org-1"), TypeID: strPtr("type-1"), Number: lo.ToPtr("N-001"),
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
 	}
 	credRepo := &mocks.MockCredentialRepository{}
 	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
@@ -3469,7 +3514,7 @@ func TestCredentialUpdate_TypeInactiveRejected(t *testing.T) {
 	typeRepo.On("Find", mock.Anything, "type-2").Return(&domain.CredentialType{Id: "type-2", Active: false}, nil)
 	svc := &credentialService{repo: credRepo, typeRepo: typeRepo, logger: zap.NewNop()}
 
-	_, err := svc.Update(ctx, domain.Credential{ID: "c1", TypeID: strPtr("type-2")})
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", TypeID: "type-2"})
 	var domErr *domain.Error
 	require.ErrorAs(t, err, &domErr)
 	assert.Equal(t, domain.CodeCredentialIssueTypeInactive, domErr.Code)
@@ -3479,7 +3524,7 @@ func TestCredentialUpdate_TypeInactiveRejected(t *testing.T) {
 func TestCredentialUpdate_OrgNotFoundRejected(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
-		ID: "c1", IssuerOrganizationID: strPtr("org-1"), TypeID: strPtr("type-1"), Number: lo.ToPtr("N-001"),
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
 	}
 	credRepo := &mocks.MockCredentialRepository{}
 	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
@@ -3487,7 +3532,7 @@ func TestCredentialUpdate_OrgNotFoundRejected(t *testing.T) {
 	orgRepo.On("Find", mock.Anything, "org-missing").Return((*domain.CredentialIssuerOrganization)(nil), gorm.ErrRecordNotFound)
 	svc := &credentialService{repo: credRepo, orgRepo: orgRepo, logger: zap.NewNop()}
 
-	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: strPtr("org-missing")})
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: "org-missing"})
 	var domErr *domain.Error
 	require.ErrorAs(t, err, &domErr)
 	assert.Equal(t, domain.CodeCredentialIssueOrganizationNotFound, domErr.Code)
@@ -3497,7 +3542,7 @@ func TestCredentialUpdate_OrgNotFoundRejected(t *testing.T) {
 func TestCredentialUpdate_OrgInactiveRejected(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
-		ID: "c1", IssuerOrganizationID: strPtr("org-1"), TypeID: strPtr("type-1"), Number: lo.ToPtr("N-001"),
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
 	}
 	credRepo := &mocks.MockCredentialRepository{}
 	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
@@ -3505,7 +3550,7 @@ func TestCredentialUpdate_OrgInactiveRejected(t *testing.T) {
 	orgRepo.On("Find", mock.Anything, "org-off").Return(&domain.CredentialIssuerOrganization{Id: "org-off", Active: false}, nil)
 	svc := &credentialService{repo: credRepo, orgRepo: orgRepo, logger: zap.NewNop()}
 
-	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: strPtr("org-off")})
+	_, err := svc.Update(ctx, domain.Credential{ID: "c1", IssuerOrganizationID: "org-off"})
 	var domErr *domain.Error
 	require.ErrorAs(t, err, &domErr)
 	assert.Equal(t, domain.CodeCredentialIssueOrganizationInactive, domErr.Code)
@@ -3515,7 +3560,7 @@ func TestCredentialUpdate_OrgInactiveRejected(t *testing.T) {
 func TestCredentialUpdate_NumberDuplicateRejected(t *testing.T) {
 	ctx := context.Background()
 	target := domain.Credential{
-		ID: "c1", IssuerOrganizationID: strPtr("org-1"), TypeID: strPtr("type-1"), Number: lo.ToPtr("N-001"),
+		ID: "c1", IssuerOrganizationID: "org-1", TypeID: "type-1", Number: lo.ToPtr("N-001"),
 	}
 	credRepo := &mocks.MockCredentialRepository{}
 	credRepo.On("FindByIds", mock.Anything, []string{"c1"}, (*domainQuery.Query)(nil)).Return([]domain.Credential{target}, nil)
@@ -3675,293 +3720,4 @@ func TestLinkCompetencies_EmptySetClearsLinks(t *testing.T) {
 	require.NoError(t, err)
 	compCredRepo.AssertCalled(t, "DestroyByCredentialId", mock.Anything, "cred-1")
 	compCredRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
-}
-
-// ── ResolveMetadata / Approve unresolved-metadata guard ───────────────────
-
-func TestResolveMetadataLinksExistingRows(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	_, err := svc.typeRepo.Store(context.Background(), domain.CredentialType{Id: "t2", Name: "Diploma", Active: true})
-	require.NoError(t, err)
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xlink1", IssuedAt: time.Now(),
-		SubmittedTypeName:               strPtr("Micro-credential"),
-		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
-		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID: stored[0].ID,
-		TypeID:       strPtr("t2"),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, out.TypeID)
-	assert.Equal(t, "t2", *out.TypeID)
-	// The staged name survives resolution — audit trail.
-	require.NotNil(t, out.SubmittedTypeName)
-	assert.Equal(t, "Micro-credential", *out.SubmittedTypeName)
-	// The other two are still unresolved.
-	assert.Len(t, out.UnresolvedMetadata(), 2)
-}
-
-func TestResolveMetadataCreatesNewRows(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xnew1", IssuedAt: time.Now(),
-		SubmittedTypeName:               strPtr("Micro-credential"),
-		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
-		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID:           stored[0].ID,
-		CreateTypeName:         strPtr("Micro-credential"),
-		CreateOrganizationName: strPtr("Cyfrin Updraft"),
-		CreateCompetencyNames:  []string{"Discrete Math"},
-	})
-	require.NoError(t, err)
-	assert.Empty(t, out.UnresolvedMetadata())
-
-	require.Len(t, out.SubmittedCompetencies, 1)
-	require.NotNil(t, out.SubmittedCompetencies[0].ResolvedID)
-	compID := *out.SubmittedCompetencies[0].ResolvedID
-
-	// The created competency became a real join row, not just a resolved_id.
-	rows, total, err := repo.Get(context.Background(), &domainQuery.Query{
-		Filters: []domainQuery.Filter{domainQuery.NewFilter("competency_id", domainQuery.OperatorEqual, compID)},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, total)
-	require.Len(t, rows, 1)
-	assert.Equal(t, out.ID, rows[0].ID)
-}
-
-func TestResolveMetadataDedupesConvergingCreates(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	if _, err := svc.competencyService.Store(context.Background(), "Discrete Math", nil); err != nil {
-		t.Fatalf("seed competency: %v", err)
-	}
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xdup1", IssuedAt: time.Now(),
-		SubmittedTypeName:               strPtr("Micro-credential"),
-		SubmittedIssuerOrganizationName: strPtr("Cyfrin Updraft"),
-		SubmittedCompetencies:           domain.SubmittedCompetencies{{Name: "Discrete Math"}},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	// Two create-names that normalize to the same row: before the dedupe
-	// guard this inserted two identical join rows and blew the composite PK.
-	_, err = svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID:           stored[0].ID,
-		CreateTypeName:         strPtr("Micro-credential"),
-		CreateOrganizationName: strPtr("Cyfrin Updraft"),
-		CreateCompetencyNames:  []string{"Discrete Math", "DISCRETE math"},
-	})
-	require.NoError(t, err)
-}
-
-func TestResolveMetadataStampsAlreadyLinkedCompetency(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	comp, err := svc.competencyService.Store(context.Background(), "Discrete Math", nil)
-	require.NoError(t, err)
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xalready1", IssuedAt: time.Now(),
-		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	// Reviewer links the competency directly (e.g. via LinkCompetencies)
-	// before resolving metadata — the join row already exists.
-	require.NoError(t, svc.LinkCompetencies(ctx, stored[0].ID, []string{comp.Id}))
-
-	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID:  stored[0].ID,
-		CompetencyIDs: []string{comp.Id},
-	})
-	require.NoError(t, err)
-
-	require.Len(t, out.SubmittedCompetencies, 1)
-	require.NotNil(t, out.SubmittedCompetencies[0].ResolvedID, "staged entry must be stamped even though already linked")
-	assert.Equal(t, comp.Id, *out.SubmittedCompetencies[0].ResolvedID)
-	assert.NotContains(t, out.UnresolvedMetadata(), "competency")
-
-	// No duplicate join row was inserted for the already-linked competency.
-	rows, total, err := repo.Get(context.Background(), &domainQuery.Query{
-		Filters: []domainQuery.Filter{domainQuery.NewFilter("competency_id", domainQuery.OperatorEqual, comp.Id)},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, total)
-	require.Len(t, rows, 1)
-}
-
-func TestResolveMetadataStampsCorrectEntryByName(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xcorrect1", IssuedAt: time.Now(),
-		SubmittedCompetencies: domain.SubmittedCompetencies{
-			{Name: "Discrete Math"},
-			{Name: "Database Systems"},
-		},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	// Resolve a competency whose name matches neither staged entry. The old
-	// fallback stamped the first unresolved entry regardless of name; the
-	// fix must leave both untouched instead of misattributing the link.
-	out, err := svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID:          stored[0].ID,
-		CreateCompetencyNames: []string{"Cloud Computing"},
-	})
-	require.NoError(t, err)
-
-	require.Len(t, out.SubmittedCompetencies, 2)
-	assert.Nil(t, out.SubmittedCompetencies[0].ResolvedID, "Discrete Math must stay unresolved")
-	assert.Nil(t, out.SubmittedCompetencies[1].ResolvedID, "Database Systems must stay unresolved")
-	assert.Contains(t, out.UnresolvedMetadata(), "competency")
-}
-
-func TestResolveMetadataRejectsNonPending(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	now := time.Now()
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xapproved1", IssuedAt: time.Now(),
-		TypeID: strPtr("t1"), IssuerOrganizationID: strPtr("o1"),
-		ActivatedAt: &now,
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	_, err = svc.ResolveMetadata(ctx, CredentialMetadataResolution{
-		CredentialID: stored[0].ID,
-		TypeID:       strPtr("t1"),
-	})
-	require.Error(t, err)
-	var derr *domain.Error
-	require.ErrorAs(t, err, &derr)
-	assert.Equal(t, domain.CodeCredentialMetadataResolveNotPending, derr.Code)
-}
-
-func TestSuggestMetadataMatches(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	if _, err := svc.competencyService.Store(context.Background(), "Discrete Mathematics", nil); err != nil {
-		t.Fatalf("seed competency: %v", err)
-	}
-	if _, err := svc.competencyService.Store(context.Background(), "Database Systems", nil); err != nil {
-		t.Fatalf("seed competency: %v", err)
-	}
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xsug1", IssuedAt: time.Now(),
-		SubmittedCompetencies: domain.SubmittedCompetencies{{Name: "Discrete Math"}},
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	out, err := svc.SuggestMetadataMatches(ctx, stored[0].ID)
-	require.NoError(t, err)
-
-	require.Len(t, out.Competencies, 1)
-	assert.Equal(t, "Discrete Math", out.Competencies[0].SubmittedName)
-	require.NotEmpty(t, out.Competencies[0].Matches)
-	assert.Equal(t, "Discrete Mathematics", out.Competencies[0].Matches[0].Name)
-}
-
-func TestSuggestMetadataMatchesSkipsResolved(t *testing.T) {
-	svc, repo := newCredentialServiceWithSQLite(t)
-	ctx := ctxWithAuth(&domain.User{Id: "issuer1"})
-
-	stored, err := repo.Store(context.Background(), domain.Credential{
-		HolderUserID: "h1", SubmitterUserID: "h1", IssuerUserID: nil,
-		Name: "Cert", FileHash: "0xsug2", IssuedAt: time.Now(),
-		TypeID:            strPtr("t1"),
-		SubmittedTypeName: strPtr("Diploma"),
-	})
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-
-	out, err := svc.SuggestMetadataMatches(ctx, stored[0].ID)
-	require.NoError(t, err)
-	assert.Nil(t, out.Type)
-}
-
-func TestApproveBlocksUnresolvedMetadata(t *testing.T) {
-	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
-	ctx := ctxWithAuth(&user)
-
-	pending := reviewPendingCredential()
-	pending.TypeID = nil
-	pending.SubmittedTypeName = strPtr("Micro-credential")
-
-	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
-	uow := mocks.NewPropagatingUnitOfWork()
-	uow.On("Credential").Return(innerCredRepo)
-	regSvc := new(mocks.MockRegistryService)
-
-	svc := newCredentialServiceForReview(t, uow, regSvc)
-
-	_, err := svc.Approve(ctx, "c1")
-	var derr *domain.Error
-	require.ErrorAs(t, err, &derr)
-	assert.Equal(t, domain.CodeCredentialApproveUnresolvedMetadata, derr.Code)
-	innerCredRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
-	regSvc.AssertNotCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
-}
-
-func TestApproveAllowsResolvedMetadata(t *testing.T) {
-	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
-	ctx := ctxWithAuth(&user)
-
-	compID := "comp1"
-	pending := reviewPendingCredential()
-	pending.SubmittedCompetencies = domain.SubmittedCompetencies{{Name: "Discrete Math", ResolvedID: &compID}}
-
-	innerCredRepo := new(mocks.MockCredentialRepository)
-	innerCredRepo.On("FindByIds", mock.Anything, []string{"c1"}, approveIncludesQuery).Return([]domain.Credential{pending}, nil)
-	innerCredRepo.On("Update", mock.Anything, mock.Anything).Return([]domain.Credential{pending}, nil)
-
-	regSvc := new(mocks.MockRegistryService)
-	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).Return([]*big.Int{big.NewInt(1)}, nil)
-
-	uow := mocks.NewPropagatingUnitOfWork()
-	uow.On("Credential").Return(innerCredRepo)
-
-	svc := newCredentialServiceForReview(t, uow, regSvc)
-
-	out, err := svc.Approve(ctx, "c1")
-	require.NoError(t, err)
-	require.Len(t, out, 1)
-	innerCredRepo.AssertCalled(t, "Update", mock.Anything, mock.Anything)
-	regSvc.AssertCalled(t, "IssueCredentials", mock.Anything, mock.Anything, mock.Anything)
 }

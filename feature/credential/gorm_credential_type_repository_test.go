@@ -3,9 +3,11 @@ package credential
 import (
 	"context"
 	"testing"
+	"time"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/tests/db"
 
 	"github.com/stretchr/testify/assert"
@@ -157,4 +159,43 @@ func TestGormCredentialTypeSuggestByName(t *testing.T) {
 	if len(got) == 0 || got[0].Name != "Diploma" {
 		t.Fatalf("want Diploma first, got %+v", got)
 	}
+}
+
+func TestGormCredentialTypeRepository_Get_HolderFilter(t *testing.T) {
+	repo := openCredentialTypeRepo(t)
+	now := time.Now()
+	holderID := "holder-001"
+	otherID := "other-002"
+
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t1", Name: "Approved Active", Active: true, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t2", Name: "Approved Inactive", Active: false, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t3", Name: "Own Pending", Active: false, SubmitterUserId: &holderID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t4", Name: "Other Pending", Active: false, SubmitterUserId: &otherID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t5", Name: "Own Rejected", Active: false, SubmitterUserId: &holderID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t6", Name: "Other Rejected", Active: false, SubmitterUserId: &otherID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{
+		Id: "t7", Name: "Own Approved Inactive", Active: false, SubmitterUserId: &holderID, ActivatedAt: &now,
+	}).Error)
+
+	// Direct repository Get with pure context.Background() and holder_user_id filter
+	got, total, err := repo.Get(context.Background(), &domainQuery.Query{
+		Filters: []domainQuery.Filter{{Column: "holder_user_id", Operator: domainQuery.OperatorEqual, Values: []string{holderID}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+	require.Len(t, got, 3)
+	ids := []string{got[0].Id, got[1].Id, got[2].Id}
+	assert.ElementsMatch(t, []string{"t1", "t3", "t5"}, ids)
 }

@@ -14,6 +14,9 @@ import (
 type CompetencyHandler interface {
 	Paginate(c *gin.Context)
 	Store(c *gin.Context)
+	Submit(c *gin.Context)
+	Approve(c *gin.Context)
+	Reject(c *gin.Context)
 	Update(c *gin.Context)
 	Destroy(c *gin.Context)
 }
@@ -85,6 +88,58 @@ func (h *competencyHandler) Store(c *gin.Context) {
 		return
 	}
 	responder.Send(c, domain.CodeCompetencyStoreSuccess, response.FromDomainCompetency(*created))
+}
+
+func (h *competencyHandler) Submit(c *gin.Context) {
+	var req CompetencySubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	submitted, err := h.competencySvc.Submit(c.Request.Context(), req.Name)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCompetencySubmitSuccess, response.FromDomainCompetency(*submitted))
+}
+
+func (h *competencyHandler) Approve(c *gin.Context) {
+	id := c.Param("id")
+	approved, err := h.competencySvc.Approve(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCompetencyApproveSuccess, response.FromDomainCompetency(*approved))
+}
+
+func (h *competencyHandler) Reject(c *gin.Context) {
+	id := c.Param("id")
+	var req CompetencyRejectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	rejected, err := h.competencySvc.Reject(c.Request.Context(), id, req.Reason)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCompetencyRejectSuccess, response.FromDomainCompetency(*rejected))
 }
 
 func (h *competencyHandler) Update(c *gin.Context) {

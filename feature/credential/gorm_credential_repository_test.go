@@ -31,9 +31,9 @@ func TestGormCredentialRepository_CountByTypeAndOrganizationIds(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-a"), Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-a"), TypeID: strPtr("type-b"), Name: "B", FileHash: "0x2"},
-		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("org-b"), TypeID: strPtr("type-b"), Name: "C", FileHash: "0x3"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: "org-a", TypeID: "type-a", Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: "org-a", TypeID: "type-b", Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c3", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: "org-b", TypeID: "type-b", Name: "C", FileHash: "0x3"},
 	)
 	require.NoError(t, err)
 
@@ -498,12 +498,14 @@ func TestGormCredentialGet_SearchByNumberAndTaxonomy(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, repo.db.Create(&model.CredentialType{Id: "t1", Name: "Diploma", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialType{Id: "t2", Name: "Certificate", Active: true}).Error)
 	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{Id: "o1", Name: "University of Indonesia", Active: true}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{Id: "o2", Name: "Bandung Institute of Technology", Active: true}).Error)
 	require.NoError(t, repo.db.Create(&model.Competency{Id: "comp-ai", Name: "Artificial Intelligence", Active: true}).Error)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: strPtr("iss1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "Alpha", FileHash: "0xaa", Number: strPtr("2024/ALPHA/001")},
-		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: strPtr("iss2"), Name: "Beta", FileHash: "0xbb", Number: strPtr("2024/BETA/002")},
+		domain.Credential{ID: "c001", HolderUserID: "h1", IssuerUserID: strPtr("iss1"), IssuerOrganizationID: "o1", TypeID: "t1", Name: "Alpha", FileHash: "0xaa", Number: strPtr("2024/ALPHA/001")},
+		domain.Credential{ID: "c002", HolderUserID: "h2", IssuerUserID: strPtr("iss2"), IssuerOrganizationID: "o2", TypeID: "t2", Name: "Beta", FileHash: "0xbb", Number: strPtr("2024/BETA/002")},
 	)
 	require.NoError(t, err)
 	require.NoError(t, repo.db.Create(&model.CompetencyCredential{CompetencyId: "comp-ai", CredentialId: "c001"}).Error)
@@ -1227,8 +1229,8 @@ func TestGormCredentialRepository_Get_VirtualFilters(t *testing.T) {
 	require.NoError(t, repo.db.Create(&holder).Error)
 
 	_, err := repo.Store(ctx,
-		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "A", FileHash: "0x1"},
-		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"), Name: "B", FileHash: "0x2"},
+		domain.Credential{ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: "o1", TypeID: "t1", Name: "A", FileHash: "0x1"},
+		domain.Credential{ID: "c2", HolderUserID: "h1", IssuerUserID: strPtr("i1"), IssuerOrganizationID: "o1", TypeID: "t1", Name: "B", FileHash: "0x2"},
 	)
 	require.NoError(t, err)
 	require.NoError(t, repo.db.Create(&[]model.CompetencyCredential{
@@ -1289,7 +1291,7 @@ func TestGormCredentialRepositoryFindWithCompetencies(t *testing.T) {
 
 	_, err := repo.Store(ctx, domain.Credential{
 		ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"),
-		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
+		IssuerOrganizationID: "o1", TypeID: "t1",
 		Name: "A", FileHash: "0x1",
 	})
 	require.NoError(t, err)
@@ -1319,7 +1321,7 @@ func TestGormCredentialRepositoryFindWithTypeAndIssuerOrganization(t *testing.T)
 
 	_, err := repo.Store(ctx, domain.Credential{
 		ID: "c1", HolderUserID: "h1", IssuerUserID: strPtr("i1"),
-		IssuerOrganizationID: strPtr("o1"), TypeID: strPtr("t1"),
+		IssuerOrganizationID: "o1", TypeID: "t1",
 		Name: "A", FileHash: "0x1",
 	})
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ func TestCredentialTypeSeeder_SeedsTypes(t *testing.T) {
 
 	types, _, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
-	assert.Len(t, types, 7)
+	assert.Len(t, types, 9)
 
 	byName := map[string]domain.CredentialType{}
 	for _, c := range types {
@@ -43,11 +43,33 @@ func TestCredentialTypeSeeder_SeedsTypes(t *testing.T) {
 		c, ok := byName[n]
 		require.True(t, ok)
 		assert.True(t, c.Active)
+		assert.Equal(t, domain.ReferenceStatusApproved, c.Status())
+		assert.NotNil(t, c.ApproverUserId)
+		assert.NotNil(t, c.ActivatedAt)
 	}
 
 	khs, ok := byName["Kartu Hasil Studi (KHS)"]
 	require.True(t, ok)
 	assert.False(t, khs.Active)
+	assert.Equal(t, domain.ReferenceStatusApproved, khs.Status(), "deactivated approved type remains approved")
+	assert.NotNil(t, khs.ActivatedAt)
+
+	pending, ok := byName["Sertifikat Pelatihan Mandiri"]
+	require.True(t, ok)
+	assert.False(t, pending.Active)
+	assert.Equal(t, domain.ReferenceStatusPending, pending.Status())
+	assert.NotNil(t, pending.SubmitterUserId)
+	assert.Nil(t, pending.ActivatedAt)
+	assert.Nil(t, pending.RejectedAt)
+
+	rejected, ok := byName["Piagam Penghargaan Kegiatan"]
+	require.True(t, ok)
+	assert.False(t, rejected.Active)
+	assert.Equal(t, domain.ReferenceStatusRejected, rejected.Status())
+	assert.NotNil(t, rejected.SubmitterUserId)
+	assert.NotNil(t, rejected.RejecterUserId)
+	assert.NotNil(t, rejected.RejectedAt)
+	assert.NotNil(t, rejected.RejectionReason)
 }
 
 func TestCredentialTypeSeeder_DeterministicIDs(t *testing.T) {

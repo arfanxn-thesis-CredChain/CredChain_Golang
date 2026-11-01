@@ -11,11 +11,31 @@ import (
 // credential_issuer_organizations table.
 // Active flags whether the organization may still be used for new credentials.
 type CredentialIssuerOrganization struct {
-	Id        string     `json:"id"`
-	Name      string     `json:"name"`
-	Active    bool       `json:"active"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt *time.Time `json:"updated_at"`
+	Id              string     `json:"id"`
+	SubmitterUserId *string    `json:"submitter_user_id"`
+	ApproverUserId  *string    `json:"approver_user_id"`
+	RejecterUserId  *string    `json:"rejecter_user_id"`
+	Name            string     `json:"name"`
+	Active          bool       `json:"active"`
+	RejectionReason *string    `json:"rejection_reason"`
+	ActivatedAt     *time.Time `json:"activated_at"`
+	RejectedAt      *time.Time `json:"rejected_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at"`
+
+	Submitter *User `gorm:"-" json:"-"`
+	Approver  *User `gorm:"-" json:"-"`
+	Rejecter  *User `gorm:"-" json:"-"`
+}
+
+func (o *CredentialIssuerOrganization) Status() ReferenceStatus {
+	if o.RejectedAt != nil {
+		return ReferenceStatusRejected
+	}
+	if o.ActivatedAt != nil {
+		return ReferenceStatusApproved
+	}
+	return ReferenceStatusPending
 }
 
 // CredentialIssuerOrganizationRepository defines the database contract for

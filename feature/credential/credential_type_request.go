@@ -23,3 +23,23 @@ func (r CredentialTypeUpdateRequest) Validate() error {
 		validation.Field(&r.Name, validation.Length(0, 256)),
 	)
 }
+
+type CredentialTypeSubmitRequest struct {
+	Name string `json:"name"`
+}
+
+func (r CredentialTypeSubmitRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Name, validation.Required, validation.Length(1, 256)),
+	)
+}
+
+type CredentialTypeRejectRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (r CredentialTypeRejectRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Reason, validation.Required, validation.Length(1, 1024)),
+	)
+}

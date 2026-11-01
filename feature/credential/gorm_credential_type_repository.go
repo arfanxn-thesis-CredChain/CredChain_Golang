@@ -38,18 +38,29 @@ func (r *gormCredentialTypeRepository) Store(ctx context.Context, types ...domai
 		rows[i] = model.FromDomainCredentialType(t)
 	}
 	if err := r.db.WithContext(ctx).Create(&rows).Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, domain.NewError(domain.CodeCredentialTypeNameDuplicate, domain.WithError(err))
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, domain.NewError(domain.CodeCredentialTypeNameDuplicate, domain.WithError(err))
+		}
 		return nil, err
 	}
-	out := make([]domain.CredentialType, len(rows))
+	ids := make([]string, len(rows))
 	for i, m := range rows {
-		out[i] = m.ToDomain()
+		ids[i] = m.Id
 	}
-	return out, nil
+	return r.FindByIds(ctx, ids...)
 }
 
 func (r *gormCredentialTypeRepository) Find(ctx context.Context, id string) (*domain.CredentialType, error) {
 	var m model.CredentialType
-	if err := r.db.WithContext(ctx).First(&m, "id = ?", id).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		First(&m, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	d := m.ToDomain()
@@ -61,7 +72,11 @@ func (r *gormCredentialTypeRepository) FindByIds(ctx context.Context, ids ...str
 		return []domain.CredentialType{}, nil
 	}
 	var rows []model.CredentialType
-	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Where("id IN ?", ids).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CredentialType, len(rows))
@@ -71,8 +86,8 @@ func (r *gormCredentialTypeRepository) FindByIds(ctx context.Context, ids ...str
 	return out, nil
 }
 
-// FindByNames resolves names case-insensitively in a single query. Names are
-// trimmed and lowercased before matching, mirroring uq_credential_types_lower_name.
+// FindByNames resolves names case-insensitively in a single query matching
+// unrejected rows, mirroring uq_credential_types_lower_name.
 func (r *gormCredentialTypeRepository) FindByNames(ctx context.Context, names ...string) ([]domain.CredentialType, error) {
 	if len(names) == 0 {
 		return []domain.CredentialType{}, nil
@@ -90,7 +105,10 @@ func (r *gormCredentialTypeRepository) FindByNames(ctx context.Context, names ..
 	}
 	var rows []model.CredentialType
 	if err := r.db.WithContext(ctx).
-		Where("LOWER(name) IN ?", needles).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Where("LOWER(name) IN ? AND rejected_at IS NULL", needles).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -113,7 +131,9 @@ func (r *gormCredentialTypeRepository) SuggestByName(ctx context.Context, name s
 		limit = 5
 	}
 
-	db := r.db.WithContext(ctx).Model(&model.CredentialType{}).Limit(limit)
+	db := r.db.WithContext(ctx).Model(&model.CredentialType{}).
+		Where("rejected_at IS NULL").
+		Limit(limit)
 	if r.db.Dialector.Name() == "postgres" {
 		db = db.Where("similarity(name, ?) > 0.1", trimmed).
 			Order(gorm.Expr("similarity(name, ?) DESC", trimmed))
@@ -123,7 +143,11 @@ func (r *gormCredentialTypeRepository) SuggestByName(ctx context.Context, name s
 	}
 
 	var rows []model.CredentialType
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CredentialType, len(rows))
@@ -137,18 +161,25 @@ func (r *gormCredentialTypeRepository) SuggestByName(ctx context.Context, name s
 // "id" is included so the UI can resolve a specific set of types by id
 // (?filters=id$a,b,c) — selected chips may live outside the loaded page.
 var allowedCredentialTypeFilterColumns = map[string]bool{
-	"id":         true,
-	"name":       true,
-	"active":     true,
-	"created_at": true,
-	"updated_at": true,
+	"id":                true,
+	"name":              true,
+	"active":            true,
+	"submitter_user_id": true,
+	"approver_user_id":  true,
+	"rejecter_user_id":  true,
+	"created_at":        true,
+	"updated_at":        true,
+	"activated_at":      true,
+	"rejected_at":       true,
 }
 
 var allowedCredentialTypeSortColumns = map[string]bool{
-	"name":       true,
-	"active":     true,
-	"created_at": true,
-	"updated_at": true,
+	"name":         true,
+	"active":       true,
+	"created_at":   true,
+	"updated_at":   true,
+	"activated_at": true,
+	"rejected_at":  true,
 }
 
 // Get retrieves credential types with pagination, search, filters, and sorts.
@@ -157,9 +188,47 @@ var allowedCredentialTypeSortColumns = map[string]bool{
 func (r *gormCredentialTypeRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialType, int, error) {
 	db := r.db.WithContext(ctx).Model(&model.CredentialType{})
 
+	if query != nil && query.HasFilters() {
+		var remaining []domainQuery.Filter
+		for _, f := range query.Filters {
+			if f.Column == "status" {
+				if f.Operator == domainQuery.OperatorEqual && len(f.Values) == 1 {
+					switch f.Values[0] {
+					case "pending":
+						db = db.Where("credential_types.activated_at IS NULL AND credential_types.rejected_at IS NULL")
+					case "approved":
+						db = db.Where("credential_types.activated_at IS NOT NULL AND credential_types.rejected_at IS NULL")
+					case "rejected":
+						db = db.Where("credential_types.rejected_at IS NOT NULL")
+					default:
+						return nil, 0, domain.NewError(domain.CodeSystemValidation)
+					}
+				}
+			} else if f.Column == "holder_user_id" && f.Operator == domainQuery.OperatorEqual {
+				db = db.Where(
+					"((credential_types.activated_at IS NOT NULL AND credential_types.rejected_at IS NULL AND credential_types.active = ?) OR "+
+						"(credential_types.submitter_user_id = ? AND (credential_types.activated_at IS NULL OR credential_types.rejected_at IS NOT NULL)))",
+					true, f.GetValue(),
+				)
+			} else if f.Column == "active" {
+				switch f.Operator {
+				case domainQuery.OperatorEqual:
+					val := strings.EqualFold(f.GetValue(), "true") || f.GetValue() == "1"
+					db = db.Where("credential_types.active = ?", val)
+				case domainQuery.OperatorNotEqual:
+					val := strings.EqualFold(f.GetValue(), "true") || f.GetValue() == "1"
+					db = db.Where("credential_types.active != ?", val)
+				}
+			} else {
+				remaining = append(remaining, f)
+			}
+		}
+		query.Filters = remaining
+	}
+
 	if query != nil {
 		if query.HasSearch() {
-			db = db.Where("LOWER(name) LIKE LOWER(?)", "%"+query.Search+"%")
+			db = db.Where("LOWER(credential_types.name) LIKE LOWER(?)", "%"+query.Search+"%")
 		}
 		if query.HasFilters() {
 			db = gormhelpers.ApplyFilters(db, query.Filters, allowedCredentialTypeFilterColumns, "")
@@ -174,7 +243,11 @@ func (r *gormCredentialTypeRepository) Get(ctx context.Context, query *domainQue
 	db = gormhelpers.ApplySorts(db, query, allowedCredentialTypeSortColumns, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)
 	var rows []model.CredentialType
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	out := make([]domain.CredentialType, len(rows))
@@ -210,11 +283,46 @@ func (r *gormCredentialTypeRepository) Update(ctx context.Context, types ...doma
 		}
 		return nil, false
 	})
-	// Active is a bool without a pointer; callers toggling it include the
-	// field explicitly, so always emit the CASE branch for update calls.
 	addCol("active", func(t domain.CredentialType) (interface{}, bool) {
 		return t.Active, true
 	})
+	addCol("submitter_user_id", func(t domain.CredentialType) (interface{}, bool) {
+		if t.SubmitterUserId != nil {
+			return *t.SubmitterUserId, true
+		}
+		return nil, false
+	})
+	addCol("approver_user_id", func(t domain.CredentialType) (interface{}, bool) {
+		if t.ApproverUserId != nil {
+			return *t.ApproverUserId, true
+		}
+		return nil, false
+	})
+	addCol("rejecter_user_id", func(t domain.CredentialType) (interface{}, bool) {
+		if t.RejecterUserId != nil {
+			return *t.RejecterUserId, true
+		}
+		return nil, false
+	})
+	addCol("rejection_reason", func(t domain.CredentialType) (interface{}, bool) {
+		if t.RejectionReason != nil {
+			return *t.RejectionReason, true
+		}
+		return nil, false
+	})
+	addCol("activated_at", func(t domain.CredentialType) (interface{}, bool) {
+		if t.ActivatedAt != nil {
+			return *t.ActivatedAt, true
+		}
+		return nil, false
+	})
+	addCol("rejected_at", func(t domain.CredentialType) (interface{}, bool) {
+		if t.RejectedAt != nil {
+			return *t.RejectedAt, true
+		}
+		return nil, false
+	})
+
 	if len(clauses) == 0 {
 		return []domain.CredentialType{}, nil
 	}

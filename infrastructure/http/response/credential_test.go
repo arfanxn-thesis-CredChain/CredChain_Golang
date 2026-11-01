@@ -6,7 +6,6 @@ import (
 
 	"CredChain_Golang/domain"
 
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,8 +15,8 @@ func TestFromDomainCredential_MapsNewFields(t *testing.T) {
 	out := FromDomainCredential(domain.Credential{
 		ID:                   "c1",
 		SubmitterUserID:      "s1",
-		IssuerOrganizationID: lo.ToPtr("o1"),
-		TypeID:               lo.ToPtr("t1"),
+		IssuerOrganizationID: "o1",
+		TypeID:               "t1",
 		Number:               &num,
 		ExpiresAt:            &now,
 		ActivatedAt:          &now,
@@ -26,8 +25,8 @@ func TestFromDomainCredential_MapsNewFields(t *testing.T) {
 		UpdatedAt:            &now,
 	})
 	assert.Equal(t, "s1", out.SubmitterUserID)
-	assert.Equal(t, "o1", *out.IssuerOrganizationID)
-	assert.Equal(t, "t1", *out.TypeID)
+	assert.Equal(t, "o1", out.IssuerOrganizationID)
+	assert.Equal(t, "t1", out.TypeID)
 	assert.Equal(t, &num, out.Number)
 	assert.Equal(t, &now, out.ExpiresAt)
 	assert.Equal(t, &now, out.ActivatedAt)

@@ -167,28 +167,49 @@ const (
 	CodeCompetencyDestroyInUse                   = 400743
 
 	// ── Credential Type CRUD (08) ───────────────────────────────────────────
-	CodeCredentialTypeFetchSuccess   = 400800
-	CodeCredentialTypeStoreSuccess   = 400801
-	CodeCredentialTypeUpdateSuccess  = 400802
-	CodeCredentialTypeDestroySuccess = 400803
-	CodeCredentialTypeNotFound       = 400840
-	CodeCredentialTypeNameDuplicate  = 400841
+	CodeCredentialTypeFetchSuccess    = 400800
+	CodeCredentialTypeStoreSuccess    = 400801
+	CodeCredentialTypeUpdateSuccess   = 400802
+	CodeCredentialTypeDestroySuccess  = 400803
+	CodeCredentialTypeSubmitSuccess   = 400804
+	CodeCredentialTypeApproveSuccess  = 400805
+	CodeCredentialTypeRejectSuccess   = 400806
+	CodeCredentialTypeNotFound        = 400840
+	CodeCredentialTypeNameDuplicate   = 400841
+	CodeCredentialTypeAlreadyApproved = 400842
+	CodeCredentialTypeAlreadyRejected = 400843
+	CodeCredentialTypeAlreadyPending  = 400844
+	CodeCredentialTypeNotPending      = 400845
 
 	// ── Issuer Organization CRUD (09) ───────────────────────────────────────
-	CodeIssuerOrganizationFetchSuccess   = 400900
-	CodeIssuerOrganizationStoreSuccess   = 400901
-	CodeIssuerOrganizationUpdateSuccess  = 400902
-	CodeIssuerOrganizationDestroySuccess = 400903
-	CodeIssuerOrganizationNotFound       = 400940
-	CodeIssuerOrganizationNameDuplicate  = 400941
+	CodeIssuerOrganizationFetchSuccess    = 400900
+	CodeIssuerOrganizationStoreSuccess    = 400901
+	CodeIssuerOrganizationUpdateSuccess   = 400902
+	CodeIssuerOrganizationDestroySuccess  = 400903
+	CodeIssuerOrganizationSubmitSuccess   = 400904
+	CodeIssuerOrganizationApproveSuccess  = 400905
+	CodeIssuerOrganizationRejectSuccess   = 400906
+	CodeIssuerOrganizationNotFound        = 400940
+	CodeIssuerOrganizationNameDuplicate   = 400941
+	CodeIssuerOrganizationAlreadyApproved = 400942
+	CodeIssuerOrganizationAlreadyRejected = 400943
+	CodeIssuerOrganizationAlreadyPending  = 400944
+	CodeIssuerOrganizationNotPending      = 400945
 
 	// ── Competency CRUD (10) ────────────────────────────────────────────────
-	CodeCompetencyFetchSuccess   = 401000
-	CodeCompetencyStoreSuccess   = 401001
-	CodeCompetencyUpdateSuccess  = 401002
-	CodeCompetencyDestroySuccess = 401003
-	CodeCompetencyNotFound       = 401040
-	CodeCompetencyNameDuplicate  = 401041
+	CodeCompetencyFetchSuccess    = 401000
+	CodeCompetencyStoreSuccess    = 401001
+	CodeCompetencyUpdateSuccess   = 401002
+	CodeCompetencyDestroySuccess  = 401003
+	CodeCompetencySubmitSuccess   = 401004
+	CodeCompetencyApproveSuccess  = 401005
+	CodeCompetencyRejectSuccess   = 401006
+	CodeCompetencyNotFound        = 401040
+	CodeCompetencyNameDuplicate   = 401041
+	CodeCompetencyAlreadyApproved = 401042
+	CodeCompetencyAlreadyRejected = 401043
+	CodeCompetencyAlreadyPending  = 401044
+	CodeCompetencyNotPending      = 401045
 
 	// ── User Unit CRUD (30/10) ──────────────────────────────────────────────
 	CodeUserUnitFetchSuccess   = 301000

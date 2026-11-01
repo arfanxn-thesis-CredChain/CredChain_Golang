@@ -46,12 +46,12 @@ func (m *mockExtractionRepo) FindRankedByIds(ctx context.Context, values []strin
 // seedCredentials runs the full dependency chain and returns everything a
 // caller needs to assert against the seeded credentials.
 type seededCredentials struct {
-	creds       []domain.Credential
-	usersByID   map[string]domain.User
-	extractions []domain.CredentialExtraction
-	compCred    domain.CompetencyCredentialRepository
-	storageDir  string
-	credDir     string
+	creds            []domain.Credential
+	usersByID        map[string]domain.User
+	extractions      []domain.CredentialExtraction
+	compCred         domain.CompetencyCredentialRepository
+	storageDir       string
+	credDir          string
 }
 
 func seedCredentials(t *testing.T) seededCredentials {
@@ -115,12 +115,12 @@ func seedCredentials(t *testing.T) seededCredentials {
 	require.NoError(t, err)
 
 	return seededCredentials{
-		creds:       creds,
-		usersByID:   lo.SliceToMap(users, func(u domain.User) (string, domain.User) { return u.Id, u }),
-		extractions: mockExtract.stored,
-		compCred:    compCredRepo,
-		storageDir:  tmpDir,
-		credDir:     credStoragePath,
+		creds:            creds,
+		usersByID:        lo.SliceToMap(users, func(u domain.User) (string, domain.User) { return u.Id, u }),
+		extractions:      mockExtract.stored,
+		compCred:         compCredRepo,
+		storageDir:       tmpDir,
+		credDir:          credStoragePath,
 	}
 }
 
@@ -144,17 +144,9 @@ func TestCredentialSeeder_SchemaInvariants(t *testing.T) {
 		assert.False(t, c.ActivatedAt != nil && c.RejectedAt != nil,
 			"%s: cannot be both approved and rejected", c.Name)
 
-		// chk_credentials_activated_metadata_resolved
-		if c.ActivatedAt != nil {
-			assert.NotNil(t, c.TypeID, "%s: approved row needs a resolved type", c.Name)
-			assert.NotNil(t, c.IssuerOrganizationID, "%s: approved row needs a resolved organization", c.Name)
-		}
-
-		// chk_credentials_type_present / chk_credentials_issuer_organization_present
-		assert.True(t, c.TypeID != nil || c.SubmittedTypeName != nil,
-			"%s: needs type_id or submitted_type_name", c.Name)
-		assert.True(t, c.IssuerOrganizationID != nil || c.SubmittedIssuerOrganizationName != nil,
-			"%s: needs issuer_organization_id or submitted_issuer_organization_name", c.Name)
+		// Required type_id and issuer_organization_id
+		assert.NotEmpty(t, c.TypeID, "%s: approved row needs a resolved type", c.Name)
+		assert.NotEmpty(t, c.IssuerOrganizationID, "%s: approved row needs a resolved organization", c.Name)
 
 		// idx_credentials_file_hash_active — unique on file_hash, but only
 		// among rows that are neither revoked nor rejected.
@@ -165,8 +157,8 @@ func TestCredentialSeeder_SchemaInvariants(t *testing.T) {
 		}
 
 		// uq_credentials_issuer_org_number
-		if c.IssuerOrganizationID != nil && c.Number != nil {
-			key := *c.IssuerOrganizationID + "|" + *c.Number
+		if c.IssuerOrganizationID != "" && c.Number != nil {
+			key := c.IssuerOrganizationID + "|" + *c.Number
 			assert.False(t, orgNumbers[key], "%s: duplicate number within organization", c.Name)
 			orgNumbers[key] = true
 		}
@@ -228,8 +220,8 @@ func TestCredentialSeeder_ReviewInvariants(t *testing.T) {
 	for _, c := range s.creds {
 		switch c.Status() {
 		case domain.CredentialStatusApproved, domain.CredentialStatusExpired:
-			assert.Empty(t, c.UnresolvedMetadata(),
-				"%s: Approve refuses a row with unresolved metadata", c.Name)
+			assert.NotEmpty(t, c.TypeID)
+			assert.NotEmpty(t, c.IssuerOrganizationID)
 		case domain.CredentialStatusRevoked:
 			// Revoke requires the row to be approved first.
 			assert.NotNil(t, c.ActivatedAt, "%s: only an approved row can be revoked", c.Name)
@@ -324,37 +316,24 @@ func TestCredentialSeeder_ExtractInvariants(t *testing.T) {
 	}
 }
 
-// TestCredentialSeeder_CompetencyLinks asserts the pairing ResolveMetadata
-// guarantees: a staged competency gets its resolved_id and its join row
-// together.
+// TestCredentialSeeder_CompetencyLinks asserts that credentials link their competencies
+// through the competency_credential join table.
 func TestCredentialSeeder_CompetencyLinks(t *testing.T) {
 	s := seedCredentials(t)
 	ctx := context.Background()
 
-	var resolvedSeen, stagedSeen int
+	var linkedSeen int
 	for _, c := range s.creds {
 		links, err := s.compCred.FindByCredentialId(ctx, c.ID)
 		require.NoError(t, err)
-		linked := lo.SliceToMap(links, func(l domain.CompetencyCredential) (string, struct{}) {
-			return l.CompetencyId, struct{}{}
-		})
-
-		for _, sc := range c.SubmittedCompetencies {
-			if sc.ResolvedID == nil {
-				stagedSeen++
-				continue
-			}
-			resolvedSeen++
-			assert.Contains(t, linked, *sc.ResolvedID,
-				"%s: resolved competency %s has no join row", c.Name, sc.Name)
+		if len(links) > 0 {
+			linkedSeen++
 		}
-
 		if c.Status() == domain.CredentialStatusApproved || c.Status() == domain.CredentialStatusRevoked || c.Status() == domain.CredentialStatusExpired {
 			assert.NotEmpty(t, links, "%s: an approved credential attests competencies", c.Name)
 		}
 	}
-	assert.Positive(t, resolvedSeen, "no resolved submitted competencies seeded")
-	assert.Positive(t, stagedSeen, "no unresolved submitted competencies seeded")
+	assert.Positive(t, linkedSeen, "no competency credentials seeded")
 }
 
 // TestCredentialSeeder_HashReuseAfterTerminalState covers the partial unique
@@ -412,15 +391,15 @@ func TestCredentialSeeder_ScenarioCoverage(t *testing.T) {
 	assert.Positive(t, selfSubmitted, "self-submission workflow unrepresented")
 	assert.Positive(t, expired, "no credential carries an expiry date")
 
-	// Reject never resolves what the submitter staged, so a rejected row whose
-	// free-text names were never linked is the shape the review UI must handle.
-	var rejectedUnresolved int
+	var rejectedCount int
 	for _, c := range s.creds {
-		if c.Status() == domain.CredentialStatusRejected && len(c.UnresolvedMetadata()) > 0 {
-			rejectedUnresolved++
+		if c.Status() == domain.CredentialStatusRejected {
+			rejectedCount++
+			assert.NotNil(t, c.RejectionReason)
+			assert.NotNil(t, c.RejecterUserID)
 		}
 	}
-	assert.Positive(t, rejectedUnresolved, "no rejected credential keeps its staged names unresolved")
+	assert.Positive(t, rejectedCount, "no rejected credential seeded")
 
 	for _, status := range []domain.CredentialStatus{
 		domain.CredentialStatusPending,

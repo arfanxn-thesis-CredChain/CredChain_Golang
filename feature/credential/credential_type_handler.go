@@ -24,6 +24,9 @@ const (
 type CredentialTypeHandler interface {
 	Paginate(c *gin.Context)
 	Store(c *gin.Context)
+	Submit(c *gin.Context)
+	Approve(c *gin.Context)
+	Reject(c *gin.Context)
 	Update(c *gin.Context)
 	Destroy(c *gin.Context)
 }
@@ -95,6 +98,58 @@ func (h *credentialTypeHandler) Store(c *gin.Context) {
 		return
 	}
 	responder.Send(c, domain.CodeCredentialTypeStoreSuccess, response.FromDomainCredentialType(*created))
+}
+
+func (h *credentialTypeHandler) Submit(c *gin.Context) {
+	var req CredentialTypeSubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	submitted, err := h.credentialTypeSvc.Submit(c.Request.Context(), req.Name)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCredentialTypeSubmitSuccess, response.FromDomainCredentialType(*submitted))
+}
+
+func (h *credentialTypeHandler) Approve(c *gin.Context) {
+	id := c.Param("id")
+	approved, err := h.credentialTypeSvc.Approve(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCredentialTypeApproveSuccess, response.FromDomainCredentialType(*approved))
+}
+
+func (h *credentialTypeHandler) Reject(c *gin.Context) {
+	id := c.Param("id")
+	var req CredentialTypeRejectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	rejected, err := h.credentialTypeSvc.Reject(c.Request.Context(), id, req.Reason)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeCredentialTypeRejectSuccess, response.FromDomainCredentialType(*rejected))
 }
 
 func (h *credentialTypeHandler) Update(c *gin.Context) {

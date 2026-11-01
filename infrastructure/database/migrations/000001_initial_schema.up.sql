@@ -53,36 +53,66 @@ CREATE INDEX idx_users_joined_year ON users(joined_year);
 
 CREATE TABLE credential_types (
     id CHAR(26) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL UNIQUE,
-    active BOOLEAN NOT NULL DEFAULT TRUE,
+    submitter_user_id CHAR(26),
+    approver_user_id CHAR(26),
+    rejecter_user_id CHAR(26),
+    name VARCHAR(256) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    rejection_reason TEXT,
+    activated_at TIMESTAMP WITH TIME ZONE,
+    rejected_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT fk_credential_types_submitter_user_id FOREIGN KEY (submitter_user_id) REFERENCES users(id),
+    CONSTRAINT fk_credential_types_approver_user_id FOREIGN KEY (approver_user_id) REFERENCES users(id),
+    CONSTRAINT fk_credential_types_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
+    CONSTRAINT chk_credential_types_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL)
 );
 
 CREATE TABLE credential_issuer_organizations (
     id CHAR(26) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL UNIQUE,
-    active BOOLEAN NOT NULL DEFAULT TRUE,
+    submitter_user_id CHAR(26),
+    approver_user_id CHAR(26),
+    rejecter_user_id CHAR(26),
+    name VARCHAR(256) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    rejection_reason TEXT,
+    activated_at TIMESTAMP WITH TIME ZONE,
+    rejected_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT fk_credential_issuer_organizations_submitter_user_id FOREIGN KEY (submitter_user_id) REFERENCES users(id),
+    CONSTRAINT fk_credential_issuer_organizations_approver_user_id FOREIGN KEY (approver_user_id) REFERENCES users(id),
+    CONSTRAINT fk_credential_issuer_organizations_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
+    CONSTRAINT chk_credential_issuer_organizations_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL)
 );
 
 CREATE TABLE competencies (
     id CHAR(26) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL UNIQUE,
-    active BOOLEAN NOT NULL DEFAULT TRUE,
+    submitter_user_id CHAR(26),
+    approver_user_id CHAR(26),
+    rejecter_user_id CHAR(26),
+    name VARCHAR(256) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    rejection_reason TEXT,
+    activated_at TIMESTAMP WITH TIME ZONE,
+    rejected_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT fk_competencies_submitter_user_id FOREIGN KEY (submitter_user_id) REFERENCES users(id),
+    CONSTRAINT fk_competencies_approver_user_id FOREIGN KEY (approver_user_id) REFERENCES users(id),
+    CONSTRAINT fk_competencies_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
+    CONSTRAINT chk_competencies_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL)
 );
 
--- Case-insensitive uniqueness race backstop for the lookup upserts (the
--- service pre-check is the primary path).
+-- Case-insensitive uniqueness race backstop for unrejected reference names.
+-- A rejected name does not permanently block future proposals.
 CREATE UNIQUE INDEX uq_credential_types_lower_name
-    ON credential_types (LOWER(name));
+    ON credential_types (LOWER(name)) WHERE rejected_at IS NULL;
 CREATE UNIQUE INDEX uq_credential_issuer_organizations_lower_name
-    ON credential_issuer_organizations (LOWER(name));
+    ON credential_issuer_organizations (LOWER(name)) WHERE rejected_at IS NULL;
 CREATE UNIQUE INDEX uq_competencies_lower_name
-    ON competencies (LOWER(name));
+    ON competencies (LOWER(name)) WHERE rejected_at IS NULL;
 
 CREATE INDEX idx_credential_types_name_trgm
     ON credential_types USING GIN (name gin_trgm_ops);
@@ -91,22 +121,22 @@ CREATE INDEX idx_credential_issuer_organizations_name_trgm
 CREATE INDEX idx_competencies_name_trgm
     ON competencies USING GIN (name gin_trgm_ops);
 
+CREATE INDEX idx_credential_types_submitter ON credential_types(submitter_user_id);
+CREATE INDEX idx_credential_types_activated_at ON credential_types(activated_at);
+CREATE INDEX idx_credential_issuer_organizations_submitter ON credential_issuer_organizations(submitter_user_id);
+CREATE INDEX idx_credential_issuer_organizations_activated_at ON credential_issuer_organizations(activated_at);
+CREATE INDEX idx_competencies_submitter ON competencies(submitter_user_id);
+CREATE INDEX idx_competencies_activated_at ON competencies(activated_at);
+
 CREATE TABLE credentials (
     id CHAR(26) PRIMARY KEY,
     holder_user_id CHAR(26) NOT NULL,
     submitter_user_id CHAR(26) NOT NULL,
     issuer_user_id CHAR(26),
-    -- Free-text staging: a holder may submit a name with no taxonomy row yet.
-    -- The name is kept; the FK stays NULL until a reviewer resolves it.
-    submitted_issuer_organization_name VARCHAR(256),
-    issuer_organization_id CHAR(26),
-    submitted_type_name VARCHAR(256),
-    type_id CHAR(26),
+    issuer_organization_id CHAR(26) NOT NULL,
+    type_id CHAR(26) NOT NULL,
     number VARCHAR(256),
     name VARCHAR(256) NOT NULL,
-    -- [{"name": "Discrete Math", "resolved_id": null}, ...]
-    -- resolved_id is stamped in place; the name survives for audit.
-    submitted_competencies JSONB,
     meta JSONB,
     token_id VARCHAR(256) UNIQUE,
     file_hash CHAR(66) NOT NULL,
@@ -133,20 +163,7 @@ CREATE TABLE credentials (
     CONSTRAINT fk_type_id FOREIGN KEY (type_id) REFERENCES credential_types(id),
     CONSTRAINT fk_rejecter_user_id FOREIGN KEY (rejecter_user_id) REFERENCES users(id),
     CONSTRAINT fk_revoker_user_id FOREIGN KEY (revoker_user_id) REFERENCES users(id),
-    CONSTRAINT chk_credentials_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL),
-    -- An approved credential always carries a resolved type + organization.
-    -- The competency half needs a JSONB scan, so it is enforced service-side.
-    CONSTRAINT chk_credentials_activated_metadata_resolved CHECK (
-        activated_at IS NULL
-        OR (type_id IS NOT NULL AND issuer_organization_id IS NOT NULL)
-    ),
-    -- Either a resolved FK or a staged name must be present, for both halves.
-    CONSTRAINT chk_credentials_type_present CHECK (
-        type_id IS NOT NULL OR submitted_type_name IS NOT NULL
-    ),
-    CONSTRAINT chk_credentials_issuer_organization_present CHECK (
-        issuer_organization_id IS NOT NULL OR submitted_issuer_organization_name IS NOT NULL
-    )
+    CONSTRAINT chk_credentials_activated_xor_rejected CHECK (activated_at IS NULL OR rejected_at IS NULL)
 );
 
 CREATE INDEX idx_credentials_holder_user_id ON credentials(holder_user_id);
@@ -159,8 +176,7 @@ CREATE INDEX idx_credentials_extract_failed_at   ON credentials(extract_failed_a
 CREATE INDEX idx_credentials_file_hash      ON credentials(file_hash);
 CREATE UNIQUE INDEX idx_credentials_file_hash_active ON credentials(file_hash) WHERE revoked_at IS NULL AND rejected_at IS NULL;
 CREATE UNIQUE INDEX uq_credentials_issuer_org_number
-    ON credentials (issuer_organization_id, number)
-    WHERE issuer_organization_id IS NOT NULL;
+    ON credentials (issuer_organization_id, number);
 
 -- Many-to-many: which competencies a credential attests
 CREATE TABLE competency_credential (

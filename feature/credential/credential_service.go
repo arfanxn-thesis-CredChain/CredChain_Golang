@@ -47,15 +47,6 @@ type CredentialService interface {
 	Submit(ctx context.Context, items []CredentialSubmission) ([]domain.Credential, error)
 	Approve(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error)
-	// ResolveMetadata links or creates taxonomy rows for a pending credential's
-	// staged free-text metadata names. Pending-only; the staged names are
-	// preserved for audit. This is deliberately a separate call from Approve so
-	// a failed on-chain mint can never half-create taxonomy rows.
-	ResolveMetadata(ctx context.Context, in CredentialMetadataResolution) (*domain.Credential, error)
-	// SuggestMetadataMatches proposes existing taxonomy rows for a pending
-	// credential's still-unresolved staged names, so a reviewer can link
-	// instead of creating near-duplicates. Read-only; confirm via ResolveMetadata.
-	SuggestMetadataMatches(ctx context.Context, credentialID string) (*CredentialMetadataSuggestions, error)
 	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
 	Revoke(ctx context.Context, revocations []CredentialRevocation) ([]domain.Credential, error)
 	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
@@ -86,27 +77,18 @@ type CredentialIssuance struct {
 // credential. The submitter is always the holder (auth user), so no holder
 // field exists. File bytes are already in memory (the handler reads multipart
 // upload bytes before calling the service).
-//
-// Metadata is id-or-name: for type and organization exactly one of the pair
-// must be set. An ID must exist (an unknown ID is a client bug). A name that
-// matches an existing row resolves to it; a name that matches nothing is
-// staged on the credential row for a reviewer to resolve before approval.
-// The same applies per entry to CompetencyIDs / SubmittedCompetencyNames.
 type CredentialSubmission struct {
-	Name                            string
-	TypeID                          *string
-	SubmittedTypeName               *string
-	IssuerOrganizationID            *string
-	SubmittedIssuerOrganizationName *string
-	Number                          *string
-	IssuedAt                        *time.Time
-	ExpiresAt                       *time.Time
-	CompetencyIDs                   []string
-	SubmittedCompetencyNames        []string
-	Meta                            map[string]any
-	Filename                        string
-	MIMEType                        string
-	FileBytes                       []byte
+	Name                 string
+	TypeID               string
+	IssuerOrganizationID string
+	Number               *string
+	IssuedAt             *time.Time
+	ExpiresAt            *time.Time
+	CompetencyIDs        []string
+	Meta                 map[string]any
+	Filename             string
+	MIMEType             string
+	FileBytes            []byte
 }
 
 // CredentialRejection is the service-layer input for one rejected credential.
@@ -119,57 +101,6 @@ type CredentialRevocation struct {
 	ID     string
 	Reason *string
 }
-
-// CredentialMetadataResolution is the service-layer input for resolving one
-// pending credential's staged free-text metadata. Every field is optional —
-// a reviewer may resolve one kind at a time. For each kind, at most one of
-// the link-existing field and the create-new field may be set.
-//
-// Competencies are resolved as a set: CompetencyIDs links existing rows and
-// CreateCompetencyNames creates new ones; between them they must cover every
-// staged name whose resolved_id is still null, or the credential simply stays
-// partially resolved (not an error — the reviewer may come back).
-type CredentialMetadataResolution struct {
-	CredentialID string
-
-	TypeID         *string // link an existing credential_types row
-	CreateTypeName *string // create a new one from the staged name
-
-	OrganizationID         *string
-	CreateOrganizationName *string
-
-	CompetencyIDs         []string
-	CreateCompetencyNames []string
-}
-
-// MetadataMatch is one candidate taxonomy row for a staged free-text name.
-type MetadataMatch struct {
-	Id     string `json:"id"`
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
-}
-
-// StagedNameSuggestion pairs one unresolved submitted name with its closest
-// existing rows, so the reviewer can link instead of creating a near-duplicate.
-type StagedNameSuggestion struct {
-	SubmittedName string          `json:"submitted_name"`
-	Matches       []MetadataMatch `json:"matches"`
-}
-
-// CredentialMetadataSuggestions is the reviewer's whole "what do I do with
-// this?" payload. A nil Type or Organization means that kind is already
-// resolved; Competencies lists only the still-unresolved staged entries.
-type CredentialMetadataSuggestions struct {
-	CredentialID string                 `json:"credential_id"`
-	Type         *StagedNameSuggestion  `json:"type"`
-	Organization *StagedNameSuggestion  `json:"organization"`
-	Competencies []StagedNameSuggestion `json:"competencies"`
-}
-
-// metadataSuggestionLimit caps the "did you mean" list per staged name. Five
-// is enough to surface a near-duplicate without turning the review into a
-// browsing exercise.
-const metadataSuggestionLimit = 5
 
 // ── Implementation struct & constructor ───────────────────────────────────
 
@@ -404,7 +335,7 @@ func (s *credentialService) issueValidate(
 			verrs[prefix+".type_id"] = validation.NewError(
 				"validation_issue_type_not_found", "credential type not found",
 			)
-		} else if !t.Active {
+		} else if !t.Active || t.Status() != domain.ReferenceStatusApproved {
 			verrs[prefix+".type_id"] = validation.NewError(
 				"validation_issue_type_inactive", "credential type inactive",
 			)
@@ -414,7 +345,7 @@ func (s *credentialService) issueValidate(
 			verrs[prefix+".issuer_organization_id"] = validation.NewError(
 				"validation_issue_org_not_found", "issuer organization not found",
 			)
-		} else if !o.Active {
+		} else if !o.Active || o.Status() != domain.ReferenceStatusApproved {
 			verrs[prefix+".issuer_organization_id"] = validation.NewError(
 				"validation_issue_org_inactive", "issuer organization inactive",
 			)
@@ -486,8 +417,8 @@ func (s *credentialService) issuePrepareCredentials(
 			HolderUserID:         it.HolderUserID,
 			SubmitterUserID:      authUser.Id,
 			IssuerUserID:         &authUser.Id,
-			IssuerOrganizationID: lo.ToPtr(it.IssuerOrganizationID),
-			TypeID:               lo.ToPtr(it.TypeID),
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			TypeID:               it.TypeID,
 			Number:               it.Number,
 			Name:                 it.Name,
 			Meta:                 it.Meta,
@@ -675,12 +606,7 @@ func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmis
 		return nil, verrs
 	}
 
-	resolved, err := s.resolveSubmissionNames(ctx, items)
-	if err != nil {
-		return nil, err
-	}
-
-	creds, err := s.submitPrepareCredentials(authUser.Id, items, resolved)
+	creds, err := s.submitPrepareCredentials(authUser.Id, items)
 	if err != nil {
 		s.cleanupOrphanCredentialFiles(creds)
 		return nil, err
@@ -693,13 +619,7 @@ func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmis
 			return err
 		}
 		for i, c := range stored {
-			compIDs := append([]string{}, items[i].CompetencyIDs...)
-			for _, sc := range creds[i].SubmittedCompetencies {
-				if sc.ResolvedID != nil {
-					compIDs = append(compIDs, *sc.ResolvedID)
-				}
-			}
-			compIDs = lo.Uniq(compIDs)
+			compIDs := lo.Uniq(items[i].CompetencyIDs)
 			if len(compIDs) == 0 {
 				continue
 			}
@@ -721,104 +641,9 @@ func (s *credentialService) Submit(ctx context.Context, items []CredentialSubmis
 	return committed, nil
 }
 
-// resolvedSubmissionMetadata is the outcome of resolving one batch of
-// submissions' free-text names against the taxonomy. Each map is keyed by the
-// lowercased trimmed name; a name absent from a map has no row and will be
-// staged rather than created.
-type resolvedSubmissionMetadata struct {
-	types         map[string]domain.CredentialType
-	organizations map[string]domain.CredentialIssuerOrganization
-	competencies  map[string]domain.Competency
-}
-
-func normalizeMetadataName(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
-}
-
-// resolveSubmissionNames batch-resolves every submitted name in the batch with
-// exactly one query per taxonomy table (no N+1), regardless of batch size.
-func (s *credentialService) resolveSubmissionNames(
-	ctx context.Context,
-	items []CredentialSubmission,
-) (*resolvedSubmissionMetadata, error) {
-	var typeNames, orgNames, compNames []string
-	for _, it := range items {
-		if it.SubmittedTypeName != nil {
-			typeNames = append(typeNames, *it.SubmittedTypeName)
-		}
-		if it.SubmittedIssuerOrganizationName != nil {
-			orgNames = append(orgNames, *it.SubmittedIssuerOrganizationName)
-		}
-		compNames = append(compNames, it.SubmittedCompetencyNames...)
-	}
-
-	out := &resolvedSubmissionMetadata{
-		types:         map[string]domain.CredentialType{},
-		organizations: map[string]domain.CredentialIssuerOrganization{},
-		competencies:  map[string]domain.Competency{},
-	}
-
-	if len(typeNames) > 0 {
-		rows, err := s.typeRepo.FindByNames(ctx, lo.Uniq(typeNames)...)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			out.types[normalizeMetadataName(r.Name)] = r
-		}
-	}
-	if len(orgNames) > 0 {
-		rows, err := s.orgRepo.FindByNames(ctx, lo.Uniq(orgNames)...)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			out.organizations[normalizeMetadataName(r.Name)] = r
-		}
-	}
-	if len(compNames) > 0 {
-		rows, err := s.competencyRepo.FindByNames(ctx, lo.Uniq(compNames)...)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			out.competencies[normalizeMetadataName(r.Name)] = r
-		}
-	}
-	return out, nil
-}
-
-// resolvedOrgID returns the issuer organization ID a submission resolves to,
-// for number-uniqueness scoping: the given ID directly, or the ID of a name
-// that matched an existing row. Returns "" when the org is still an
-// unresolved staged name — there is no scope to be unique within yet.
-func resolvedOrgID(it CredentialSubmission, orgByName map[string]domain.CredentialIssuerOrganization) string {
-	if it.IssuerOrganizationID != nil {
-		return *it.IssuerOrganizationID
-	}
-	if it.SubmittedIssuerOrganizationName != nil {
-		if row, ok := orgByName[normalizeMetadataName(*it.SubmittedIssuerOrganizationName)]; ok {
-			return row.Id
-		}
-	}
-	return ""
-}
-
 // submitValidate performs batch input-driven validation for self-submission.
-// Type and issuer organization are id-or-name: an ID must resolve to an
-// active row (an unknown ID is a client bug); a name blank after trimming is
-// an error, a name matching an inactive row is an error (a reviewer could
-// only link it to a deliberately retired row), and a name matching nothing is
-// staged for a reviewer to resolve later. Competency IDs remain strict
-// (must exist + be active); competency names follow the same blank/inactive/
-// staged rule as type and organization names. Number uniqueness only applies
-// once an organization is resolved (same batched per-distinct-org approach as
-// issueValidate) — an unresolved staged org name has no scope to check yet;
-// that check re-runs at resolution time. Active-duplicate file-hash detection
-// runs once per batch (CountActiveByFileHashes); the DB partial unique index
-// is the final authority for concurrent duplicates. Returns validation.Errors
-// keyed by "credentials.N.field"; count/name-resolution failures are
-// server-side failures returned as a plain error.
+// Type, issuer organization, and competencies must already exist, be approved,
+// and be active. Number uniqueness applies per issuer organization.
 func (s *credentialService) submitValidate(
 	ctx context.Context,
 	items []CredentialSubmission,
@@ -839,43 +664,27 @@ func (s *credentialService) submitValidate(
 		return verrs, nil
 	}
 
-	// Batch-resolve submitted names once so per-item checks below can tell a
-	// staged (no row) name apart from one matching an inactive row.
-	resolved, err := s.resolveSubmissionNames(ctx, items)
-	if err != nil {
-		return nil, err
-	}
-
 	// Competency existence: one FindByIds across the whole batch (NO-N+1).
 	var allCompIDs []string
 	for _, it := range items {
 		allCompIDs = append(allCompIDs, it.CompetencyIDs...)
 	}
 	allCompIDs = lo.Uniq(allCompIDs)
-	// Value is the row's active flag, so presence answers "exists" and the value
-	// answers "usable" off the same single query.
 	existingComp := map[string]bool{}
 	if len(allCompIDs) > 0 {
 		if found, err := s.competencyRepo.FindByIds(ctx, allCompIDs...); err == nil {
 			for _, c := range found {
-				existingComp[c.Id] = c.Active
+				existingComp[c.Id] = c.Active && c.Status() == domain.ReferenceStatusApproved
 			}
 		}
 	}
 
-	// Number uniqueness: one Get per DISTINCT resolved org (bounded by the
-	// batch's org count, never per input item — NO-N+1). Submissions whose org
-	// is still an unresolved staged name are skipped — no scope to check yet.
+	// Number uniqueness: one Get per DISTINCT org.
 	numbersByOrg := map[string][]string{}
 	for _, it := range items {
-		if it.Number == nil || *it.Number == "" {
-			continue
+		if it.Number != nil && *it.Number != "" && it.IssuerOrganizationID != "" {
+			numbersByOrg[it.IssuerOrganizationID] = append(numbersByOrg[it.IssuerOrganizationID], *it.Number)
 		}
-		orgID := resolvedOrgID(it, resolved.organizations)
-		if orgID == "" {
-			continue
-		}
-		numbersByOrg[orgID] = append(numbersByOrg[orgID], *it.Number)
 	}
 	duplicateNumbers := map[string]bool{}
 	for org, numbers := range numbersByOrg {
@@ -899,73 +708,40 @@ func (s *credentialService) submitValidate(
 	for i, it := range items {
 		prefix := fmt.Sprintf("credentials.%d", i)
 
-		switch {
-		case it.TypeID != nil && it.SubmittedTypeName != nil:
+		if it.TypeID == "" {
 			verrs[prefix+".type_id"] = validation.NewError(
-				"validation_submit_type_ambiguous", "provide either type_id or type name, not both",
+				"validation_submit_type_required", "type_id is required",
 			)
-		case it.TypeID != nil:
-			if t, err := s.typeRepo.Find(ctx, *it.TypeID); err != nil || t == nil {
+		} else {
+			if t, err := s.typeRepo.Find(ctx, it.TypeID); err != nil || t == nil {
 				verrs[prefix+".type_id"] = validation.NewError(
 					"validation_issue_type_not_found", "credential type not found",
 				)
-			} else if !t.Active {
+			} else if !t.Active || t.Status() != domain.ReferenceStatusApproved {
 				verrs[prefix+".type_id"] = validation.NewError(
 					"validation_issue_type_inactive", "credential type inactive",
 				)
 			}
-		case it.SubmittedTypeName != nil:
-			name := normalizeMetadataName(*it.SubmittedTypeName)
-			if name == "" {
-				verrs[prefix+".type_id"] = validation.NewError(
-					"validation_submit_type_name_blank", "type name is required",
-				)
-			} else if row, ok := resolved.types[name]; ok && !row.Active {
-				verrs[prefix+".type_id"] = validation.NewError(
-					"validation_issue_type_inactive", "credential type inactive",
-				)
-			}
-		default:
-			verrs[prefix+".type_id"] = validation.NewError(
-				"validation_submit_type_required", "type_id or type name is required",
-			)
 		}
 
-		switch {
-		case it.IssuerOrganizationID != nil && it.SubmittedIssuerOrganizationName != nil:
+		if it.IssuerOrganizationID == "" {
 			verrs[prefix+".issuer_organization_id"] = validation.NewError(
-				"validation_submit_org_ambiguous", "provide either issuer_organization_id or organization name, not both",
+				"validation_submit_org_required", "issuer_organization_id is required",
 			)
-		case it.IssuerOrganizationID != nil:
-			if o, err := s.orgRepo.Find(ctx, *it.IssuerOrganizationID); err != nil || o == nil {
+		} else {
+			if o, err := s.orgRepo.Find(ctx, it.IssuerOrganizationID); err != nil || o == nil {
 				verrs[prefix+".issuer_organization_id"] = validation.NewError(
 					"validation_issue_org_not_found", "issuer organization not found",
 				)
-			} else if !o.Active {
+			} else if !o.Active || o.Status() != domain.ReferenceStatusApproved {
 				verrs[prefix+".issuer_organization_id"] = validation.NewError(
 					"validation_issue_org_inactive", "issuer organization inactive",
 				)
 			}
-		case it.SubmittedIssuerOrganizationName != nil:
-			name := normalizeMetadataName(*it.SubmittedIssuerOrganizationName)
-			if name == "" {
-				verrs[prefix+".issuer_organization_id"] = validation.NewError(
-					"validation_submit_org_name_blank", "organization name is required",
-				)
-			} else if row, ok := resolved.organizations[name]; ok && !row.Active {
-				verrs[prefix+".issuer_organization_id"] = validation.NewError(
-					"validation_issue_org_inactive", "issuer organization inactive",
-				)
-			}
-		default:
-			verrs[prefix+".issuer_organization_id"] = validation.NewError(
-				"validation_submit_org_required", "issuer_organization_id or organization name is required",
-			)
 		}
 
-		if it.Number != nil && *it.Number != "" {
-			if orgID := resolvedOrgID(it, resolved.organizations); orgID != "" &&
-				duplicateNumbers[orgID+"\x00"+*it.Number] {
+		if it.Number != nil && *it.Number != "" && it.IssuerOrganizationID != "" {
+			if duplicateNumbers[it.IssuerOrganizationID+"\x00"+*it.Number] {
 				verrs[prefix+".number"] = validation.NewError(
 					"validation_issue_number_duplicate", "number already in use",
 				)
@@ -973,30 +749,14 @@ func (s *credentialService) submitValidate(
 		}
 
 		for _, cid := range it.CompetencyIDs {
-			active, exists := existingComp[cid]
+			usable, exists := existingComp[cid]
 			if !exists {
 				verrs[prefix+".competency_ids"] = validation.NewError(
 					"validation_issue_competency_not_found", "competency not found",
 				)
 				break
 			}
-			if !active {
-				verrs[prefix+".competency_ids"] = validation.NewError(
-					"validation_issue_competency_inactive", "competency inactive",
-				)
-				break
-			}
-		}
-
-		for _, name := range it.SubmittedCompetencyNames {
-			trimmed := normalizeMetadataName(name)
-			if trimmed == "" {
-				verrs[prefix+".competency_ids"] = validation.NewError(
-					"validation_submit_competency_name_blank", "competency name cannot be blank",
-				)
-				break
-			}
-			if row, ok := resolved.competencies[trimmed]; ok && !row.Active {
+			if !usable {
 				verrs[prefix+".competency_ids"] = validation.NewError(
 					"validation_issue_competency_inactive", "competency inactive",
 				)
@@ -1016,7 +776,6 @@ func (s *credentialService) submitValidate(
 func (s *credentialService) submitPrepareCredentials(
 	holderID string,
 	items []CredentialSubmission,
-	resolved *resolvedSubmissionMetadata,
 ) ([]domain.Credential, error) {
 	creds := make([]domain.Credential, len(items))
 	for i, it := range items {
@@ -1037,54 +796,20 @@ func (s *credentialService) submitPrepareCredentials(
 		}
 		hash := "0x" + hex.EncodeToString(ethCrypto.Keccak256(it.FileBytes))
 
-		var typeID, submittedTypeName *string
-		if it.TypeID != nil {
-			typeID = it.TypeID
-		} else if it.SubmittedTypeName != nil {
-			if row, ok := resolved.types[normalizeMetadataName(*it.SubmittedTypeName)]; ok {
-				typeID = lo.ToPtr(row.Id)
-			} else {
-				submittedTypeName = it.SubmittedTypeName
-			}
-		}
-
-		var orgID, submittedOrgName *string
-		if it.IssuerOrganizationID != nil {
-			orgID = it.IssuerOrganizationID
-		} else if it.SubmittedIssuerOrganizationName != nil {
-			if row, ok := resolved.organizations[normalizeMetadataName(*it.SubmittedIssuerOrganizationName)]; ok {
-				orgID = lo.ToPtr(row.Id)
-			} else {
-				submittedOrgName = it.SubmittedIssuerOrganizationName
-			}
-		}
-
-		var submittedCompetencies domain.SubmittedCompetencies
-		for _, name := range it.SubmittedCompetencyNames {
-			sc := domain.SubmittedCompetency{Name: name}
-			if row, ok := resolved.competencies[normalizeMetadataName(name)]; ok {
-				sc.ResolvedID = lo.ToPtr(row.Id)
-			}
-			submittedCompetencies = append(submittedCompetencies, sc)
-		}
-
 		creds[i] = domain.Credential{
-			ID:                              ulid.Make().String(),
-			HolderUserID:                    holderID,
-			SubmitterUserID:                 holderID,
-			IssuerUserID:                    nil,
-			IssuerOrganizationID:            orgID,
-			SubmittedIssuerOrganizationName: submittedOrgName,
-			TypeID:                          typeID,
-			SubmittedTypeName:               submittedTypeName,
-			SubmittedCompetencies:           submittedCompetencies,
-			Number:                          it.Number,
-			Name:                            it.Name,
-			Meta:                            it.Meta,
-			FileHash:                        hash,
-			FileURI:                         &filename,
-			IssuedAt:                        *it.IssuedAt,
-			ExpiresAt:                       it.ExpiresAt,
+			ID:                   ulid.Make().String(),
+			HolderUserID:         holderID,
+			SubmitterUserID:      holderID,
+			IssuerUserID:         nil,
+			IssuerOrganizationID: it.IssuerOrganizationID,
+			TypeID:               it.TypeID,
+			Number:               it.Number,
+			Name:                 it.Name,
+			Meta:                 it.Meta,
+			FileHash:             hash,
+			FileURI:              &filename,
+			IssuedAt:             *it.IssuedAt,
+			ExpiresAt:            it.ExpiresAt,
 		}
 	}
 	return creds, nil
@@ -1118,20 +843,24 @@ func (s *credentialService) Update(ctx context.Context, credentials ...domain.Cr
 			return nil, domain.NewError(domain.CodeCredentialUpdateNotPending,
 				domain.WithMetadata("credential_ids", []string{in.ID}))
 		}
-		if in.TypeID != nil && *in.TypeID != derefString(target.TypeID) {
-			t, err := s.typeRepo.Find(ctx, *in.TypeID)
-			if err != nil || !t.Active {
+		if in.TypeID != "" && in.TypeID != target.TypeID {
+			t, err := s.typeRepo.Find(ctx, in.TypeID)
+			if err != nil || t == nil {
+				return nil, domain.NewError(domain.CodeCredentialIssueTypeNotFound,
+					domain.WithMetadata("credential_ids", []string{in.ID}))
+			}
+			if !t.Active || t.Status() != domain.ReferenceStatusApproved {
 				return nil, domain.NewError(domain.CodeCredentialIssueTypeInactive,
 					domain.WithMetadata("credential_ids", []string{in.ID}))
 			}
 		}
-		if in.IssuerOrganizationID != nil && *in.IssuerOrganizationID != derefString(target.IssuerOrganizationID) {
-			o, err := s.orgRepo.Find(ctx, *in.IssuerOrganizationID)
+		if in.IssuerOrganizationID != "" && in.IssuerOrganizationID != target.IssuerOrganizationID {
+			o, err := s.orgRepo.Find(ctx, in.IssuerOrganizationID)
 			if err != nil || o == nil {
 				return nil, domain.NewError(domain.CodeCredentialIssueOrganizationNotFound,
 					domain.WithMetadata("credential_ids", []string{in.ID}))
 			}
-			if !o.Active {
+			if !o.Active || o.Status() != domain.ReferenceStatusApproved {
 				return nil, domain.NewError(domain.CodeCredentialIssueOrganizationInactive,
 					domain.WithMetadata("credential_ids", []string{in.ID}))
 			}
@@ -1163,9 +892,9 @@ func (s *credentialService) updateValidateNumberUniqueness(
 		if in.Number == nil || *in.Number == derefString(target.Number) {
 			continue
 		}
-		orgID := derefString(target.IssuerOrganizationID)
-		if in.IssuerOrganizationID != nil {
-			orgID = *in.IssuerOrganizationID
+		orgID := target.IssuerOrganizationID
+		if in.IssuerOrganizationID != "" {
+			orgID = in.IssuerOrganizationID
 		}
 		numbersByOrg[orgID] = append(numbersByOrg[orgID], *in.Number)
 	}
@@ -1195,9 +924,9 @@ func (s *credentialService) updateValidateNumberUniqueness(
 		if in.Number == nil || *in.Number == derefString(target.Number) {
 			continue
 		}
-		orgID := derefString(target.IssuerOrganizationID)
-		if in.IssuerOrganizationID != nil {
-			orgID = *in.IssuerOrganizationID
+		orgID := target.IssuerOrganizationID
+		if in.IssuerOrganizationID != "" {
+			orgID = in.IssuerOrganizationID
 		}
 		if duplicateNumbers[orgID+"\x00"+*in.Number] {
 			return domain.NewError(domain.CodeCredentialIssueNumberDuplicate,
@@ -1252,22 +981,23 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 			case domain.CredentialStatusExpired:
 				return domain.NewError(domain.CodeCredentialReviewAlreadyExpired, domain.WithMetadata("credential_ids", []string{t.ID}))
 			}
-			// An approved credential must never carry dangling metadata: the DB
-			// CHECK covers type + organization, this covers the JSONB
-			// competency half and gives a usable error either way.
-			if unresolved := t.UnresolvedMetadata(); len(unresolved) > 0 {
-				return domain.NewError(domain.CodeCredentialApproveUnresolvedMetadata,
-					domain.WithMetadata("credential_id", t.ID),
-					domain.WithMetadata("unresolved", unresolved))
-			}
-			// A row may have been retired (active=false) after resolution but
-			// before approval — resolution and approval are separate calls,
-			// potentially days apart. Approving would mint a permanent
-			// on-chain credential against a deactivated taxonomy row.
-			if inactive := t.InactiveMetadata(); len(inactive) > 0 {
+			// Required reference and approved + active checks:
+			if t.Type == nil || !t.Type.Active || t.Type.Status() != domain.ReferenceStatusApproved {
 				return domain.NewError(domain.CodeCredentialApproveInactiveMetadata,
 					domain.WithMetadata("credential_id", t.ID),
-					domain.WithMetadata("inactive", inactive))
+					domain.WithMetadata("inactive", []string{"type"}))
+			}
+			if t.IssuerOrganization == nil || !t.IssuerOrganization.Active || t.IssuerOrganization.Status() != domain.ReferenceStatusApproved {
+				return domain.NewError(domain.CodeCredentialApproveInactiveMetadata,
+					domain.WithMetadata("credential_id", t.ID),
+					domain.WithMetadata("inactive", []string{"issuer_organization"}))
+			}
+			for _, comp := range t.Competencies {
+				if !comp.Active || comp.Status() != domain.ReferenceStatusApproved {
+					return domain.NewError(domain.CodeCredentialApproveInactiveMetadata,
+						domain.WithMetadata("credential_id", t.ID),
+						domain.WithMetadata("inactive", []string{"competency"}))
+				}
 			}
 		}
 
@@ -1304,266 +1034,6 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 		s.enqueueLifecycleNotifications(ctx, approved, jobs.NotificationEventApproved)
 	}
 	return approved, err
-}
-
-// ── Metadata resolution ───────────────────────────────────────────────────
-
-// ResolveMetadata links or creates taxonomy rows for a pending credential's
-// staged free-text metadata (type, issuer organization, competencies). It is
-// idempotent per field and deliberately separate from Approve: a failed
-// on-chain mint can never half-create taxonomy rows.
-func (s *credentialService) ResolveMetadata(
-	ctx context.Context,
-	in CredentialMetadataResolution,
-) (*domain.Credential, error) {
-	var out *domain.Credential
-
-	err := s.uow.Execute(ctx, func(uow domain.UnitOfWork) error {
-		target, err := uow.Credential().Find(ctx, in.CredentialID, nil)
-		if err != nil || target == nil {
-			return domain.NewError(domain.CodeCredentialMetadataResolveNotFound,
-				domain.WithMetadata("credential_id", in.CredentialID))
-		}
-		// Same immutability rule as Update: only pending rows are mutable.
-		if target.Status() != domain.CredentialStatusPending {
-			return domain.NewError(domain.CodeCredentialMetadataResolveNotPending,
-				domain.WithMetadata("credential_id", in.CredentialID))
-		}
-		if len(target.UnresolvedMetadata()) == 0 {
-			return domain.NewError(domain.CodeCredentialMetadataResolveNothingStaged,
-				domain.WithMetadata("credential_id", in.CredentialID))
-		}
-
-		update := domain.Credential{ID: target.ID}
-
-		// ── Type ───────────────────────────────────────────────────────────
-		switch {
-		case in.TypeID != nil:
-			t, err := s.typeRepo.Find(ctx, *in.TypeID)
-			if err != nil || t == nil {
-				return domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
-					domain.WithMetadata("type_id", *in.TypeID))
-			}
-			if !t.Active {
-				return domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
-					domain.WithMetadata("type_id", *in.TypeID))
-			}
-			update.TypeID = &t.Id
-		case in.CreateTypeName != nil:
-			// Upsert-by-name: a concurrent reviewer may have just created it.
-			t, err := s.typeService.Store(ctx, *in.CreateTypeName, nil)
-			if err != nil {
-				return err
-			}
-			update.TypeID = &t.Id
-		}
-
-		// ── Issuer organization ────────────────────────────────────────────
-		switch {
-		case in.OrganizationID != nil:
-			o, err := s.orgRepo.Find(ctx, *in.OrganizationID)
-			if err != nil || o == nil {
-				return domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
-					domain.WithMetadata("issuer_organization_id", *in.OrganizationID))
-			}
-			if !o.Active {
-				return domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
-					domain.WithMetadata("issuer_organization_id", *in.OrganizationID))
-			}
-			update.IssuerOrganizationID = &o.Id
-		case in.CreateOrganizationName != nil:
-			o, err := s.orgService.Store(ctx, *in.CreateOrganizationName, nil)
-			if err != nil {
-				return err
-			}
-			update.IssuerOrganizationID = &o.Id
-		}
-
-		// Number uniqueness was skipped at submit time for a staged org —
-		// enforce it now that the credential finally has an org scope.
-		if update.IssuerOrganizationID != nil && target.Number != nil && *target.Number != "" {
-			rows, _, err := uow.Credential().Get(ctx, &domainQuery.Query{
-				Filters: []domainQuery.Filter{
-					domainQuery.NewFilter("issuer_organization_id", domainQuery.OperatorEqual, *update.IssuerOrganizationID),
-					domainQuery.NewFilter("number", domainQuery.OperatorEqual, *target.Number),
-				},
-			})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				if r.ID != target.ID {
-					return domain.NewError(domain.CodeCredentialMetadataResolveNumberDuplicate,
-						domain.WithMetadata("number", *target.Number))
-				}
-			}
-		}
-
-		// ── Competencies ───────────────────────────────────────────────────
-		resolvedComps, err := s.resolveStagedCompetencies(ctx, in)
-		if err != nil {
-			return err
-		}
-		if len(resolvedComps) > 0 {
-			// Skip competencies already linked: a re-resolve, a submit that
-			// resolved a name to this row, or two create-names converging on
-			// one row would otherwise collide on the join table's composite PK.
-			existing, err := uow.CompetencyCredential().FindByCredentialId(ctx, target.ID)
-			if err != nil {
-				return err
-			}
-			linkedIDs := lo.SliceToMap(existing, func(l domain.CompetencyCredential) (string, struct{}) {
-				return l.CompetencyId, struct{}{}
-			})
-
-			staged := append(domain.SubmittedCompetencies{}, target.SubmittedCompetencies...)
-			var newLinks []domain.CompetencyCredential
-			for _, c := range resolvedComps {
-				id := c.Id
-				// Stamp by normalized name first, even for a competency
-				// already linked (e.g. via LinkCompetencies) — otherwise
-				// UnresolvedMetadata() flags this entry forever.
-				for i := range staged {
-					if staged[i].ResolvedID == nil &&
-						normalizeMetadataName(staged[i].Name) == normalizeMetadataName(c.Name) {
-						staged[i].ResolvedID = &id
-						break
-					}
-				}
-				if _, already := linkedIDs[id]; already {
-					continue
-				}
-				linkedIDs[id] = struct{}{}
-				newLinks = append(newLinks, domain.CompetencyCredential{
-					CompetencyId: c.Id, CredentialId: target.ID,
-				})
-			}
-			update.SubmittedCompetencies = staged
-			if len(newLinks) > 0 {
-				if _, err := uow.CompetencyCredential().Store(ctx, newLinks...); err != nil {
-					return err
-				}
-			}
-		}
-
-		updated, err := uow.Credential().Update(ctx, update)
-		if err != nil {
-			return err
-		}
-		if len(updated) == 0 {
-			return domain.NewError(domain.CodeSystemInternal)
-		}
-		c := updated[0]
-		out = &c
-		return nil
-	})
-
-	return out, err
-}
-
-// resolveStagedCompetencies turns the resolution's link-existing ids and
-// create-new names into concrete competency rows. Creation goes through the
-// service's idempotent upsert-by-name, so two reviewers racing on the same
-// name converge on one row.
-func (s *credentialService) resolveStagedCompetencies(
-	ctx context.Context,
-	in CredentialMetadataResolution,
-) ([]domain.Competency, error) {
-	var out []domain.Competency
-
-	if len(in.CompetencyIDs) > 0 {
-		found, err := s.competencyRepo.FindByIds(ctx, in.CompetencyIDs...)
-		if err != nil {
-			return nil, err
-		}
-		if len(found) != len(lo.Uniq(in.CompetencyIDs)) {
-			return nil, domain.NewError(domain.CodeCredentialMetadataResolveTargetNotFound,
-				domain.WithMetadata("competency_ids", in.CompetencyIDs))
-		}
-		for _, c := range found {
-			if !c.Active {
-				return nil, domain.NewError(domain.CodeCredentialMetadataResolveTargetInactive,
-					domain.WithMetadata("competency_id", c.Id))
-			}
-		}
-		out = append(out, found...)
-	}
-
-	for _, name := range in.CreateCompetencyNames {
-		c, err := s.competencyService.Store(ctx, name, nil)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *c)
-	}
-
-	return out, nil
-}
-
-// SuggestMetadataMatches proposes existing taxonomy rows (type, issuer
-// organization, competencies) for a pending credential's still-unresolved
-// staged names. It never mutates — the reviewer confirms by calling
-// ResolveMetadata.
-func (s *credentialService) SuggestMetadataMatches(
-	ctx context.Context,
-	credentialID string,
-) (*CredentialMetadataSuggestions, error) {
-	target, err := s.repo.Find(ctx, credentialID, nil)
-	if err != nil || target == nil {
-		return nil, domain.NewError(domain.CodeCredentialMetadataResolveNotFound,
-			domain.WithMetadata("credential_id", credentialID))
-	}
-
-	out := &CredentialMetadataSuggestions{
-		CredentialID: target.ID,
-		// Keep the slice non-nil so the JSON field is `[]`, not `null`, when
-		// nothing is staged — the reviewer UI reads `.competencies.length`.
-		Competencies: []StagedNameSuggestion{},
-	}
-
-	if target.TypeID == nil && target.SubmittedTypeName != nil {
-		rows, err := s.typeRepo.SuggestByName(ctx, *target.SubmittedTypeName, metadataSuggestionLimit)
-		if err != nil {
-			return nil, err
-		}
-		out.Type = &StagedNameSuggestion{
-			SubmittedName: *target.SubmittedTypeName,
-			Matches: lo.Map(rows, func(r domain.CredentialType, _ int) MetadataMatch {
-				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
-			}),
-		}
-	}
-
-	if target.IssuerOrganizationID == nil && target.SubmittedIssuerOrganizationName != nil {
-		rows, err := s.orgRepo.SuggestByName(ctx, *target.SubmittedIssuerOrganizationName, metadataSuggestionLimit)
-		if err != nil {
-			return nil, err
-		}
-		out.Organization = &StagedNameSuggestion{
-			SubmittedName: *target.SubmittedIssuerOrganizationName,
-			Matches: lo.Map(rows, func(r domain.CredentialIssuerOrganization, _ int) MetadataMatch {
-				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
-			}),
-		}
-	}
-
-	for _, sc := range target.SubmittedCompetencies {
-		if sc.ResolvedID != nil {
-			continue
-		}
-		rows, err := s.competencyRepo.SuggestByName(ctx, sc.Name, metadataSuggestionLimit)
-		if err != nil {
-			return nil, err
-		}
-		out.Competencies = append(out.Competencies, StagedNameSuggestion{
-			SubmittedName: sc.Name,
-			Matches: lo.Map(rows, func(r domain.Competency, _ int) MetadataMatch {
-				return MetadataMatch{Id: r.Id, Name: r.Name, Active: r.Active}
-			}),
-		})
-	}
-
-	return out, nil
 }
 
 // Reject batch-rejects pending submissions with per-credential reasons.

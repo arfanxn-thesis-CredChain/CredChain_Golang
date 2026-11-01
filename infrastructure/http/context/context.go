@@ -14,6 +14,11 @@ const (
 	UserKey contextKey = "user"
 )
 
+// WithUser stores user in context.
+func WithUser(ctx context.Context, user *domain.User) context.Context {
+	return context.WithValue(ctx, UserKey, user)
+}
+
 // GetUser retrieves user from context
 func GetUser(ctx context.Context) (*domain.User, error) {
 	user, ok := ctx.Value(UserKey).(*domain.User)

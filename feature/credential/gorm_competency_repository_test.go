@@ -3,9 +3,11 @@ package credential
 import (
 	"context"
 	"testing"
+	"time"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/tests/db"
 
 	"github.com/stretchr/testify/assert"
@@ -156,4 +158,42 @@ func TestGormCompetencySuggestByName(t *testing.T) {
 	if len(got) == 0 || got[0].Name != "Discrete Mathematics" {
 		t.Fatalf("want Discrete Mathematics first, got %+v", got)
 	}
+}
+
+func TestGormCompetencyRepository_Get_HolderFilter(t *testing.T) {
+	repo := openCompetencyRepo(t)
+	now := time.Now()
+	holderID := "holder-001"
+	otherID := "other-002"
+
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k1", Name: "Approved Active", Active: true, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k2", Name: "Approved Inactive", Active: false, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k3", Name: "Own Pending", Active: false, SubmitterUserId: &holderID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k4", Name: "Other Pending", Active: false, SubmitterUserId: &otherID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k5", Name: "Own Rejected", Active: false, SubmitterUserId: &holderID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k6", Name: "Other Rejected", Active: false, SubmitterUserId: &otherID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.Competency{
+		Id: "k7", Name: "Own Approved Inactive", Active: false, SubmitterUserId: &holderID, ActivatedAt: &now,
+	}).Error)
+
+	got, total, err := repo.Get(context.Background(), &domainQuery.Query{
+		Filters: []domainQuery.Filter{{Column: "holder_user_id", Operator: domainQuery.OperatorEqual, Values: []string{holderID}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+	require.Len(t, got, 3)
+	ids := []string{got[0].Id, got[1].Id, got[2].Id}
+	assert.ElementsMatch(t, []string{"k1", "k3", "k5"}, ids)
 }

@@ -38,18 +38,29 @@ func (r *gormIssuerOrganizationRepository) Store(ctx context.Context, orgs ...do
 		rows[i] = model.FromDomainCredentialIssuerOrganization(o)
 	}
 	if err := r.db.WithContext(ctx).Create(&rows).Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, domain.NewError(domain.CodeIssuerOrganizationNameDuplicate, domain.WithError(err))
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, domain.NewError(domain.CodeIssuerOrganizationNameDuplicate, domain.WithError(err))
+		}
 		return nil, err
 	}
-	out := make([]domain.CredentialIssuerOrganization, len(rows))
+	ids := make([]string, len(rows))
 	for i, m := range rows {
-		out[i] = m.ToDomain()
+		ids[i] = m.Id
 	}
-	return out, nil
+	return r.FindByIds(ctx, ids...)
 }
 
 func (r *gormIssuerOrganizationRepository) Find(ctx context.Context, id string) (*domain.CredentialIssuerOrganization, error) {
 	var m model.CredentialIssuerOrganization
-	if err := r.db.WithContext(ctx).First(&m, "id = ?", id).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		First(&m, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	d := m.ToDomain()
@@ -61,7 +72,11 @@ func (r *gormIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ..
 		return []domain.CredentialIssuerOrganization{}, nil
 	}
 	var rows []model.CredentialIssuerOrganization
-	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Where("id IN ?", ids).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CredentialIssuerOrganization, len(rows))
@@ -71,9 +86,8 @@ func (r *gormIssuerOrganizationRepository) FindByIds(ctx context.Context, ids ..
 	return out, nil
 }
 
-// FindByNames resolves names case-insensitively in a single query. Names are
-// trimmed and lowercased before matching, mirroring
-// uq_credential_issuer_organizations_lower_name.
+// FindByNames resolves names case-insensitively in a single query matching
+// unrejected rows, mirroring uq_credential_issuer_organizations_lower_name.
 func (r *gormIssuerOrganizationRepository) FindByNames(ctx context.Context, names ...string) ([]domain.CredentialIssuerOrganization, error) {
 	if len(names) == 0 {
 		return []domain.CredentialIssuerOrganization{}, nil
@@ -91,7 +105,10 @@ func (r *gormIssuerOrganizationRepository) FindByNames(ctx context.Context, name
 	}
 	var rows []model.CredentialIssuerOrganization
 	if err := r.db.WithContext(ctx).
-		Where("LOWER(name) IN ?", needles).
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Where("LOWER(name) IN ? AND rejected_at IS NULL", needles).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -114,7 +131,9 @@ func (r *gormIssuerOrganizationRepository) SuggestByName(ctx context.Context, na
 		limit = 5
 	}
 
-	db := r.db.WithContext(ctx).Model(&model.CredentialIssuerOrganization{}).Limit(limit)
+	db := r.db.WithContext(ctx).Model(&model.CredentialIssuerOrganization{}).
+		Where("rejected_at IS NULL").
+		Limit(limit)
 	if r.db.Dialector.Name() == "postgres" {
 		db = db.Where("similarity(name, ?) > 0.1", trimmed).
 			Order(gorm.Expr("similarity(name, ?) DESC", trimmed))
@@ -124,7 +143,11 @@ func (r *gormIssuerOrganizationRepository) SuggestByName(ctx context.Context, na
 	}
 
 	var rows []model.CredentialIssuerOrganization
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CredentialIssuerOrganization, len(rows))
@@ -138,18 +161,25 @@ func (r *gormIssuerOrganizationRepository) SuggestByName(ctx context.Context, na
 // on. "id" is included so the UI can resolve a specific set of organizations by
 // id (?filters=id$a,b,c) — selected chips may live outside the loaded page.
 var allowedIssuerOrganizationFilterColumns = map[string]bool{
-	"id":         true,
-	"name":       true,
-	"active":     true,
-	"created_at": true,
-	"updated_at": true,
+	"id":                true,
+	"name":              true,
+	"active":            true,
+	"submitter_user_id": true,
+	"approver_user_id":  true,
+	"rejecter_user_id":  true,
+	"created_at":        true,
+	"updated_at":        true,
+	"activated_at":      true,
+	"rejected_at":       true,
 }
 
 var allowedIssuerOrganizationSortColumns = map[string]bool{
-	"name":       true,
-	"active":     true,
-	"created_at": true,
-	"updated_at": true,
+	"name":         true,
+	"active":       true,
+	"created_at":   true,
+	"updated_at":   true,
+	"activated_at": true,
+	"rejected_at":  true,
 }
 
 // Get retrieves issuer organizations with pagination, search, filters, and
@@ -158,9 +188,47 @@ var allowedIssuerOrganizationSortColumns = map[string]bool{
 func (r *gormIssuerOrganizationRepository) Get(ctx context.Context, query *domainQuery.Query) ([]domain.CredentialIssuerOrganization, int, error) {
 	db := r.db.WithContext(ctx).Model(&model.CredentialIssuerOrganization{})
 
+	if query != nil && query.HasFilters() {
+		var remaining []domainQuery.Filter
+		for _, f := range query.Filters {
+			if f.Column == "status" {
+				if f.Operator == domainQuery.OperatorEqual && len(f.Values) == 1 {
+					switch f.Values[0] {
+					case "pending":
+						db = db.Where("credential_issuer_organizations.activated_at IS NULL AND credential_issuer_organizations.rejected_at IS NULL")
+					case "approved":
+						db = db.Where("credential_issuer_organizations.activated_at IS NOT NULL AND credential_issuer_organizations.rejected_at IS NULL")
+					case "rejected":
+						db = db.Where("credential_issuer_organizations.rejected_at IS NOT NULL")
+					default:
+						return nil, 0, domain.NewError(domain.CodeSystemValidation)
+					}
+				}
+			} else if f.Column == "holder_user_id" && f.Operator == domainQuery.OperatorEqual {
+				db = db.Where(
+					"((credential_issuer_organizations.activated_at IS NOT NULL AND credential_issuer_organizations.rejected_at IS NULL AND credential_issuer_organizations.active = ?) OR "+
+						"(credential_issuer_organizations.submitter_user_id = ? AND (credential_issuer_organizations.activated_at IS NULL OR credential_issuer_organizations.rejected_at IS NOT NULL)))",
+					true, f.GetValue(),
+				)
+			} else if f.Column == "active" {
+				switch f.Operator {
+				case domainQuery.OperatorEqual:
+					val := strings.EqualFold(f.GetValue(), "true") || f.GetValue() == "1"
+					db = db.Where("credential_issuer_organizations.active = ?", val)
+				case domainQuery.OperatorNotEqual:
+					val := strings.EqualFold(f.GetValue(), "true") || f.GetValue() == "1"
+					db = db.Where("credential_issuer_organizations.active != ?", val)
+				}
+			} else {
+				remaining = append(remaining, f)
+			}
+		}
+		query.Filters = remaining
+	}
+
 	if query != nil {
 		if query.HasSearch() {
-			db = db.Where("LOWER(name) LIKE LOWER(?)", "%"+query.Search+"%")
+			db = db.Where("LOWER(credential_issuer_organizations.name) LIKE LOWER(?)", "%"+query.Search+"%")
 		}
 		if query.HasFilters() {
 			db = gormhelpers.ApplyFilters(db, query.Filters, allowedIssuerOrganizationFilterColumns, "")
@@ -175,7 +243,11 @@ func (r *gormIssuerOrganizationRepository) Get(ctx context.Context, query *domai
 	db = gormhelpers.ApplySorts(db, query, allowedIssuerOrganizationSortColumns, "name ASC", nil, "id ASC")
 	db = gormhelpers.ApplyPagination(db, query)
 	var rows []model.CredentialIssuerOrganization
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.
+		Preload("Submitter").
+		Preload("Approver").
+		Preload("Rejecter").
+		Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	out := make([]domain.CredentialIssuerOrganization, len(rows))
@@ -211,11 +283,46 @@ func (r *gormIssuerOrganizationRepository) Update(ctx context.Context, orgs ...d
 		}
 		return nil, false
 	})
-	// Active is a bool without a pointer; callers toggling it include the
-	// field explicitly, so always emit the CASE branch for update calls.
 	addCol("active", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
 		return o.Active, true
 	})
+	addCol("submitter_user_id", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.SubmitterUserId != nil {
+			return *o.SubmitterUserId, true
+		}
+		return nil, false
+	})
+	addCol("approver_user_id", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.ApproverUserId != nil {
+			return *o.ApproverUserId, true
+		}
+		return nil, false
+	})
+	addCol("rejecter_user_id", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.RejecterUserId != nil {
+			return *o.RejecterUserId, true
+		}
+		return nil, false
+	})
+	addCol("rejection_reason", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.RejectionReason != nil {
+			return *o.RejectionReason, true
+		}
+		return nil, false
+	})
+	addCol("activated_at", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.ActivatedAt != nil {
+			return *o.ActivatedAt, true
+		}
+		return nil, false
+	})
+	addCol("rejected_at", func(o domain.CredentialIssuerOrganization) (interface{}, bool) {
+		if o.RejectedAt != nil {
+			return *o.RejectedAt, true
+		}
+		return nil, false
+	})
+
 	if len(clauses) == 0 {
 		return []domain.CredentialIssuerOrganization{}, nil
 	}

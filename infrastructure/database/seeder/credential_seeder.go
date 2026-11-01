@@ -97,33 +97,15 @@ const (
 	extractFailed
 )
 
-// credMetadata is the type/organization shape of the row.
-type credMetadata int
-
-const (
-	// metadataResolved — FKs set, nothing staged. Direct issuance always, and
-	// a submission whose names matched existing taxonomy rows.
-	metadataResolved credMetadata = iota
-	// metadataStaged — free text only, FKs null. A submission that named
-	// nothing the taxonomy knows; illegal on an approved row
-	// (chk_credentials_activated_metadata_resolved).
-	metadataStaged
-	// metadataResolvedFromStaged — a reviewer ran ResolveMetadata: the FKs are
-	// filled in but the submitted name survives for audit, since ResolveMetadata
-	// never clears it.
-	metadataResolvedFromStaged
-)
-
 // seedCredSpec describes one credential as a workflow plus an end state,
-// instead of as a bag of timestamps. Everything else (participants, staged
-// names, competency links, extraction) is derived from these fields, so an
+// instead of as a bag of timestamps. Everything else (participants,
+// competency links, extraction) is derived from these fields, so an
 // impossible combination cannot be written by accident.
 type seedCredSpec struct {
 	name     string
 	workflow credWorkflow
 	outcome  credOutcome
 	extract  credExtract
-	metadata credMetadata
 
 	holderID string // credential subject
 	// officerID is the Issuer+ who issued it directly, or who reviewed the
@@ -152,14 +134,6 @@ type seedCredActors struct {
 	holder        string
 	deletedHolder string
 }
-
-// Staged free text deliberately matches no taxonomy row — a submit that hit an
-// existing name would have resolved it to the FK instead of staging it.
-const (
-	seedStagedTypeName       = "Sertifikat Pelatihan Mandiri"
-	seedStagedOrgName        = "Lembaga Pelatihan Swadaya Nusantara"
-	seedStagedCompetencyName = "Kompetensi Belum Terdaftar"
-)
 
 func (s *CredentialSeeder) Seed(ctx context.Context) error {
 	users, _, err := s.userRepo.Get(ctx, nil)
@@ -199,25 +173,31 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("credential seeder: fetch types: %w", err)
 	}
-	activeTypes := lo.Filter(types, func(t domain.CredentialType, _ int) bool { return t.Active })
+	activeTypes := lo.Filter(types, func(t domain.CredentialType, _ int) bool {
+		return t.Active && t.Status() == domain.ReferenceStatusApproved
+	})
 	if len(activeTypes) == 0 {
-		return fmt.Errorf("credential seeder: no active credential types found")
+		return fmt.Errorf("credential seeder: no active approved credential types found")
 	}
 
 	orgs, _, err := s.issuerOrgRepo.Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("credential seeder: fetch orgs: %w", err)
 	}
-	activeOrgs := lo.Filter(orgs, func(o domain.CredentialIssuerOrganization, _ int) bool { return o.Active })
+	activeOrgs := lo.Filter(orgs, func(o domain.CredentialIssuerOrganization, _ int) bool {
+		return o.Active && o.Status() == domain.ReferenceStatusApproved
+	})
 	if len(activeOrgs) == 0 {
-		return fmt.Errorf("credential seeder: no active issuer orgs found")
+		return fmt.Errorf("credential seeder: no active approved issuer orgs found")
 	}
 
 	comps, _, err := s.competencyRepo.Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("credential seeder: fetch competencies: %w", err)
 	}
-	activeComps := lo.Filter(comps, func(c domain.Competency, _ int) bool { return c.Active })
+	activeComps := lo.Filter(comps, func(c domain.Competency, _ int) bool {
+		return c.Active && c.Status() == domain.ReferenceStatusApproved
+	})
 
 	specs := append(seedCredFixedSpecs(actors), seedCredFillerSpecs(holders, issuers)...)
 	if err := seedCredValidateSpecs(specs, usersByID); err != nil {
@@ -240,8 +220,9 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 	}
 	filesByName := make(map[string]seedCredFile, len(specs))
 
+	ids := seedCredIDs()
 	for i, spec := range specs {
-		credID := deterministicULID(uint32(1000 + i))
+		credID := ids[i]
 		credType := activeTypes[i%len(activeTypes)]
 		org := activeOrgs[i%len(activeOrgs)]
 
@@ -289,13 +270,15 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 		}
 
 		c := domain.Credential{
-			ID:           credID,
-			HolderUserID: spec.holderID,
-			Number:       &number,
-			Name:         spec.name,
-			FileHash:     fileHash,
-			FileURI:      lo.ToPtr(filename),
-			IssuedAt:     issuedAt,
+			ID:                   credID,
+			HolderUserID:         spec.holderID,
+			Number:               &number,
+			Name:                 spec.name,
+			FileHash:             fileHash,
+			FileURI:              lo.ToPtr(filename),
+			IssuedAt:             issuedAt,
+			TypeID:               credType.Id,
+			IssuerOrganizationID: org.Id,
 		}
 
 		// Participants and creation time. Direct issuance writes the row at
@@ -312,40 +295,13 @@ func (s *CredentialSeeder) Seed(ctx context.Context) error {
 			c.CreatedAt = issuedAt.Add(30 * 24 * time.Hour)
 		}
 
-		switch spec.metadata {
-		case metadataResolved:
-			c.TypeID = &credType.Id
-			c.IssuerOrganizationID = &org.Id
-		case metadataStaged:
-			c.SubmittedTypeName = lo.ToPtr(seedStagedTypeName)
-			c.SubmittedIssuerOrganizationName = lo.ToPtr(seedStagedOrgName)
-		case metadataResolvedFromStaged:
-			c.SubmittedTypeName = lo.ToPtr(seedStagedTypeName)
-			c.SubmittedIssuerOrganizationName = lo.ToPtr(seedStagedOrgName)
-			c.TypeID = &credType.Id
-			c.IssuerOrganizationID = &org.Id
-		}
-
-		// Competencies. A submission stages the names the holder typed and gets
-		// resolved_id stamped once a reviewer links them; direct issuance takes
-		// competency ids and only writes join rows. The join row and the
-		// resolved_id are always written together (ResolveMetadata does both).
+		// Competencies: directly linked via join table.
 		if len(activeComps) > 0 {
 			comp := activeComps[i%len(activeComps)]
-			resolved := spec.metadata != metadataStaged
-			if spec.workflow == workflowSubmit {
-				sc := domain.SubmittedCompetency{Name: seedStagedCompetencyName}
-				if resolved {
-					sc = domain.SubmittedCompetency{Name: comp.Name, ResolvedID: &comp.Id}
-				}
-				c.SubmittedCompetencies = domain.SubmittedCompetencies{sc}
-			}
-			if resolved {
-				compCredLinks = append(compCredLinks, domain.CompetencyCredential{
-					CompetencyId: comp.Id,
-					CredentialId: credID,
-				})
-			}
+			compCredLinks = append(compCredLinks, domain.CompetencyCredential{
+				CompetencyId: comp.Id,
+				CredentialId: credID,
+			})
 		}
 
 		// Review. Direct issuance stamps approval at creation; a submission
@@ -441,29 +397,29 @@ func seedCredFixedSpecs(a seedCredActors) []seedCredSpec {
 		// ── A · direct issuance (Issuer+ writes it, born approved) ──────────
 		{
 			name: "Ijazah Sarjana Komputer", workflow: workflowIssue,
-			outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.issuer,
 		},
 		// Admin and SuperAdmin outrank Issuer, so they issue directly too.
 		{
 			name: "Transkrip Akademik S1", workflow: workflowIssue,
-			outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.admin,
 		},
 		{
 			name: "SKPI Sarjana Sistem Informasi", workflow: workflowIssue,
-			outcome: outcomeApproved, extract: extractPending, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractPending,
 			holderID: a.holder, officerID: a.superAdmin,
 		},
 		// Expiry is an attribute of an approved row, not a status of its own.
 		{
 			name: "Sertifikasi Lisensi Tahunan", workflow: workflowIssue,
-			outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.issuer, expired: true,
 		},
 		{
 			name: "Ijazah Dibatalkan Rektorat", workflow: workflowIssue,
-			outcome: outcomeRevoked, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeRevoked, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.issuer, revokerID: a.admin,
 		},
 		// Held by a soft-deleted holder: the verify path answers holder_disabled.
@@ -471,41 +427,41 @@ func seedCredFixedSpecs(a seedCredActors) []seedCredSpec {
 		// issuer's wallet and a deregistered signer would revert on chain.
 		{
 			name: "Sertifikat Kompetensi Alumni Nonaktif", workflow: workflowIssue,
-			outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractSucceeded,
 			holderID: a.deletedHolder, officerID: a.issuer,
 		},
 
 		// ── B · self-submission, then review ────────────────────────────────
 		{
 			name: "Sertifikat Keahlian Golang Backend", workflow: workflowSubmit,
-			outcome: outcomePending, extract: extractUnextracted, metadata: metadataResolved,
+			outcome: outcomePending, extract: extractUnextracted,
 			holderID: a.holder,
 		},
 		{
 			name: "Workshop Natural Language Processing", workflow: workflowSubmit,
-			outcome: outcomePending, extract: extractUnextracted, metadata: metadataStaged,
+			outcome: outcomePending, extract: extractUnextracted,
 			holderID: a.holder,
 		},
 		{
 			name: "Certified Kubernetes Administrator", workflow: workflowSubmit,
-			outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolvedFromStaged,
+			outcome: outcomeApproved, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.issuer,
 		},
 		// Approved but extraction failed — the only ReExtract-eligible state.
 		{
 			name: "Sertifikat Pindai Kualitas Rendah", workflow: workflowSubmit,
-			outcome: outcomeApproved, extract: extractFailed, metadata: metadataResolved,
+			outcome: outcomeApproved, extract: extractFailed,
 			holderID: a.holder, officerID: a.admin,
 		},
-		// Rejected with its staged names never resolved, the way Reject leaves them.
+		// Rejected submission.
 		{
 			name: "Pengajuan Ijazah Duplikat", workflow: workflowSubmit,
-			outcome: outcomeRejected, extract: extractUnextracted, metadata: metadataStaged,
+			outcome: outcomeRejected, extract: extractUnextracted,
 			holderID: a.holder, officerID: a.issuer,
 		},
 		{
 			name: "Sertifikasi Kompetensi Dicabut", workflow: workflowSubmit,
-			outcome: outcomeRevoked, extract: extractSucceeded, metadata: metadataResolved,
+			outcome: outcomeRevoked, extract: extractSucceeded,
 			holderID: a.holder, officerID: a.issuer, revokerID: a.issuer,
 		},
 
@@ -515,22 +471,19 @@ func seedCredFixedSpecs(a seedCredActors) []seedCredSpec {
 		// legal. Neither row is approved, so seed-chain skips both.
 		{
 			name: "Berkas Ganda - Pengajuan Ditolak", workflow: workflowSubmit,
-			outcome: outcomeRejected, extract: extractUnextracted, metadata: metadataResolved,
+			outcome: outcomeRejected, extract: extractUnextracted,
 			holderID: a.holder, officerID: a.issuer,
 		},
 		{
 			name: "Berkas Ganda - Pengajuan Ulang", workflow: workflowSubmit,
-			outcome: outcomePending, extract: extractUnextracted, metadata: metadataResolved,
+			outcome: outcomePending, extract: extractUnextracted,
 			holderID: a.holder, fileTwin: "Berkas Ganda - Pengajuan Ditolak",
 		},
 	}
 }
 
-// seedCredFillerSpecs repeats the same workflow shapes across the randomized
-// user pool, so list endpoints and pagination have volume to work with. Shapes
-// only — every invariant worth asserting is covered by the fixed matrix.
-func seedCredFillerSpecs(holders, issuers []domain.User) []seedCredSpec {
-	names := []string{
+func seedCredFillerNames() []string {
+	return []string{
 		"Sarjana Teknik Informatika", "Magister Sistem Informasi", "Sertifikasi DevOps Engineer",
 		"Certified Cloud Architect", "Pelatihan Fullstack Web", "Sertifikat Ethical Hacking",
 		"Kursus Machine Learning Terapan", "Sertifikat Data Science Profesional",
@@ -545,16 +498,30 @@ func seedCredFillerSpecs(holders, issuers []domain.User) []seedCredSpec {
 		"Pengajuan Dokumen Non-Akademik", "Sertifikat Kadaluarsa Pemegang",
 		"Surat Keputusan Gugur",
 	}
+}
 
+func seedCredIDs() []string {
+	ids := make([]string, len(seedCredFixedSpecs(seedCredActors{}))+len(seedCredFillerNames()))
+	for i := range ids {
+		ids[i] = deterministicULID(uint32(1000 + i))
+	}
+	return ids
+}
+
+// seedCredFillerSpecs repeats the same workflow shapes across the randomized
+// user pool, so list endpoints and pagination have volume to work with. Shapes
+// only — every invariant worth asserting is covered by the fixed matrix.
+func seedCredFillerSpecs(holders, issuers []domain.User) []seedCredSpec {
+	names := seedCredFillerNames()
 	shapes := []seedCredSpec{
-		{workflow: workflowIssue, outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolved},
-		{workflow: workflowSubmit, outcome: outcomeApproved, extract: extractSucceeded, metadata: metadataResolvedFromStaged, expired: true},
-		{workflow: workflowSubmit, outcome: outcomePending, extract: extractUnextracted, metadata: metadataStaged},
-		{workflow: workflowIssue, outcome: outcomeApproved, extract: extractPending, metadata: metadataResolved, expired: true},
-		{workflow: workflowSubmit, outcome: outcomePending, extract: extractUnextracted, metadata: metadataResolved},
-		{workflow: workflowSubmit, outcome: outcomeRejected, extract: extractUnextracted, metadata: metadataStaged},
-		{workflow: workflowIssue, outcome: outcomeRevoked, extract: extractSucceeded, metadata: metadataResolved},
-		{workflow: workflowSubmit, outcome: outcomeApproved, extract: extractFailed, metadata: metadataResolved},
+		{workflow: workflowIssue, outcome: outcomeApproved, extract: extractSucceeded},
+		{workflow: workflowSubmit, outcome: outcomeApproved, extract: extractSucceeded, expired: true},
+		{workflow: workflowSubmit, outcome: outcomePending, extract: extractUnextracted},
+		{workflow: workflowIssue, outcome: outcomeApproved, extract: extractPending, expired: true},
+		{workflow: workflowSubmit, outcome: outcomePending, extract: extractUnextracted},
+		{workflow: workflowSubmit, outcome: outcomeRejected, extract: extractUnextracted},
+		{workflow: workflowIssue, outcome: outcomeRevoked, extract: extractSucceeded},
+		{workflow: workflowSubmit, outcome: outcomeApproved, extract: extractFailed},
 	}
 
 	specs := make([]seedCredSpec, len(names))
@@ -607,7 +574,6 @@ func seedCredValidateActors(byID map[string]domain.User, a seedCredActors) error
 // seedCredValidateSpecs rejects a spec that no code path could have produced,
 // or that would break something downstream:
 //
-//   - an approved row with staged metadata violates a CHECK constraint;
 //   - extraction only exists once a row has been approved;
 //   - seed-chain signs each mint and revoke batch with the officer's wallet, and
 //     CredentialRegistry reverts RoleBelowIssuerError for a signer below Issuer.
@@ -621,9 +587,6 @@ func seedCredValidateSpecs(specs []seedCredSpec, byID map[string]domain.User) er
 			return fmt.Errorf("credential seeder: %q has unknown holder %s", spec.name, spec.holderID)
 		}
 		approved := spec.outcome == outcomeApproved || spec.outcome == outcomeRevoked
-		if approved && spec.metadata == metadataStaged {
-			return fmt.Errorf("credential seeder: %q is approved with unresolved metadata", spec.name)
-		}
 		if !approved && spec.extract != extractUnextracted {
 			return fmt.Errorf("credential seeder: %q extracts without ever being approved", spec.name)
 		}

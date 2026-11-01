@@ -119,8 +119,6 @@ func RegisterRoutes(p RouteParams) {
 				creds.GET("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Paginate)
 				creds.GET("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Find)
 				creds.PUT("/:id/competencies", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.LinkCompetencies)
-				creds.GET("/:id/metadata/suggestions", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.SuggestMetadata)
-				creds.PUT("/:id/metadata", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.ResolveMetadata)
 				creds.POST("/batch/issue", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Issue)
 				creds.POST("/batch/submit", p.CredentialHandler.Submit)
 				creds.POST("/batch/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialHandler.Approve)
@@ -138,6 +136,9 @@ func RegisterRoutes(p RouteParams) {
 			{
 				credentialTypes.GET("", p.CredentialTypeHandler.Paginate)
 				credentialTypes.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Store)
+				credentialTypes.POST("/submit", p.CredentialTypeHandler.Submit)
+				credentialTypes.POST("/:id/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Approve)
+				credentialTypes.POST("/:id/reject", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Reject)
 				credentialTypes.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Update)
 				credentialTypes.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialTypeHandler.Destroy)
 			}
@@ -145,6 +146,9 @@ func RegisterRoutes(p RouteParams) {
 			{
 				issuerOrganizations.GET("", p.CredentialIssuerOrganizationHandler.Paginate)
 				issuerOrganizations.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Store)
+				issuerOrganizations.POST("/submit", p.CredentialIssuerOrganizationHandler.Submit)
+				issuerOrganizations.POST("/:id/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Approve)
+				issuerOrganizations.POST("/:id/reject", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Reject)
 				issuerOrganizations.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Update)
 				issuerOrganizations.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CredentialIssuerOrganizationHandler.Destroy)
 			}
@@ -152,6 +156,9 @@ func RegisterRoutes(p RouteParams) {
 			{
 				competencies.GET("", p.CompetencyHandler.Paginate)
 				competencies.POST("", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Store)
+				competencies.POST("/submit", p.CompetencyHandler.Submit)
+				competencies.POST("/:id/approve", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Approve)
+				competencies.POST("/:id/reject", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Reject)
 				competencies.PUT("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Update)
 				competencies.DELETE("/:id", gin.HandlerFunc(p.IssuerRoleMiddleware), p.CompetencyHandler.Destroy)
 			}

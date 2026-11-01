@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/infrastructure/database/seeder"
 	"CredChain_Golang/tests/db"
@@ -23,16 +24,14 @@ func TestCredentialIssuerOrganizationSeeder_SeedsOrgs(t *testing.T) {
 
 	orgs, _, err := repo.Get(ctx, nil)
 	require.NoError(t, err)
-	assert.Len(t, orgs, 6)
+	assert.Len(t, orgs, 9)
 
-	names := map[string]bool{}
+	byName := map[string]domain.CredentialIssuerOrganization{}
 	for _, o := range orgs {
-		names[o.Name] = true
-		// Guards the zero-value trap: the GORM tag omits `default:true`, so a
-		// seeder that forgets Active would insert every row inactive.
-		assert.True(t, o.Active, "seeded organization must be active: %s", o.Name)
+		byName[o.Name] = o
 	}
-	expected := []string{
+
+	expectedActive := []string{
 		"Universitas Harkat Negeri",
 		"Badan Nasional Sertifikasi Profesi (BNSP)",
 		"Udemy",
@@ -40,9 +39,37 @@ func TestCredentialIssuerOrganizationSeeder_SeedsOrgs(t *testing.T) {
 		"Huawei",
 		"Cyfrin Updraft",
 	}
-	for _, n := range expected {
-		assert.True(t, names[n], "missing org: %s", n)
+	for _, n := range expectedActive {
+		o, ok := byName[n]
+		require.True(t, ok, "missing org: %s", n)
+		assert.True(t, o.Active, "seeded organization must be active: %s", o.Name)
+		assert.Equal(t, domain.ReferenceStatusApproved, o.Status())
+		assert.NotNil(t, o.ApproverUserId)
+		assert.NotNil(t, o.ActivatedAt)
 	}
+
+	deactivated, ok := byName["Lembaga Sertifikasi Profesi Vokasi"]
+	require.True(t, ok)
+	assert.False(t, deactivated.Active)
+	assert.Equal(t, domain.ReferenceStatusApproved, deactivated.Status(), "deactivated approved org remains approved")
+	assert.NotNil(t, deactivated.ActivatedAt)
+
+	pending, ok := byName["Lembaga Pelatihan Swadaya Nusantara"]
+	require.True(t, ok)
+	assert.False(t, pending.Active)
+	assert.Equal(t, domain.ReferenceStatusPending, pending.Status())
+	assert.NotNil(t, pending.SubmitterUserId)
+	assert.Nil(t, pending.ActivatedAt)
+	assert.Nil(t, pending.RejectedAt)
+
+	rejected, ok := byName["Organisasi Penerbit Tak Dikenal"]
+	require.True(t, ok)
+	assert.False(t, rejected.Active)
+	assert.Equal(t, domain.ReferenceStatusRejected, rejected.Status())
+	assert.NotNil(t, rejected.SubmitterUserId)
+	assert.NotNil(t, rejected.RejecterUserId)
+	assert.NotNil(t, rejected.RejectedAt)
+	assert.NotNil(t, rejected.RejectionReason)
 }
 
 func TestCredentialIssuerOrganizationSeeder_DeterministicIDs(t *testing.T) {

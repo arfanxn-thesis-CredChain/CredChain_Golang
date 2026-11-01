@@ -538,16 +538,16 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 		return *c.IssuerUserID, true
 	})
 	addCol("issuer_organization_id", func(c domain.Credential) (interface{}, bool) {
-		if c.IssuerOrganizationID == nil {
+		if c.IssuerOrganizationID == "" {
 			return nil, false
 		}
-		return *c.IssuerOrganizationID, true
+		return c.IssuerOrganizationID, true
 	})
 	addCol("type_id", func(c domain.Credential) (interface{}, bool) {
-		if c.TypeID == nil {
+		if c.TypeID == "" {
 			return nil, false
 		}
-		return *c.TypeID, true
+		return c.TypeID, true
 	})
 	addCol("expires_at", func(c domain.Credential) (interface{}, bool) {
 		if c.ExpiresAt == nil {
@@ -590,16 +590,6 @@ func (r *gormCredentialRepository) updateBatchCase(ctx context.Context, items []
 			return nil, false
 		}
 		b, err := json.Marshal(c.Meta)
-		if err != nil {
-			return nil, false
-		}
-		return string(b), true
-	})
-	addCol("submitted_competencies", func(c domain.Credential) (interface{}, bool) {
-		if c.SubmittedCompetencies == nil {
-			return nil, false
-		}
-		b, err := json.Marshal(c.SubmittedCompetencies)
 		if err != nil {
 			return nil, false
 		}

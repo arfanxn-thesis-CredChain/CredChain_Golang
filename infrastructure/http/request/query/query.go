@@ -26,7 +26,7 @@ func (r *QueryRequest) Validate() error {
 	)
 }
 
-func validateFilter(value interface{}) error {
+func validateFilter(value any) error {
 	filter, ok := value.(string)
 	if !ok {
 		return validation.NewError("validation_string_required", "must be a string")
@@ -38,13 +38,13 @@ func validateFilter(value interface{}) error {
 	if err != nil {
 		return validation.NewError("validation_syntax_invalid", "has invalid syntax")
 	}
-	if column == "status" && (op != domainQuery.OperatorEqual || len(values) != 1 || values[0] != "approved") {
-		return validation.NewError("validation_syntax_invalid", "status supports only =approved")
+	if column == "status" && (op != domainQuery.OperatorEqual || len(values) != 1 || (values[0] != "approved" && values[0] != "pending" && values[0] != "rejected")) {
+		return validation.NewError("validation_syntax_invalid", "status supports only =approved, =pending, =rejected")
 	}
 	return nil
 }
 
-func validateSort(value interface{}) error {
+func validateSort(value any) error {
 	sort, ok := value.(string)
 	if !ok {
 		return validation.NewError("validation_string_required", "must be a string")

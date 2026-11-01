@@ -14,6 +14,9 @@ import (
 type CredentialIssuerOrganizationHandler interface {
 	Paginate(c *gin.Context)
 	Store(c *gin.Context)
+	Submit(c *gin.Context)
+	Approve(c *gin.Context)
+	Reject(c *gin.Context)
 	Update(c *gin.Context)
 	Destroy(c *gin.Context)
 }
@@ -85,6 +88,58 @@ func (h *credentialIssuerOrganizationHandler) Store(c *gin.Context) {
 		return
 	}
 	responder.Send(c, domain.CodeIssuerOrganizationStoreSuccess, response.FromDomainIssuerOrganization(*created))
+}
+
+func (h *credentialIssuerOrganizationHandler) Submit(c *gin.Context) {
+	var req IssuerOrganizationSubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	submitted, err := h.issuerOrganizationSvc.Submit(c.Request.Context(), req.Name)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeIssuerOrganizationSubmitSuccess, response.FromDomainIssuerOrganization(*submitted))
+}
+
+func (h *credentialIssuerOrganizationHandler) Approve(c *gin.Context) {
+	id := c.Param("id")
+	approved, err := h.issuerOrganizationSvc.Approve(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeIssuerOrganizationApproveSuccess, response.FromDomainIssuerOrganization(*approved))
+}
+
+func (h *credentialIssuerOrganizationHandler) Reject(c *gin.Context) {
+	id := c.Param("id")
+	var req IssuerOrganizationRejectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		responder.SendValidationError(c, err)
+		return
+	}
+	rejected, err := h.issuerOrganizationSvc.Reject(c.Request.Context(), id, req.Reason)
+	if err != nil {
+		c.Error(err)
+		responder.SendError(c, err)
+		return
+	}
+	responder.Send(c, domain.CodeIssuerOrganizationRejectSuccess, response.FromDomainIssuerOrganization(*rejected))
 }
 
 func (h *credentialIssuerOrganizationHandler) Update(c *gin.Context) {

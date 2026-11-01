@@ -140,8 +140,8 @@ func TestBuildSubmitItems_ParsesExtendedFields_NoHolderKey(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, items, 1)
 	it := items[0]
-	assert.Equal(t, "type-1", *it.TypeID)
-	assert.Equal(t, "org-1", *it.IssuerOrganizationID)
+	assert.Equal(t, "type-1", it.TypeID)
+	assert.Equal(t, "org-1", it.IssuerOrganizationID)
 	assert.Equal(t, &number, it.Number)
 	assert.Equal(t, "2026-08-01", *it.IssuedAt)
 	assert.Equal(t, "2026-09-01", *it.ExpiresAt)
@@ -655,38 +655,6 @@ func withHolderAuth(t *testing.T, req *http.Request) {
 	t.Helper()
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
 	*req = *req.WithContext(context.WithValue(req.Context(), httpContext.UserKey, &user))
-}
-
-func TestResolveMetadataRouteRequiresIssuer(t *testing.T) {
-	r := newTestRouter(t)
-
-	req := httptest.NewRequest(http.MethodPut,
-		"/api/credentials/01JCRED000000000000000000/metadata",
-		strings.NewReader(`{"type_id":"01JTYPE00000000000000000"}`))
-	req.Header.Set("Content-Type", "application/json")
-	withHolderAuth(t, req)
-
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("holder got %d, want 403", w.Code)
-	}
-}
-
-func TestSuggestMetadataRouteRequiresIssuer(t *testing.T) {
-	r := newTestRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/credentials/01JCRED000000000000000000/metadata/suggestions", nil)
-	withHolderAuth(t, req)
-
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("holder got %d, want 403", w.Code)
-	}
 }
 
 func TestTaxonomyUpdateDestroyRequiresIssuer(t *testing.T) {

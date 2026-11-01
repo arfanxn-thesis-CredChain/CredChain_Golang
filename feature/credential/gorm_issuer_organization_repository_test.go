@@ -3,9 +3,11 @@ package credential
 import (
 	"context"
 	"testing"
+	"time"
 
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/tests/db"
 
 	"github.com/stretchr/testify/assert"
@@ -155,4 +157,42 @@ func TestGormIssuerOrganizationSuggestByName(t *testing.T) {
 	if len(got) == 0 || got[0].Name != "Universitas Harkat Negeri" {
 		t.Fatalf("want Universitas Harkat Negeri first, got %+v", got)
 	}
+}
+
+func TestGormIssuerOrganizationRepository_Get_HolderFilter(t *testing.T) {
+	repo := openIssuerOrgRepo(t)
+	now := time.Now()
+	holderID := "holder-001"
+	otherID := "other-002"
+
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o1", Name: "Approved Active", Active: true, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o2", Name: "Approved Inactive", Active: false, ActivatedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o3", Name: "Own Pending", Active: false, SubmitterUserId: &holderID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o4", Name: "Other Pending", Active: false, SubmitterUserId: &otherID,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o5", Name: "Own Rejected", Active: false, SubmitterUserId: &holderID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o6", Name: "Other Rejected", Active: false, SubmitterUserId: &otherID, RejectedAt: &now,
+	}).Error)
+	require.NoError(t, repo.db.Create(&model.CredentialIssuerOrganization{
+		Id: "o7", Name: "Own Approved Inactive", Active: false, SubmitterUserId: &holderID, ActivatedAt: &now,
+	}).Error)
+
+	got, total, err := repo.Get(context.Background(), &domainQuery.Query{
+		Filters: []domainQuery.Filter{{Column: "holder_user_id", Operator: domainQuery.OperatorEqual, Values: []string{holderID}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+	require.Len(t, got, 3)
+	ids := []string{got[0].Id, got[1].Id, got[2].Id}
+	assert.ElementsMatch(t, []string{"o1", "o3", "o5"}, ids)
 }
