@@ -227,6 +227,12 @@ var allDomainCodes = []int{
 	domain.CodeCredentialMetadataResolveNumberDuplicate,
 	domain.CodeCredentialApproveUnresolvedMetadata,
 	domain.CodeCredentialApproveInactiveMetadata,
+	// Credential Notifications
+	domain.CodeCredentialNotificationFetchSuccess,
+	domain.CodeCredentialNotificationUnreadCountSuccess,
+	domain.CodeCredentialNotificationMarkReadSuccess,
+	domain.CodeCredentialNotificationMarkAllReadSuccess,
+	domain.CodeCredentialNotificationNotFound,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

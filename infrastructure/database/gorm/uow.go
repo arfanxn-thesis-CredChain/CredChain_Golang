@@ -22,17 +22,23 @@ type UserTokenRepositoryFactory = RepositoryFactory[domain.UserTokenRepository]
 // from a GORM DB connection
 type CompetencyCredentialRepositoryFactory = RepositoryFactory[domain.CompetencyCredentialRepository]
 
+// CredentialNotificationRepositoryFactory creates a CredentialNotificationRepository
+// from a GORM DB connection
+type CredentialNotificationRepositoryFactory = RepositoryFactory[domain.CredentialNotificationRepository]
+
 // GormUnitOfWork implements domain.UnitOfWork using GORM transactions
 type GormUnitOfWork struct {
-	db                                *gorm.DB
-	userRepository                    domain.UserRepository
-	credentialRepository              domain.CredentialRepository
-	userTokenRepository               domain.UserTokenRepository
-	competencyCredentialRepository    domain.CompetencyCredentialRepository
-	newUserRepository                 UserRepositoryFactory
-	newCredentialRepository           CredentialRepositoryFactory
-	newUserTokenRepository            UserTokenRepositoryFactory
-	newCompetencyCredentialRepository CompetencyCredentialRepositoryFactory
+	db                                  *gorm.DB
+	userRepository                      domain.UserRepository
+	credentialRepository                domain.CredentialRepository
+	userTokenRepository                 domain.UserTokenRepository
+	competencyCredentialRepository      domain.CompetencyCredentialRepository
+	credentialNotificationRepository    domain.CredentialNotificationRepository
+	newUserRepository                   UserRepositoryFactory
+	newCredentialRepository             CredentialRepositoryFactory
+	newUserTokenRepository              UserTokenRepositoryFactory
+	newCompetencyCredentialRepository   CompetencyCredentialRepositoryFactory
+	newCredentialNotificationRepository CredentialNotificationRepositoryFactory
 }
 
 // NewGormUnitOfWork creates a new UnitOfWork instance with repository factories
@@ -42,13 +48,15 @@ func NewGormUnitOfWork(
 	newCredentialRepository CredentialRepositoryFactory,
 	newUserTokenRepository UserTokenRepositoryFactory,
 	newCompetencyCredentialRepository CompetencyCredentialRepositoryFactory,
+	newCredentialNotificationRepository CredentialNotificationRepositoryFactory,
 ) domain.UnitOfWork {
 	return &GormUnitOfWork{
-		db:                                db,
-		newUserRepository:                 newUserRepository,
-		newCredentialRepository:           newCredentialRepository,
-		newUserTokenRepository:            newUserTokenRepository,
-		newCompetencyCredentialRepository: newCompetencyCredentialRepository,
+		db:                                  db,
+		newUserRepository:                   newUserRepository,
+		newCredentialRepository:             newCredentialRepository,
+		newUserTokenRepository:              newUserTokenRepository,
+		newCompetencyCredentialRepository:   newCompetencyCredentialRepository,
+		newCredentialNotificationRepository: newCredentialNotificationRepository,
 	}
 }
 
@@ -60,13 +68,15 @@ func (uow *GormUnitOfWork) Execute(ctx context.Context, fn func(uow domain.UnitO
 		txCredRepo := uow.newCredentialRepository(tx)
 		txTokenRepo := uow.newUserTokenRepository(tx)
 		txCompCredRepo := uow.newCompetencyCredentialRepository(tx)
+		txCredNotifRepo := uow.newCredentialNotificationRepository(tx)
 
 		txUow := &GormUnitOfWork{
-			db:                             tx,
-			userRepository:                 txUserRepo,
-			credentialRepository:           txCredRepo,
-			userTokenRepository:            txTokenRepo,
-			competencyCredentialRepository: txCompCredRepo,
+			db:                               tx,
+			userRepository:                   txUserRepo,
+			credentialRepository:             txCredRepo,
+			userTokenRepository:              txTokenRepo,
+			competencyCredentialRepository:   txCompCredRepo,
+			credentialNotificationRepository: txCredNotifRepo,
 		}
 
 		return fn(txUow)
@@ -91,4 +101,9 @@ func (uow *GormUnitOfWork) UserToken() domain.UserTokenRepository {
 // CompetencyCredential returns the CompetencyCredentialRepository for this transaction
 func (uow *GormUnitOfWork) CompetencyCredential() domain.CompetencyCredentialRepository {
 	return uow.competencyCredentialRepository
+}
+
+// CredentialNotification returns the CredentialNotificationRepository for this transaction
+func (uow *GormUnitOfWork) CredentialNotification() domain.CredentialNotificationRepository {
+	return uow.credentialNotificationRepository
 }

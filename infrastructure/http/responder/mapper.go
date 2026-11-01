@@ -247,6 +247,13 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialApproveUnresolvedMetadata:      "error_credential_approve_unresolved_metadata",
 	domain.CodeCredentialApproveInactiveMetadata:        "error_credential_approve_inactive_metadata",
 
+	// Credential Notifications
+	domain.CodeCredentialNotificationFetchSuccess:       "success_credential_notification_fetch",
+	domain.CodeCredentialNotificationUnreadCountSuccess: "success_credential_notification_unread_count",
+	domain.CodeCredentialNotificationMarkReadSuccess:    "success_credential_notification_mark_read",
+	domain.CodeCredentialNotificationMarkAllReadSuccess: "success_credential_notification_mark_all_read",
+	domain.CodeCredentialNotificationNotFound:           "error_credential_notification_not_found",
+
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -479,6 +486,13 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialMetadataResolveNumberDuplicate: http.StatusConflict,
 	domain.CodeCredentialApproveUnresolvedMetadata:      http.StatusUnprocessableEntity,
 	domain.CodeCredentialApproveInactiveMetadata:        http.StatusUnprocessableEntity,
+
+	// Credential Notifications
+	domain.CodeCredentialNotificationFetchSuccess:       http.StatusOK,
+	domain.CodeCredentialNotificationUnreadCountSuccess: http.StatusOK,
+	domain.CodeCredentialNotificationMarkReadSuccess:    http.StatusOK,
+	domain.CodeCredentialNotificationMarkAllReadSuccess: http.StatusOK,
+	domain.CodeCredentialNotificationNotFound:           http.StatusNotFound,
 
 }
 

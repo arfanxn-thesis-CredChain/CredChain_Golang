@@ -266,4 +266,11 @@ const (
 	CodeCredentialMetadataResolveNumberDuplicate = 401545
 	CodeCredentialApproveUnresolvedMetadata      = 401546
 	CodeCredentialApproveInactiveMetadata        = 401547
+
+	// ── Credential Notifications (16) ────────────────────────────────────────
+	CodeCredentialNotificationFetchSuccess       = 401600
+	CodeCredentialNotificationUnreadCountSuccess = 401601
+	CodeCredentialNotificationMarkReadSuccess    = 401602
+	CodeCredentialNotificationMarkAllReadSuccess = 401603
+	CodeCredentialNotificationNotFound           = 401640
 )

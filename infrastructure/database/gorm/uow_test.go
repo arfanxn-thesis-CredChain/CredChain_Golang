@@ -21,7 +21,8 @@ func TestGormUnitOfWork_Execute_CommitsOnSuccess(t *testing.T) {
 		user.NewGormUserRepository,
 		credential.NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
-		credential.NewGormCompetencyCredentialRepository)
+		credential.NewGormCompetencyCredentialRepository,
+		credential.NewGormCredentialNotificationRepository)
 
 	u := fixtures.NewDomainUser(fixtures.WithEmail("commit@x.com"))
 	err := uow.Execute(context.Background(), func(tx domain.UnitOfWork) error {
@@ -42,7 +43,8 @@ func TestGormUnitOfWork_Execute_RollsBackOnError(t *testing.T) {
 		user.NewGormUserRepository,
 		credential.NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
-		credential.NewGormCompetencyCredentialRepository)
+		credential.NewGormCompetencyCredentialRepository,
+		credential.NewGormCredentialNotificationRepository)
 
 	u := fixtures.NewDomainUser(fixtures.WithEmail("rollback@x.com"))
 	err := uow.Execute(context.Background(), func(tx domain.UnitOfWork) error {

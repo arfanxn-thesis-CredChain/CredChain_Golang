@@ -11,10 +11,12 @@ import (
 	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/feature/user"
+	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/infrastructure/database/seeder"
 	"CredChain_Golang/infrastructure/storage"
 	"CredChain_Golang/tests/db"
 	"CredChain_Golang/tests/fixtures"
+	"gorm.io/gorm"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +48,9 @@ func (m *mockExtractionRepo) FindRankedByIds(ctx context.Context, values []strin
 // seedCredentials runs the full dependency chain and returns everything a
 // caller needs to assert against the seeded credentials.
 type seededCredentials struct {
+	db               *gorm.DB
+	credRepo         domain.CredentialRepository
+	notificationRepo domain.CredentialNotificationRepository
 	creds            []domain.Credential
 	usersByID        map[string]domain.User
 	extractions      []domain.CredentialExtraction
@@ -58,6 +63,7 @@ func seedCredentials(t *testing.T) seededCredentials {
 	t.Helper()
 
 	gormDB := db.OpenInMemorySQLite(t)
+	require.NoError(t, gormDB.AutoMigrate(&model.CredentialNotification{}))
 	userRepo := user.NewGormUserRepository(gormDB)
 	userUnitRepo := user.NewGormUserUnitRepository(gormDB)
 	typeRepo := credential.NewGormCredentialTypeRepository(gormDB)
@@ -115,6 +121,9 @@ func seedCredentials(t *testing.T) seededCredentials {
 	require.NoError(t, err)
 
 	return seededCredentials{
+		db:               gormDB,
+		credRepo:         credRepo,
+		notificationRepo: credential.NewGormCredentialNotificationRepository(gormDB),
 		creds:            creds,
 		usersByID:        lo.SliceToMap(users, func(u domain.User) (string, domain.User) { return u.Id, u }),
 		extractions:      mockExtract.stored,

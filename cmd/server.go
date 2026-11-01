@@ -76,6 +76,9 @@ var serverCmd = &cobra.Command{
 				credential.NewCredentialPolicy,
 				credential.NewCredentialService,
 				credential.NewCredentialHandler,
+				credential.NewGormCredentialNotificationRepository,
+				credential.NewCredentialNotificationService,
+				credential.NewCredentialNotificationHandler,
 				overview.NewGormOverviewRepository,
 				overview.NewOverviewService,
 				overview.NewOverviewHandler,
@@ -91,6 +94,7 @@ var serverCmd = &cobra.Command{
 						credential.NewGormCredentialRepository,
 						user.NewGormUserTokenRepository,
 						credential.NewGormCompetencyCredentialRepository,
+						credential.NewGormCredentialNotificationRepository,
 					)
 				},
 				user.NewUserPolicy,

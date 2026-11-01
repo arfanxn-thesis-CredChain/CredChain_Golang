@@ -15,6 +15,7 @@ import (
 	pyai "CredChain_Golang/infrastructure/ai/pyai"
 	"CredChain_Golang/infrastructure/chain/contracts"
 	gormInfra "CredChain_Golang/infrastructure/database/gorm"
+	"CredChain_Golang/infrastructure/database/gorm/model"
 	httpContext "CredChain_Golang/infrastructure/http/context"
 	"CredChain_Golang/infrastructure/jobs"
 	"CredChain_Golang/infrastructure/storage"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/oklog/ulid/v2"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -2763,6 +2765,7 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 		NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
 		NewGormCompetencyCredentialRepository,
+		NewGormCredentialNotificationRepository,
 	)
 
 	ctx := context.Background()
@@ -3720,4 +3723,108 @@ func TestLinkCompetencies_EmptySetClearsLinks(t *testing.T) {
 	require.NoError(t, err)
 	compCredRepo.AssertCalled(t, "DestroyByCredentialId", mock.Anything, "cred-1")
 	compCredRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+func TestLifecycleNotificationsTransactionalIntegrity(t *testing.T) {
+	d := db.OpenInMemorySQLite(t)
+	require.NoError(t, d.AutoMigrate(&model.CredentialNotification{}))
+
+	credRepo := NewGormCredentialRepository(d).(*gormCredentialRepository)
+	typeRepo := NewGormCredentialTypeRepository(d)
+	orgRepo := NewGormCredentialIssuerOrganizationRepository(d)
+	compRepo := NewGormCompetencyRepository(d)
+	notifRepo := NewGormCredentialNotificationRepository(d)
+	uow := gormInfra.NewGormUnitOfWork(d,
+		user.NewGormUserRepository,
+		NewGormCredentialRepository,
+		user.NewGormUserTokenRepository,
+		NewGormCompetencyCredentialRepository,
+		NewGormCredentialNotificationRepository,
+	)
+
+	ctx := context.Background()
+	now := time.Now()
+	_, err := typeRepo.Store(ctx, domain.CredentialType{Id: "t1", Name: "Degree", Active: true, ActivatedAt: &now})
+	require.NoError(t, err)
+	_, err = orgRepo.Store(ctx, domain.CredentialIssuerOrganization{Id: "o1", Name: "UI", Active: true, ActivatedAt: &now})
+	require.NoError(t, err)
+
+	issuer := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	holder := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleHolder))
+	userRepo := user.NewGormUserRepository(d)
+	_, err = userRepo.Store(ctx, issuer, holder)
+	require.NoError(t, err)
+
+	regSvc := new(mocks.MockRegistryService)
+	enq := new(localMockEnqueuer)
+
+	svc := &credentialService{
+		repo:            credRepo,
+		uow:             uow,
+		userRepo:        userRepo,
+		typeRepo:        typeRepo,
+		orgRepo:         orgRepo,
+		competencyRepo:  compRepo,
+		policy:          &credentialPolicy{},
+		registryService: regSvc,
+		enqueuer:        enq,
+		cfg:             testConfig(),
+		storage:         &storage.Storage{Config: &config.Config{StoragePath: lo.ToPtr(t.TempDir())}},
+		logger:          zap.NewNop(),
+	}
+
+	authIssuerCtx := ctxWithAuth(&issuer)
+
+	// Test 1: Reject creates rejected notification and preserves email enqueue
+	cReject := domain.Credential{
+		ID:                   ulid.Make().String(),
+		HolderUserID:         holder.Id,
+		SubmitterUserID:      holder.Id,
+		IssuerOrganizationID: "o1",
+		TypeID:               "t1",
+		Name:                 "Submission to Reject",
+		IssuedAt:             now,
+	}
+	_, err = credRepo.Store(ctx, cReject)
+	require.NoError(t, err)
+
+	enq.On("EnqueueCredentialNotifications", mock.Anything, mock.MatchedBy(func(args []jobs.CredentialNotificationArgs) bool {
+		return len(args) == 1 && args[0].Event == jobs.NotificationEventRejected
+	})).Return(nil).Once()
+
+	_, err = svc.Reject(authIssuerCtx, []CredentialRejection{{ID: cReject.ID, Reason: "Invalid file"}})
+	require.NoError(t, err)
+
+	page, err := notifRepo.List(ctx, holder.Id, domain.CredentialNotificationListOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, domain.CredentialNotificationTypeRejected, page.Items[0].Type)
+	assert.Equal(t, cReject.ID, page.Items[0].CredentialID)
+	assert.Nil(t, page.Items[0].ReadAt)
+
+	// Test 2: Blockchain sync failure rolls back notification
+	cApprove := domain.Credential{
+		ID:                   ulid.Make().String(),
+		HolderUserID:         holder.Id,
+		SubmitterUserID:      holder.Id,
+		IssuerOrganizationID: "o1",
+		TypeID:               "t1",
+		Name:                 "Submission to Approve",
+		IssuedAt:             now,
+		FileHash:             "0x123456",
+	}
+	_, err = credRepo.Store(ctx, cApprove)
+	require.NoError(t, err)
+
+	regSvc.On("IssueCredentials", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("blockchain rpc error")).Once()
+
+	_, err = svc.Approve(authIssuerCtx, cApprove.ID)
+	require.Error(t, err)
+
+	pageAfterRollback, err := notifRepo.List(ctx, holder.Id, domain.CredentialNotificationListOptions{})
+	require.NoError(t, err)
+	// Only the previous rejected notification exists; approved row was rolled back
+	assert.Len(t, pageAfterRollback.Items, 1)
+	assert.Equal(t, cReject.ID, pageAfterRollback.Items[0].CredentialID)
 }

@@ -268,6 +268,7 @@ Resolve staged metadata         —      —       ✓       ✓       ✓
 Read taxonomy lookups           —      ✓       ✓       ✓       ✓
 Create/update taxonomy rows     —      —       ✓       ✓       ✓
 Verify credential (public)      ✓      ✓       ✓       ✓       ✓
+Read/manage own notifications   —      ✓       ✓       ✓       ✓
 ```
 
 **Key:**

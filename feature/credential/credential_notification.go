@@ -10,6 +10,34 @@ import (
 	"go.uber.org/zap"
 )
 
+func recordLifecycleNotifications(
+	ctx context.Context,
+	uow domain.UnitOfWork,
+	creds []domain.Credential,
+	nType domain.CredentialNotificationType,
+) error {
+	if uow == nil || len(creds) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(creds))
+	notifications := make([]domain.CredentialNotification, 0, len(creds))
+	for _, c := range creds {
+		if c.ID == "" || c.HolderUserID == "" || seen[c.ID] {
+			continue
+		}
+		seen[c.ID] = true
+		notifications = append(notifications, domain.CredentialNotification{
+			NotifiedUserID: c.HolderUserID,
+			CredentialID:   c.ID,
+			Type:           nType,
+		})
+	}
+	if len(notifications) == 0 {
+		return nil
+	}
+	return uow.CredentialNotification().Store(ctx, notifications...)
+}
+
 func (s *credentialService) enqueueLifecycleNotifications(
 	ctx context.Context,
 	creds []domain.Credential,

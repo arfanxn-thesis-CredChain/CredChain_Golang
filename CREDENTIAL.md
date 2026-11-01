@@ -244,6 +244,10 @@ Notes:
 | `/api/competencies/:id` | DELETE | Issuer+ (on-chain) | `Destroy` | Delete a competency |
 | `/api/users/self/credentials` | GET | Authenticated | `SelfPaginate` | Scoped to `holder_user_id == auth_user.id` |
 | `/api/users/self/credentials/:id` | GET | Authenticated | `SelfFind` | 404 if not owned (no ID leak) |
+| `/api/credential-notifications` | GET | Authenticated (no role gate) | `List` | Self-only notifications list with keyset pagination (`?status=all\|unread&limit=N&cursor=...`) |
+| `/api/credential-notifications/unread-count` | GET | Authenticated (no role gate) | `UnreadCount` | Self-only unread notifications count |
+| `/api/credential-notifications/read-all` | PUT | Authenticated (no role gate) | `MarkAllRead` | Self-only mark all unread notifications as read |
+| `/api/credential-notifications/:id/read` | PUT | Authenticated (no role gate) | `MarkRead` | Self-only mark single notification as read |
 | `/api/overview` | GET | Authenticated (no role gate) | `Get` | Role-conditional dashboard: credential_counts + recents (Holder: own, Issuer+: system-wide). Optional `?limit=N` controls recent items per category (default 5). |
 
 **Route middleware chain:** `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `IssuerRoleMiddleware` (for credential management and taxonomy-write routes).
@@ -644,6 +648,16 @@ Hard deletion is guarded — a row still referenced by a credential cannot be de
 | 400742 | `CodeCredentialIssuerOrganizationDestroyInUse` | 409 | Issuer organization is referenced by a credential |
 | 400743 | `CodeCompetencyDestroyInUse` | 409 | Competency is referenced by a credential |
 
+### Credential Notifications (40-16)
+
+| Code | Constant | HTTP | Meaning |
+|------|----------|------|---------|
+| 401600 | `CodeCredentialNotificationFetchSuccess` | 200 | Notifications retrieved |
+| 401601 | `CodeCredentialNotificationUnreadCountSuccess` | 200 | Unread count retrieved |
+| 401602 | `CodeCredentialNotificationMarkReadSuccess` | 200 | Single notification marked as read |
+| 401603 | `CodeCredentialNotificationMarkAllReadSuccess` | 200 | All notifications marked as read |
+| 401640 | `CodeCredentialNotificationNotFound` | 404 | Notification not found (or not owned by user) |
+
 ---
 
 ## Allowed MIME Types
@@ -718,10 +732,30 @@ Lifecycle Mutation (Issue / Approve / Reject / Revoke)
   - Job uniqueness is keyed by `(credential_id, event)` with up to 5 retry attempts.
   - Non-retryable conditions (deleted user, missing user, empty email) cancel the job (`river.JobCancel`).
   - Transport failures (SMTP network/auth) trigger exponential backoff retries.
-  - Commit-to-enqueue crashes may drop notifications; SMTP acceptance race may cause duplicate emails. No in-app notification DB tables or outbox pattern are maintained.
+  - Commit-to-enqueue crashes may drop emails; SMTP acceptance races may cause duplicate emails. In-app rows are stored separately in `credential_notifications` within the lifecycle transaction; they are not an email outbox.
 - **Security & Privacy**: Email payloads contain no sensitive attributes, file paths, or rejection reasons. Emails link directly to authenticated `/credentials/:id` route.
 
 ---
+
+### Notification seed data
+
+`CredentialNotificationSeeder` runs after `CredentialSeeder` and derives notifications only from the existing credential fixture IDs. It performs one batch read and one batch insert, without invoking lifecycle services, email jobs, or blockchain operations. It does not backfill production credentials.
+
+- Direct issue: `registered` at `CreatedAt`; self-submission: no event until `approved` at `ActivatedAt`.
+- `RejectedAt` and `RevokedAt` add their corresponding events. Revoked and expired credentials retain earlier registration/approval history; expiry and extraction create no events.
+- Recipients are always credential holders, including soft-deleted fixture holders. Issuers/reviewers receive no rows merely for acting on credentials.
+- IDs and mixed read/unread examples are deterministic per fixture slot and event. Composite conflict handling preserves existing IDs, event timestamps, and user read state on replay.
+- Missing individual fixtures are skipped. No seeded credentials returns a prerequisite error; pending-only fixtures succeed without inserts.
+
+For an already seeded development database, the standalone selection is:
+
+```bash
+go run main.go seed --env .env --names credential-notification
+```
+
+Named seeders run only requested names in caller order. If requesting both, use `--names credential --names credential-notification` (after other prerequisites exist). **Only notification seeding is replay-safe; this does not make the existing credential/full seed idempotent.** CLI startup still constructs MongoDB and storage dependencies even for notification-only selection. Run these commands only against an authorized development database with the consolidated schema in place; see [DATABASE.md](DATABASE.md) before migrating an existing installation.
+
+Current fixtures produce 36 notifications from 41 credentials: 16 registered, 10 approved, 5 rejected, and 5 revoked; 10 pending credentials produce none. Existing fixtures give Issuer/Admin/SuperAdmin accounts no owned credentials, so empty personal feeds are expected. Their pending-review workload card remains a live query, not seeded reviewer notifications.
 
 ## Cross-Repo Integration
 

@@ -63,6 +63,7 @@ type RouteParams struct {
 	CredentialTypeHandler               credential.CredentialTypeHandler
 	CredentialIssuerOrganizationHandler credential.CredentialIssuerOrganizationHandler
 	CompetencyHandler                   credential.CompetencyHandler
+	CredentialNotificationHandler       credential.CredentialNotificationHandler
 	MetaHandler                         meta.MetaHandler
 	OverviewHandler                     overview.OverviewHandler
 	Logger                              *zap.Logger
@@ -168,6 +169,13 @@ func RegisterRoutes(p RouteParams) {
 				userUnits.POST("", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Store)
 				userUnits.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Update)
 				userUnits.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Destroy)
+			}
+			credentialNotifications := secure.Group("/credential-notifications")
+			{
+				credentialNotifications.GET("", p.CredentialNotificationHandler.List)
+				credentialNotifications.GET("/unread-count", p.CredentialNotificationHandler.UnreadCount)
+				credentialNotifications.PUT("/read-all", p.CredentialNotificationHandler.MarkAllRead)
+				credentialNotifications.PUT("/:id/read", p.CredentialNotificationHandler.MarkRead)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}

@@ -251,5 +251,10 @@
     "mail_credential_event_time": "Event Time",
     "mail_credential_view": "View Credential",
     "mail_fallback": "If the buttons above do not work, please use this link:",
-    "mail_footer": "All rights reserved. This is an automated system notification. Please do not reply to this email."
+    "mail_footer": "All rights reserved. This is an automated system notification. Please do not reply to this email.",
+    "success_credential_notification_fetch": "Notifications retrieved successfully.",
+    "success_credential_notification_unread_count": "Unread notification count retrieved successfully.",
+    "success_credential_notification_mark_read": "Notification marked as read.",
+    "success_credential_notification_mark_all_read": "All notifications marked as read.",
+    "error_credential_notification_not_found": "Notification not found."
 }

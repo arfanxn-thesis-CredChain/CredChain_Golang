@@ -506,6 +506,9 @@ func (s *credentialService) issueCommit(
 					domain.WithMetadata("credential_id", c.ID))
 			}
 		}
+		if err := recordLifecycleNotifications(ctx, uow, stored, domain.CredentialNotificationTypeRegistered); err != nil {
+			return err
+		}
 		if err := s.mintCredentials(ctx, uow, authWallet, stored, holderByID,
 			domain.CodeCredentialIssueBlockchainSyncFailed); err != nil {
 			return err
@@ -1022,6 +1025,10 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 			return err
 		}
 
+		if err := recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeApproved); err != nil {
+			return err
+		}
+
 		if err := s.mintCredentials(ctx, uow, domain.WalletFromUser(*authUser), updated, holderByID,
 			domain.CodeCredentialReviewBlockchainSyncFailed); err != nil {
 			return err // UoW rolls back the approval update — rows stay pending
@@ -1080,7 +1087,11 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 			}
 		}
 		rejected, err = uow.Credential().Update(ctx, updates...)
-		return err
+		if err != nil {
+			return err
+		}
+
+		return recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeRejected)
 	})
 	if err == nil && len(rejected) > 0 {
 		s.enqueueLifecycleNotifications(ctx, rejected, jobs.NotificationEventRejected)
@@ -1177,6 +1188,10 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 
 		revoked, err = uow.Credential().Update(ctx, updates...)
 		if err != nil {
+			return err
+		}
+
+		if err := recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeRevoked); err != nil {
 			return err
 		}
 

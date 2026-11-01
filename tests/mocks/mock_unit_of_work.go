@@ -37,6 +37,14 @@ func (m *MockUnitOfWork) CompetencyCredential() domain.CompetencyCredentialRepos
 	return args.Get(0).(domain.CompetencyCredentialRepository)
 }
 
+func (m *MockUnitOfWork) CredentialNotification() domain.CredentialNotificationRepository {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return &MockCredentialNotificationRepository{}
+	}
+	return args.Get(0).(domain.CredentialNotificationRepository)
+}
+
 // RunUnitOfWorkFn configures the mock to invoke the function passed to Execute.
 func RunUnitOfWorkFn(m *MockUnitOfWork, innerUoW domain.UnitOfWork) {
 	m.On("Execute", mock.Anything, mock.AnythingOfType("func(domain.UnitOfWork) error")).
@@ -56,6 +64,18 @@ type PropagatingUnitOfWork struct {
 
 func (p *PropagatingUnitOfWork) Execute(ctx context.Context, fn func(domain.UnitOfWork) error) error {
 	return fn(p)
+}
+
+func (p *PropagatingUnitOfWork) CredentialNotification() domain.CredentialNotificationRepository {
+	if len(p.MockUnitOfWork.ExpectedCalls) == 0 {
+		return &MockCredentialNotificationRepository{}
+	}
+	for _, call := range p.MockUnitOfWork.ExpectedCalls {
+		if call.Method == "CredentialNotification" {
+			return p.MockUnitOfWork.CredentialNotification()
+		}
+	}
+	return &MockCredentialNotificationRepository{}
 }
 
 func NewPropagatingUnitOfWork() *PropagatingUnitOfWork {

@@ -59,6 +59,7 @@ Examples:
 				credential.NewGormCredentialIssuerOrganizationRepository,
 				credential.NewGormCompetencyRepository,
 				credential.NewGormCredentialRepository,
+				credential.NewGormCredentialNotificationRepository,
 				credential.NewGormCompetencyCredentialRepository,
 				credential.NewMongoCredentialExtractionRepository,
 				func(
@@ -68,6 +69,7 @@ Examples:
 					issuerOrgRepo domain.CredentialIssuerOrganizationRepository,
 					competencyRepo domain.CompetencyRepository,
 					credRepo domain.CredentialRepository,
+					notificationRepo domain.CredentialNotificationRepository,
 					compCredRepo domain.CompetencyCredentialRepository,
 					extractRepo domain.CredentialExtractionRepository,
 					stor *storage.Storage,
@@ -90,6 +92,7 @@ Examples:
 							stor,
 							cfg,
 						),
+						seeder.NewCredentialNotificationSeeder(credRepo, notificationRepo),
 					)
 				},
 			),
