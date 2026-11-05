@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -518,6 +519,166 @@ func TestHandler_Verify_ServiceReturnsVerdict(t *testing.T) {
 	h := &credentialHandler{credSvc: svc}
 	h.Verify(c)
 	assert.Equal(t, http.StatusOK, c.Writer.Status())
+}
+
+func TestHandler_Verify_ChainUnavailableHasNoVerdict(t *testing.T) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename="test.pdf"`)
+	header.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(header)
+	require.NoError(t, err)
+	_, err = part.Write([]byte("%PDF-1.4 test"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	c.Request = httptest.NewRequest("POST", "/", body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	c.Set("i18n_localizer", i18n.NewLocalizer(gintest.LoadTestI18nBundle(t), "en"))
+	svc := &mockCredentialService{}
+	svc.On("Verify", mock.Anything, mock.Anything).Return(0, (*domain.Credential)(nil), (*float64)(nil), (*string)(nil), domain.NewError(domain.CodeCredentialVerifyChainUnavailable))
+	(&credentialHandler{credSvc: svc}).Verify(c)
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"code":400447`)
+	assert.NotContains(t, rr.Body.String(), `"verdict_code"`)
+	assert.NotContains(t, rr.Body.String(), `"credential"`)
+	svc.AssertExpectations(t)
+}
+
+func TestHandler_Verify_PublicCredentialAllowlist(t *testing.T) {
+	for _, authenticated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("authenticated=%t", authenticated), func(t *testing.T) {
+			body := &bytes.Buffer{}
+			writer := multipart.NewWriter(body)
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", `form-data; name="file"; filename="test.pdf"`)
+			header.Set("Content-Type", "application/pdf")
+			part, err := writer.CreatePart(header)
+			require.NoError(t, err)
+			_, err = part.Write([]byte("%PDF-1.4 test"))
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			rr := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rr)
+			c.Request = httptest.NewRequest("POST", "/", body)
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+			c.Set("i18n_localizer", i18n.NewLocalizer(gintest.LoadTestI18nBundle(t), "en"))
+			if authenticated {
+				c.Set("user", fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer)))
+			}
+			private := "private-value"
+			cred := &domain.Credential{
+				ID: "c1", Name: "Certificate", HolderUserID: "holder", SubmitterUserID: "holder",
+				IssuerUserID: &private, RevokerUserID: &private, RejecterUserID: &private,
+				TokenID: &private, FileURI: &private, ExtractError: &private,
+				Meta: map[string]any{"secret": private}, RejectionReason: &private,
+				Holder:  &domain.User{Email: "private@example.test", Meta: map[string]any{"secret": private}},
+				Issuer:  &domain.User{Email: "issuer@example.test"},
+				Revoker: &domain.User{Email: "revoker@example.test"},
+			}
+			svc := &mockCredentialService{}
+			svc.On("Verify", mock.Anything, mock.Anything).Return(domain.CodeCredentialVerifyAuthentic, cred, (*float64)(nil), (*string)(nil), nil)
+			(&credentialHandler{credSvc: svc}).Verify(c)
+			require.Equal(t, http.StatusOK, rr.Code)
+			var envelope struct {
+				Data struct {
+					Credential map[string]any `json:"credential"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &envelope))
+			keys := make([]string, 0, len(envelope.Data.Credential))
+			for key := range envelope.Data.Credential {
+				keys = append(keys, key)
+			}
+			assert.ElementsMatch(t, []string{"id", "name", "status", "is_submission", "issuer_organization_id", "issuer_organization_name", "credential_type_name", "number", "file_hash", "issued_at", "expires_at"}, keys)
+			assert.Nil(t, envelope.Data.Credential["issuer_organization_name"])
+			assert.Equal(t, true, envelope.Data.Credential["is_submission"])
+			assert.NotContains(t, rr.Body.String(), "private@example.test")
+			svc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestHandler_Verify_PublicDetailsRequireLiveEvidence(t *testing.T) {
+	for _, authenticated := range []bool{false, true} {
+		for _, scenario := range []struct {
+			code                 int
+			exact, hasCredential bool
+		}{
+			{400401, true, true}, {400402, true, true}, {400413, true, true},
+			{400410, true, true}, {400411, true, true}, {400412, true, true},
+			{400401, false, true}, {400404, false, true}, {400403, false, true}, {400401, true, false},
+		} {
+			t.Run(fmt.Sprintf("auth=%t/code=%d/exact=%t/credential=%t", authenticated, scenario.code, scenario.exact, scenario.hasCredential), func(t *testing.T) {
+				body := &bytes.Buffer{}
+				writer := multipart.NewWriter(body)
+				header := make(textproto.MIMEHeader)
+				header.Set("Content-Disposition", `form-data; name="file"; filename="test.pdf"`)
+				header.Set("Content-Type", "application/pdf")
+				part, err := writer.CreatePart(header)
+				require.NoError(t, err)
+				_, err = part.Write([]byte("%PDF-1.4 test"))
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				rr := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rr)
+				c.Request = httptest.NewRequest("POST", "/", body)
+				c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+				c.Set("i18n_localizer", i18n.NewLocalizer(gintest.LoadTestI18nBundle(t), "en"))
+				if authenticated {
+					c.Set("user", fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer)))
+				}
+				secret := "private-workflow-value"
+				cred := &domain.Credential{ID: "record", Name: "Certificate", HolderUserID: secret, FileURI: &secret, Meta: map[string]any{"grade": "A"}, Holder: &domain.User{Email: "public-holder@example.test", Meta: map[string]any{"secret": secret}}, Issuer: &domain.User{Email: "private@example.test"}, IssuerOrganization: &domain.CredentialIssuerOrganization{Name: "Actual Issuer", SubmitterUserId: &secret, RejectionReason: &secret}, Type: &domain.CredentialType{Name: "Diploma", SubmitterUserId: &secret}}
+				if !scenario.hasCredential {
+					cred = nil
+				}
+				svc := &mockCredentialService{}
+				svc.On("Verify", mock.Anything, mock.Anything).Return(CredentialVerificationResult{VerdictCode: scenario.code, Credential: cred, ExactMatchConfirmed: scenario.exact}, nil)
+				(&credentialHandler{credSvc: svc}).Verify(c)
+				var envelope struct {
+					Data map[string]any `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &envelope))
+				allowed := scenario.exact && scenario.hasCredential
+				assert.Equal(t, allowed, envelope.Data["exact_match_confirmed"])
+				expectedTopKeys := []string{"exact_match_confirmed", "verdict_code", "description"}
+				if scenario.hasCredential {
+					expectedTopKeys = append(expectedTopKeys, "credential")
+					summary, ok := envelope.Data["credential"].(map[string]any)
+					require.True(t, ok)
+					assert.Len(t, summary, 11)
+					assert.Equal(t, "Actual Issuer", summary["issuer_organization_name"])
+					assert.Equal(t, "Diploma", summary["credential_type_name"])
+				}
+				if allowed {
+					expectedTopKeys = append(expectedTopKeys, "public_details")
+				}
+				topKeys := []string{}
+				for key := range envelope.Data {
+					topKeys = append(topKeys, key)
+				}
+				assert.ElementsMatch(t, expectedTopKeys, topKeys)
+				if allowed {
+					details, ok := envelope.Data["public_details"].(map[string]any)
+					require.True(t, ok)
+					keys := []string{}
+					for key := range details {
+						keys = append(keys, key)
+					}
+					assert.ElementsMatch(t, []string{"id", "name", "status", "is_submission", "issuer_organization_id", "number", "file_hash", "issued_at", "expires_at", "issuer_organization_name", "credential_type_name", "revoked_at", "holder", "competencies", "meta", "token_id", "created_at", "activated_at", "rejected_at"}, keys)
+					assert.Equal(t, "Actual Issuer", details["issuer_organization_name"])
+					assert.Equal(t, "Diploma", details["credential_type_name"])
+				} else {
+					assert.Nil(t, envelope.Data["public_details"])
+				}
+				assert.NotContains(t, rr.Body.String(), secret)
+				assert.NotContains(t, rr.Body.String(), "private@example.test")
+			})
+		}
+	}
 }
 
 func TestCredentialHandler_LinkCompetencies_Success(t *testing.T) {

@@ -114,14 +114,102 @@ func FromDomainCredential(c domain.Credential) Credential {
 	return out
 }
 
+// VerificationCredential contains only facts intentionally exposed by public verification.
+type VerificationCredential struct {
+	IssuerOrganizationName *string                 `json:"issuer_organization_name"`
+	CredentialTypeName     *string                 `json:"credential_type_name"`
+	ID                     string                  `json:"id"`
+	Name                   string                  `json:"name"`
+	Status                 domain.CredentialStatus `json:"status"`
+	IsSubmission           bool                    `json:"is_submission"`
+	IssuerOrganizationID   string                  `json:"issuer_organization_id"`
+	Number                 *string                 `json:"number"`
+	FileHash               string                  `json:"file_hash"`
+	IssuedAt               time.Time               `json:"issued_at"`
+	ExpiresAt              *time.Time              `json:"expires_at"`
+}
+
+func FromDomainVerificationCredential(c domain.Credential) VerificationCredential {
+	out := VerificationCredential{
+		ID: c.ID, Name: c.Name, Status: c.Status(),
+		IsSubmission:         c.SubmitterUserID == c.HolderUserID,
+		IssuerOrganizationID: c.IssuerOrganizationID, Number: c.Number,
+		FileHash: c.FileHash, IssuedAt: c.IssuedAt, ExpiresAt: c.ExpiresAt,
+	}
+	if c.IssuerOrganization != nil {
+		name := c.IssuerOrganization.Name
+		out.IssuerOrganizationName = &name
+	}
+	if c.Type != nil {
+		name := c.Type.Name
+		out.CredentialTypeName = &name
+	}
+	return out
+}
+
+// VerificationPublicDetails is released only after live exact-file verification.
+// Reference names are current database labels, not independently attested facts.
+type VerificationPublicDetails struct {
+	VerificationCredential
+	RevokedAt    *time.Time               `json:"revoked_at"`
+	Holder       *VerificationHolder      `json:"holder"`
+	Competencies []VerificationCompetency `json:"competencies"`
+	Meta         map[string]any           `json:"meta"`
+	TokenID      *string                  `json:"token_id"`
+	CreatedAt    time.Time                `json:"created_at"`
+	ActivatedAt  *time.Time               `json:"activated_at"`
+	RejectedAt   *time.Time               `json:"rejected_at"`
+}
+
+type VerificationHolder struct {
+	Name          *string        `json:"name"`
+	Number        *string        `json:"number"`
+	UnitName      *string        `json:"unit_name"`
+	JoinedYear    *int           `json:"joined_year"`
+	Email         string         `json:"email"`
+	Gender        *domain.Gender `json:"gender"`
+	Role          domain.Role    `json:"role"`
+	WalletAddress string         `json:"wallet_address"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     *time.Time     `json:"updated_at"`
+	DeletedAt     *time.Time     `json:"deleted_at"`
+}
+
+type VerificationCompetency struct {
+	Name string `json:"name"`
+}
+
+func FromDomainVerificationPublicDetails(c domain.Credential, holderUnitName *string) VerificationPublicDetails {
+	out := VerificationPublicDetails{
+		VerificationCredential: FromDomainVerificationCredential(c),
+		RevokedAt:              c.RevokedAt,
+		Competencies:           make([]VerificationCompetency, 0, len(c.Competencies)),
+		Meta:                   c.Meta, TokenID: c.TokenID, CreatedAt: c.CreatedAt,
+		ActivatedAt: c.ActivatedAt, RejectedAt: c.RejectedAt,
+	}
+	if h := c.Holder; h != nil {
+		out.Holder = &VerificationHolder{
+			Name: h.Name, Number: h.Number, UnitName: holderUnitName, JoinedYear: h.JoinedYear,
+			Email: h.Email, Gender: h.Gender, Role: h.Role, WalletAddress: h.WalletAddress,
+			CreatedAt: h.CreatedAt, UpdatedAt: h.UpdatedAt, DeletedAt: h.DeletedAt,
+		}
+	}
+	for _, competency := range c.Competencies {
+		out.Competencies = append(out.Competencies, VerificationCompetency{Name: competency.Name})
+	}
+	return out
+}
+
 // CredentialVerify is the response payload for POST /api/credentials/verify.
 // VerdictCode is the 6-digit domain code for the verify outcome; Description
 // is its localized message, resolved by the handler via the request's i18n
 // localizer (Accept-Language). Credential is the matched credential, if any.
 type CredentialVerify struct {
-	VerdictCode       int         `json:"verdict_code"`
-	SimilarityScore   *float64    `json:"similarity_score,omitempty"`
-	SimilarityPercent *string     `json:"similarity_percent,omitempty"`
-	Description       string      `json:"description"`
-	Credential        *Credential `json:"credential,omitempty"`
+	ExactMatchConfirmed bool                       `json:"exact_match_confirmed"`
+	PublicDetails       *VerificationPublicDetails `json:"public_details,omitempty"`
+	VerdictCode         int                        `json:"verdict_code"`
+	SimilarityScore     *float64                   `json:"similarity_score,omitempty"`
+	SimilarityPercent   *string                    `json:"similarity_percent,omitempty"`
+	Description         string                     `json:"description"`
+	Credential          *VerificationCredential    `json:"credential,omitempty"`
 }

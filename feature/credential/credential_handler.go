@@ -500,7 +500,7 @@ func (h *credentialHandler) Verify(c *gin.Context) {
 			domain.WithMetadata("file_size", len(fileBytes))))
 		return
 	}
-	code, cred, score, percent, err := h.credSvc.Verify(c.Request.Context(), pyai.ExtractFile{
+	verification, err := h.credSvc.Verify(c.Request.Context(), pyai.ExtractFile{
 		Filename: filename,
 		MIMEType: mime,
 		Data:     fileBytes,
@@ -510,6 +510,8 @@ func (h *credentialHandler) Verify(c *gin.Context) {
 		responder.SendError(c, err)
 		return
 	}
+	code, cred := verification.VerdictCode, verification.Credential
+	score, percent := verification.SimilarityScore, verification.SimilarityPercent
 	desc := responder.ResolveMessage(c, code)
 	out := response.CredentialVerify{
 		VerdictCode:       code,
@@ -518,8 +520,13 @@ func (h *credentialHandler) Verify(c *gin.Context) {
 		Description:       desc,
 	}
 	if cred != nil {
-		dto := response.FromDomainCredential(*cred)
+		dto := response.FromDomainVerificationCredential(*cred)
 		out.Credential = &dto
+		if verification.ExactMatchConfirmed {
+			details := response.FromDomainVerificationPublicDetails(*cred, verification.HolderUnitName)
+			out.ExactMatchConfirmed = true
+			out.PublicDetails = &details
+		}
 	}
 	responder.Send(c, code, out)
 }

@@ -40,15 +40,20 @@ type testCredentialMocks struct {
 	extRepo  *mocks.MockCredentialExtractionRepository
 	aiClient *mocks.MockPythonAIClient
 	regSvc   *mocks.MockRegistryService
+	unitRepo *mocks.MockUserUnitRepository
 }
 
 func newTestCredentialService(m *testCredentialMocks) *credentialService {
+	if m.unitRepo == nil {
+		m.unitRepo = &mocks.MockUserUnitRepository{}
+	}
 	return &credentialService{
 		repo:             m.credRepo,
 		verificationRepo: m.verRepo,
 		extractionRepo:   m.extRepo,
 		aiClient:         m.aiClient,
 		registryService:  m.regSvc,
+		unitRepo:         m.unitRepo,
 		policy:           &credentialPolicy{},
 		logger:           zap.NewNop(),
 	}
@@ -341,7 +346,8 @@ func TestVerify_CacheHit(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
@@ -383,7 +389,8 @@ func TestVerify_CacheHit_RevokedCredential(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
@@ -426,7 +433,8 @@ func TestVerify_CacheHit_RevokedOverridesPartyDisabled(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
@@ -466,7 +474,8 @@ func TestVerify_CacheHit_NonAuthenticPreserved(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
@@ -499,7 +508,8 @@ func TestVerify_CacheHit_CredentialNotFound(t *testing.T) {
 	m.credRepo.On("FindVerifiableById", mock.Anything, credID, mock.Anything).Return(nil, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
@@ -530,7 +540,8 @@ func TestVerify_ExactAuthentic(t *testing.T) {
 	)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
@@ -562,7 +573,8 @@ func TestVerify_ExactRevoked(t *testing.T) {
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
@@ -570,6 +582,29 @@ func TestVerify_ExactRevoked(t *testing.T) {
 	assert.Equal(t, "cred-1", cred.ID)
 	assert.Nil(t, score)
 	assert.Nil(t, percent)
+}
+
+func TestVerify_ChainReadFailureIsNotIntegrityVerdict(t *testing.T) {
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{}, verRepo: &mocks.MockCredentialVerificationRepository{},
+		extRepo: &mocks.MockCredentialExtractionRepository{}, aiClient: &mocks.MockPythonAIClient{},
+		regSvc: &mocks.MockRegistryService{},
+	}
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return(
+		[]domain.Credential{exactVerifyCredential("cred-1", "12345", verifyFileHash)}, nil)
+	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential(nil), context.DeadlineExceeded)
+	verification, err := newTestCredentialService(m).Verify(context.Background(), pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
+	require.Error(t, err)
+	var appErr *domain.Error
+	require.ErrorAs(t, err, &appErr)
+	assert.Equal(t, 400447, appErr.Code)
+	assert.Zero(t, code)
+	assert.Nil(t, cred)
+	assert.Nil(t, score)
+	assert.Nil(t, percent)
+	m.aiClient.AssertNotCalled(t, "ExtractIDs", mock.Anything, mock.Anything)
+	m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
 }
 
 func TestVerify_ExactIntegrityWarning(t *testing.T) {
@@ -592,7 +627,8 @@ func TestVerify_ExactIntegrityWarning(t *testing.T) {
 	)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
@@ -661,7 +697,9 @@ func TestVerify_ExactMetadataMismatch(t *testing.T) {
 			m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
 			m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
 
-			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			verification, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+
+			code, matched := verification.VerdictCode, verification.Credential
 			require.NoError(t, err)
 			assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
 			require.NotNil(t, matched)
@@ -687,7 +725,9 @@ func TestVerify_ExactNullableFieldsAndSecondPrecision(t *testing.T) {
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
 
-	code, _, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+
+	code := verification.VerdictCode
 	require.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
 }
@@ -708,7 +748,9 @@ func TestVerify_ExactNumberAndExpiry(t *testing.T) {
 	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return([]domain.Credential{cred}, nil)
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
 
-	code, _, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+
+	code := verification.VerdictCode
 	require.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
 }
@@ -751,7 +793,9 @@ func TestVerify_ExactCandidateRanking(t *testing.T) {
 				return len(ids) == 2 && ids[0].Int64() == 1 && ids[1].Int64() == 2
 			})).Return([]contracts.CredentialRegistryCredential{newChain, oldChain}, nil)
 
-			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			verification, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+
+			code, matched := verification.VerdictCode, verification.Credential
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCode, code)
 			require.NotNil(t, matched)
@@ -777,7 +821,9 @@ func TestVerify_ExactBypassesCachedVerdict(t *testing.T) {
 			m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{chain}, nil)
 			m.verRepo.On("FindByUploadedFileHash", mock.Anything, verifyFileHash).Return(&domain.CredentialVerification{VerdictCode: cachedCode}, nil)
 
-			code, matched, _, _, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+			verification, err := newTestCredentialService(m).Verify(ctxWithAuth(&user), pyai.ExtractFile{Data: []byte("test-file")})
+
+			code, matched := verification.VerdictCode, verification.Credential
 			require.NoError(t, err)
 			assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
 			require.NotNil(t, matched)
@@ -811,7 +857,8 @@ func TestVerify_ExactExpired(t *testing.T) {
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyExpired, code)
@@ -846,7 +893,8 @@ func TestVerify_RevokedBeatsExpired(t *testing.T) {
 	m.regSvc.On("GetCredentialsByIds", mock.Anything, mock.Anything).Return([]contracts.CredentialRegistryCredential{onChain}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
@@ -884,7 +932,8 @@ func TestVerify_CacheHit_ExpiredReEvaluated(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyExpired, code)
@@ -922,7 +971,8 @@ func TestVerify_NoExpiryUnchanged(t *testing.T) {
 	}, nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyAuthentic, code)
@@ -950,10 +1000,12 @@ func TestVerify_FuzzyNoIdentifiers(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyNoIdentifiers, code)
+	assert.False(t, verification.ExactMatchConfirmed)
 	assert.Nil(t, cred)
 	assert.Nil(t, score)
 	assert.Nil(t, percent)
@@ -980,10 +1032,12 @@ func TestVerify_FuzzyNoMatch(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyNoMatch, code)
+	assert.False(t, verification.ExactMatchConfirmed)
 	assert.Nil(t, cred)
 	assert.Nil(t, score)
 	assert.Nil(t, percent)
@@ -1016,7 +1070,8 @@ func TestVerify_FuzzyTampered(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
@@ -1055,7 +1110,8 @@ func TestVerify_FuzzySuspicious(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifySuspicious, code)
@@ -1092,7 +1148,8 @@ func TestVerify_FuzzyLowSimilarity(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyLowSimilarity, code)
@@ -1128,7 +1185,8 @@ func TestVerify_FuzzyNotSimilar(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyNotSimilar, code)
@@ -1180,7 +1238,8 @@ func TestVerify_TieBreakNonRevokedPreferred(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
@@ -1233,7 +1292,8 @@ func TestVerify_TieBreakNewestIssuedAt(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
@@ -1918,7 +1978,8 @@ func TestVerify_HolderDisabled_OverridesAuthentic(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code := verification.VerdictCode
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyHolderDisabled, code)
 }
@@ -1956,7 +2017,8 @@ func TestVerify_IssuerDisabled_OverridesAuthentic(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code := verification.VerdictCode
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyIssuerDisabled, code)
 }
@@ -1995,7 +2057,8 @@ func TestVerify_PartyDisabled_BothDeleted(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code := verification.VerdictCode
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyPartyDisabled, code)
 }
@@ -2039,7 +2102,8 @@ func TestVerify_DoesNotOverrideRevoked_WhenHolderDeleted(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code := verification.VerdictCode
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyRevoked, code)
 }
@@ -2071,7 +2135,8 @@ func TestVerify_PartyDisabled_MissingHolderWarnsIntegrity(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, _, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+	code := verification.VerdictCode
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyIntegrityWarning, code)
 }
@@ -2113,7 +2178,8 @@ func TestVerify_DoesNotOverrideTampered_WhenHolderDeleted(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, score, percent, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, cred, score, percent := verification.VerdictCode, verification.Credential, verification.SimilarityScore, verification.SimilarityPercent
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
 	assert.NotNil(t, cred)
@@ -2157,7 +2223,8 @@ func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
 	m.verRepo.On("Store", mock.Anything, mock.Anything).Return(nil)
 
 	svc := newTestCredentialService(m)
-	code, cred, _, _, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
+	code, cred := verification.VerdictCode, verification.Credential
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)

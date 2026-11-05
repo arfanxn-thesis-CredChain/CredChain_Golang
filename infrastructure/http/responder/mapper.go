@@ -117,6 +117,7 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialVerifyAiServiceFailed:      "error_credential_verify_ai_service_failed",
 	domain.CodeCredentialVerifyCredentialNotFound:   "error_credential_verify_credential_not_found",
 	domain.CodeCredentialVerifyDocumentUnreadable:   "error_credential_verify_document_unreadable",
+	domain.CodeCredentialVerifyChainUnavailable:     "error_credential_verify_chain_unavailable",
 	domain.CodeCredentialVerifyAuthentic:            "success_credential_verify_authentic",
 	domain.CodeCredentialVerifyRevoked:              "success_credential_verify_revoked",
 	domain.CodeCredentialVerifyIntegrityWarning:     "warning_credential_verify_integrity",
@@ -253,7 +254,6 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialNotificationMarkReadSuccess:    "success_credential_notification_mark_read",
 	domain.CodeCredentialNotificationMarkAllReadSuccess: "success_credential_notification_mark_all_read",
 	domain.CodeCredentialNotificationNotFound:           "error_credential_notification_not_found",
-
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -359,6 +359,7 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialVerifyAiServiceFailed:      http.StatusServiceUnavailable,
 	domain.CodeCredentialVerifyCredentialNotFound:   http.StatusNotFound,
 	domain.CodeCredentialVerifyDocumentUnreadable:   http.StatusUnprocessableEntity,
+	domain.CodeCredentialVerifyChainUnavailable:     http.StatusServiceUnavailable,
 	domain.CodeCredentialVerifyAuthentic:            http.StatusOK,
 	domain.CodeCredentialVerifyRevoked:              http.StatusOK,
 	domain.CodeCredentialVerifyIntegrityWarning:     http.StatusConflict,
@@ -493,7 +494,6 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialNotificationMarkReadSuccess:    http.StatusOK,
 	domain.CodeCredentialNotificationMarkAllReadSuccess: http.StatusOK,
 	domain.CodeCredentialNotificationNotFound:           http.StatusNotFound,
-
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

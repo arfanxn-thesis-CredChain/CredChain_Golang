@@ -49,10 +49,21 @@ type CredentialService interface {
 	Reject(ctx context.Context, rejections []CredentialRejection) ([]domain.Credential, error)
 	Update(ctx context.Context, credentials ...domain.Credential) ([]domain.Credential, error)
 	Revoke(ctx context.Context, revocations []CredentialRevocation) ([]domain.Credential, error)
-	Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error)
+	Verify(ctx context.Context, file pyai.ExtractFile) (CredentialVerificationResult, error)
 	ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error)
 	DownloadFile(ctx context.Context, id string) (data []byte, filename string, mimeType string, err error)
 	LinkCompetencies(ctx context.Context, credentialID string, competencyIDs []string) error
+}
+
+// CredentialVerificationResult keeps live exact-match evidence separate from verdicts.
+// Cached verdicts and AI similarity never establish ExactMatchConfirmed.
+type CredentialVerificationResult struct {
+	VerdictCode         int
+	Credential          *domain.Credential
+	SimilarityScore     *float64
+	SimilarityPercent   *string
+	ExactMatchConfirmed bool
+	HolderUnitName      *string
 }
 
 // CredentialIssuance is the service-layer input for one credential issuance. File
@@ -115,6 +126,7 @@ type credentialService struct {
 	storage          *storage.Storage
 	policy           CredentialPolicy
 	userRepo         domain.UserRepository
+	unitRepo         domain.UserUnitRepository
 	typeRepo         domain.CredentialTypeRepository
 	orgRepo          domain.CredentialIssuerOrganizationRepository
 	competencyRepo   domain.CompetencyRepository
@@ -138,6 +150,7 @@ type CredentialServiceParams struct {
 	Storage          *storage.Storage
 	Policy           CredentialPolicy
 	UserRepo         domain.UserRepository
+	UnitRepo         domain.UserUnitRepository
 	TypeRepo         domain.CredentialTypeRepository
 	OrgRepo          domain.CredentialIssuerOrganizationRepository
 	CompetencyRepo   domain.CompetencyRepository
@@ -162,6 +175,7 @@ func NewCredentialService(p CredentialServiceParams) CredentialService {
 		storage:          p.Storage,
 		policy:           p.Policy,
 		userRepo:         p.UserRepo,
+		unitRepo:         p.UnitRepo,
 		typeRepo:         p.TypeRepo,
 		orgRepo:          p.OrgRepo,
 		competencyRepo:   p.CompetencyRepo,
@@ -1218,16 +1232,16 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 
 // Verify runs the exact hash → cache → fuzzy pipeline against the uploaded
 // file. Returns (verdictCode, matchedCredential, score, percent, error).
-func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error) {
+func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (CredentialVerificationResult, error) {
 	uploadedHash := "0x" + hex.EncodeToString(ethCrypto.Keccak256(file.Data))
 
-	verifyQuery := &domainQuery.Query{Includes: []string{"holder", "issuer", "revoker"}}
+	verifyQuery := &domainQuery.Query{Includes: []string{"holder", "issuer", "revoker", "type", "issuer_organization", "competencies"}}
 
 	// An approved exact-hash row always needs a live on-chain check, even when
 	// Mongo holds a previous verdict for this upload.
 	existing, err := s.repo.FindByFileHashes(ctx, []string{uploadedHash}, verifyQuery)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return CredentialVerificationResult{}, err
 	}
 	if len(existing) > 0 {
 		tokenIds := make([]*big.Int, 0, len(existing))
@@ -1243,56 +1257,67 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 		}
 		if len(tokenIds) > 0 {
 			onChainCreds, chainErr := s.registryService.GetCredentialsByIds(ctx, tokenIds)
-			if chainErr == nil {
-				var best *domain.Credential
-				var bestOnChain *contracts.CredentialRegistryCredential
-				bestIsRevoked := true
-				for i := range onChainCreds {
-					onChain := &onChainCreds[i]
-					if onChain.Id == nil {
-						continue
-					}
-					cred := credByTokenId[onChain.Id.String()]
-					if !verifyExactCredentialMatches(uploadedHash, cred, onChain) {
-						continue
-					}
-					revoked := onChain.RevokedAt != nil && onChain.RevokedAt.Sign() > 0
-					if best == nil || (bestIsRevoked && !revoked) ||
-						(bestIsRevoked == revoked && onChain.IssuedAt.Cmp(bestOnChain.IssuedAt) > 0) {
-						best = cred
-						bestOnChain = onChain
-						bestIsRevoked = revoked
+			if chainErr != nil {
+				return CredentialVerificationResult{}, domain.NewError(domain.CodeCredentialVerifyChainUnavailable, domain.WithError(chainErr))
+			}
+			var best *domain.Credential
+			var bestOnChain *contracts.CredentialRegistryCredential
+			bestIsRevoked := true
+			for i := range onChainCreds {
+				onChain := &onChainCreds[i]
+				if onChain.Id == nil {
+					continue
+				}
+				cred := credByTokenId[onChain.Id.String()]
+				if !verifyExactCredentialMatches(uploadedHash, cred, onChain) {
+					continue
+				}
+				revoked := onChain.RevokedAt != nil && onChain.RevokedAt.Sign() > 0
+				if best == nil || (bestIsRevoked && !revoked) ||
+					(bestIsRevoked == revoked && onChain.IssuedAt.Cmp(bestOnChain.IssuedAt) > 0) {
+					best = cred
+					bestOnChain = onChain
+					bestIsRevoked = revoked
+				}
+			}
+			if best != nil {
+				code := domain.CodeCredentialVerifyAuthentic
+				if bestIsRevoked {
+					code = domain.CodeCredentialVerifyRevoked
+				}
+				code = s.verifyApplyExpiry(code, best)
+				if code == domain.CodeCredentialVerifyAuthentic {
+					holderGone := best.Holder == nil || best.Holder.DeletedAt != nil
+					issuerGone := best.Issuer == nil || best.Issuer.DeletedAt != nil
+					if holderGone && issuerGone {
+						code = domain.CodeCredentialVerifyPartyDisabled
+					} else if holderGone {
+						code = domain.CodeCredentialVerifyHolderDisabled
+					} else if issuerGone {
+						code = domain.CodeCredentialVerifyIssuerDisabled
 					}
 				}
-				if best != nil {
-					code := domain.CodeCredentialVerifyAuthentic
-					if bestIsRevoked {
-						code = domain.CodeCredentialVerifyRevoked
+				var holderUnitName *string
+				if best.Holder != nil && best.Holder.UnitID != nil {
+					unit, unitErr := s.unitRepo.Find(ctx, *best.Holder.UnitID)
+					if unitErr != nil && !errors.Is(unitErr, gorm.ErrRecordNotFound) {
+						return CredentialVerificationResult{}, unitErr
 					}
-					code = s.verifyApplyExpiry(code, best)
-					if code == domain.CodeCredentialVerifyAuthentic {
-						holderGone := best.Holder == nil || best.Holder.DeletedAt != nil
-						issuerGone := best.Issuer == nil || best.Issuer.DeletedAt != nil
-						if holderGone && issuerGone {
-							code = domain.CodeCredentialVerifyPartyDisabled
-						} else if holderGone {
-							code = domain.CodeCredentialVerifyHolderDisabled
-						} else if issuerGone {
-							code = domain.CodeCredentialVerifyIssuerDisabled
-						}
+					if unitErr == nil && unit != nil {
+						holderUnitName = &unit.Name
 					}
-					return code, best, nil, nil, nil
 				}
+				return CredentialVerificationResult{VerdictCode: code, Credential: best, ExactMatchConfirmed: true, HolderUnitName: holderUnitName}, nil
 			}
 		}
 		// No valid on-chain match found; retry the live check next time.
-		return domain.CodeCredentialVerifyIntegrityWarning, &existing[0], nil, nil, nil
+		return CredentialVerificationResult{VerdictCode: domain.CodeCredentialVerifyIntegrityWarning, Credential: &existing[0]}, nil
 	}
 
 	// CACHE LOOKUP (no approved exact-hash row)
 	cached, err := s.verificationRepo.FindByUploadedFileHash(ctx, uploadedHash)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return CredentialVerificationResult{}, err
 	}
 	if cached != nil {
 		var cred *domain.Credential
@@ -1320,38 +1345,38 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 				code = domain.CodeCredentialVerifyIntegrityWarning
 			}
 		}
-		return code, cred, cached.SimilarityScore, cached.SimilarityPercent, nil
+		return CredentialVerificationResult{VerdictCode: code, Credential: cred, SimilarityScore: cached.SimilarityScore, SimilarityPercent: cached.SimilarityPercent}, nil
 	}
 
 	// FUZZY PATH
 	ids, err := s.aiClient.ExtractIDs(ctx, file)
 	if err != nil {
-		return 0, nil, nil, nil, domain.NewError(domain.CodeCredentialVerifyAiServiceFailed, domain.WithError(err))
+		return CredentialVerificationResult{}, domain.NewError(domain.CodeCredentialVerifyAiServiceFailed, domain.WithError(err))
 	}
 	if len(ids) == 0 {
 		code := domain.CodeCredentialVerifyNoIdentifiers
 		s.verifyCacheVerdict(ctx, uploadedHash, code, nil, nil, nil)
-		return code, nil, nil, nil, nil
+		return CredentialVerificationResult{VerdictCode: code}, nil
 	}
 
 	values := lo.Map(ids, func(id pyai.ExtractedID, _ int) string { return id.Value })
 	ranked, err := s.extractionRepo.FindRankedByIds(ctx, values, 10)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return CredentialVerificationResult{}, err
 	}
 	if len(ranked) == 0 {
 		code := domain.CodeCredentialVerifyNoMatch
 		s.verifyCacheVerdict(ctx, uploadedHash, code, nil, nil, nil)
-		return code, nil, nil, nil, nil
+		return CredentialVerificationResult{VerdictCode: code}, nil
 	}
 
 	best := s.verifyPickBestMatch(ctx, ranked, values)
 	result, err := s.aiClient.Verify(ctx, file, best.Embedding)
 	if err != nil {
 		if errors.Is(err, pyai.ErrVerifyFileUnprocessable) {
-			return 0, nil, nil, nil, domain.NewError(domain.CodeCredentialVerifyDocumentUnreadable, domain.WithError(err))
+			return CredentialVerificationResult{}, domain.NewError(domain.CodeCredentialVerifyDocumentUnreadable, domain.WithError(err))
 		}
-		return 0, nil, nil, nil, domain.NewError(domain.CodeCredentialVerifyAiServiceFailed, domain.WithError(err))
+		return CredentialVerificationResult{}, domain.NewError(domain.CodeCredentialVerifyAiServiceFailed, domain.WithError(err))
 	}
 
 	code := s.verifyVerdictToCode(result.Verdict)
@@ -1369,7 +1394,7 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	}
 	code = s.verifyApplyExpiry(code, cred)
 	s.verifyCacheVerdict(ctx, uploadedHash, code, &best.CredentialID, &result.SimilarityScore, &result.SimilarityPercent)
-	return code, cred, &result.SimilarityScore, &result.SimilarityPercent, nil
+	return CredentialVerificationResult{VerdictCode: code, Credential: cred, SimilarityScore: &result.SimilarityScore, SimilarityPercent: &result.SimilarityPercent}, nil
 }
 
 // verifyExactCredentialMatches checks the issuance facts mirrored by Postgres

@@ -62,8 +62,11 @@ func (m *mockCredentialService) Revoke(ctx context.Context, revocations []Creden
 	return args.Get(0).([]domain.Credential), args.Error(1)
 }
 
-func (m *mockCredentialService) Verify(ctx context.Context, file pyai.ExtractFile) (int, *domain.Credential, *float64, *string, error) {
+func (m *mockCredentialService) Verify(ctx context.Context, file pyai.ExtractFile) (CredentialVerificationResult, error) {
 	args := m.Called(ctx, file)
+	if result, ok := args.Get(0).(CredentialVerificationResult); ok {
+		return result, args.Error(1)
+	}
 	var cred *domain.Credential
 	if args.Get(1) != nil {
 		cred = args.Get(1).(*domain.Credential)
@@ -76,7 +79,7 @@ func (m *mockCredentialService) Verify(ctx context.Context, file pyai.ExtractFil
 	if args.Get(3) != nil {
 		field = args.Get(3).(*string)
 	}
-	return args.Int(0), cred, similarity, field, args.Error(4)
+	return CredentialVerificationResult{VerdictCode: args.Int(0), Credential: cred, SimilarityScore: similarity, SimilarityPercent: field}, args.Error(4)
 }
 
 func (m *mockCredentialService) ReExtract(ctx context.Context, ids ...string) ([]domain.Credential, error) {

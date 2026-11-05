@@ -54,7 +54,21 @@ Mirrors domain entity minus embeddings. `Holder`, `Issuer`, `Revoker` are `*resp
 | `SimilarityScore` | `*float64` | Fuzzy match score (0-1), non-nil only on fuzzy path |
 | `SimilarityPercent` | `*string` | Human-readable percentage, non-nil only on fuzzy path |
 | `Description` | `string` | Localized verdict description resolved via the request's i18n localizer |
-| `Credential` | `*Credential` | Matched credential, if any |
+| `Credential` | `*VerificationCredential` | Public matched facts, if any; omitted when absent |
+
+The base `credential` summary uses an explicit eleven-field allowlist: `id`, `name`, `status`, `is_submission`, `issuer_organization_id`, `issuer_organization_name`, `credential_type_name`, `number`, `file_hash`, `issued_at`, `expires_at`. Organization name, credential type name, number and expiry remain nullable. Exact, cache and text-comparison results expose the actual linked organization and type names equally to anonymous and authenticated visitors. A candidate's identifying fields describe the compared credential, not established facts about the uploaded document.
+
+`exact_match_confirmed` is always emitted. It is true only after the uploaded bytes match a registered hash and the existing live registry correspondence checks succeed. The named internal `CredentialVerificationResult` carries this evidence separately from verdict and similarity. Cached verdicts, AI results (including score1.0), integrity warnings and inconclusive searches never establish this evidence; operational failures return no verification payload. Legacy cached authentic-like codes therefore do not imply a fresh exact check.
+
+Only confirmed exact results with a matched credential include `public_details`. Its complete nineteen-field allowlist is the eleven summary fields plus `revoked_at`, `holder`, `competencies`, `meta`, `token_id`, `created_at`, `activated_at`, `rejected_at`. Reference names and nullable dates remain nullable. Names come from linked organization/type relations loaded during verification, never the global `/meta` organization label. A missing relation yields null, not an invented name.
+
+`holder` is null when unavailable, otherwise an explicit eleven-field displayed-account DTO: `name`, `number`, `unit_name`, `joined_year`, `email`, `gender`, `role`, `wallet_address`, `created_at`, `updated_at`, `deleted_at`. It is not the unrestricted User DTO. Unit name is resolved once for the selected live exact winner, never per candidate or on fuzzy/cache branches. Missing units yield null; unexpected unit lookup failures return an operational error without exact evidence or public details. Inactive units retain their stored name. Holder account fields and reference names reflect current database data, not immutable issuance-time identity or independent issuer confirmation.
+
+`competencies` contains name-only objects (an empty array when absent); `meta` is the credential's existing Additional Information object or null. These fields are intentionally public after live exact confirmation. User metadata, extraction output and taxonomy workflow data are not included. The approved footer exposes Credential ID, File Hash, Token ID and applicable lifecycle dates using the original Credential Details presentation.
+
+Anonymous and authenticated verifiers receive the same public contract. React opens these details from the same POST response, in memory; there is no public lookup by credential ID or shareable detail URL. Reload requires re-upload/reverification. Revoked, expired and disabled-party exact outcomes retain file-identity evidence and allow public inspection, but do not imply current validity. No immutable recipient-name snapshot exists; account names/OCR must not be presented as verified recipient identity.
+
+The ordinary summary adds only the nullable linked organization and credential type names; no expanded candidate details are exposed. The expanded public object excludes raw user/unit IDs, profile links, birth date, language, user metadata, secrets, storage URI, extraction fields, other lifecycle-party identities and private rejection/revocation reasons. Public opening previews only the uploaded file; it grants no stored-file download rights. Existing authorized credential/detail/download endpoints remain protected and unchanged. Own Holders and Issuer+ can open the existing private modal through those endpoints; a text-comparison candidate uses its protected stored file, never the unmatched upload. AI similarity100% grants no public expansion or additional permissions.
 
 ### `CredentialIssuance` (service-layer input, `credential_service.go:69-82`)
 
@@ -371,46 +385,39 @@ Self-submission pipeline: a holder submits a credential (possibly naming taxonom
 
 ---
 
-## Verify Pipeline (`credential_service.go:433-539`)
+## Verify Pipeline (`credential_service.go`, `Verify`)
 
-Three-stage pipeline: **Cache → Exact Hash → Fuzzy**.
+Three-stage pipeline: **Exact Hash → Cache → Fuzzy**. Hash is Keccak256 of the original uploaded bytes, not encrypted storage bytes.
 
-### Stage 1: Cache Lookup
-- Compute `uploadedHash = "0x" + hex.EncodeToString(keccak256(file.Data))`
-- Query MongoDB `credential_verifications` by `uploaded_file_hash`
-- On cache hit: re-check holder/issuer deleted status **live** (users table) for party-disabled override (400410-400412)
-- Return cached verdict + matched credential (fetched fresh by ID)
-- Cache TTL: configurable via `AI_VERIFICATION_CACHE_TTL_HOURS` (default 24h)
+### Stage 1: Exact Hash Path
+- `FindByFileHashes([uploadedHash])` selects activated Postgres credentials; pending/rejected submissions are not public candidates.
+- The implemented Postgres bridge parses positive `token_id`s and calls `registryService.GetCredentialsByIds` on-chain.
+- Compare token ID, uploaded/stored/chain hash, URI credential ID, holder/issuer wallet relationships, physical issue date, expiry, credential number and revocation presence.
+- A completed matching read returns `Authentic` (400401) or `Revoked` (400402). Authentic results are then checked for expiry (400413), then disabled parties (400410-400412).
+- Missing/invalid token IDs or a completed read without corresponding facts return `IntegrityWarning` (400403, HTTP409).
+- Failed chain calls return operational `ChainUnavailable` (400447, HTTP503), with no credential verdict, AI fallback or cache write. Unclassified contract errors are inconclusive, not proof of mismatch.
+- Exact outcomes are never cached; every activated exact upload retries the live correspondence check before consulting any old cache entry. No similarity percentage is produced.
 
-### Stage 2: Exact Hash Path
-- `FindByFileHashes([uploadedHash])` in Postgres
-- **Planned:** Uses Postgres bridge → gets token_ids → calls `getCredentialsByIds` on-chain
-- Cross-reference with on-chain via `registryService.FindCredentialByHash`
-- Determines base verdict:
-  - Hash on-chain, not revoked → `Authentic` (400401)
-  - Hash on-chain, DB revoked → `Revoked` (400402)
-  - Hash NOT on-chain → `IntegrityWarning` (400403, HTTP 409)
-- Applies party-disabled override for Authentic only
-- Caches result, returns
+### Stage 2: Cache Lookup
+- Only runs when no activated exact-hash row exists.
+- Query MongoDB `credential_verifications` by `uploaded_file_hash`; fetch the matched verifiable credential fresh when present.
+- Cached `Authentic` alone receives fresh DB revocation, expiry and party checks; missing credential becomes integrity warning. Other cached codes retain their verdict, even if the accompanying credential status has changed. No live chain read occurs here.
+- Cache TTL: configurable via `AI_VERIFICATION_CACHE_TTL_HOURS` (default24h).
 
 ### Stage 3: Fuzzy Path
-- Call Python AI `/extract` (IDs only — text+embedding already stored)
-- If no IDs extracted → `NoIdentifiers` (400408), cache
-- `FindRankedByIds` in Mongo: aggregation pipeline ranks extractions by ID intersection count (cap 10)
-- If no matches → `NoMatch` (400409), cache
-- `verifyPickBestMatch`: ties broken by revocation status (prefer non-revoked) → newer `IssuedAt`
-- Call Python AI `/verify` with best match's embedding
-- Map AI verdict string → domain code:
-  - `"tampered"` → `Tampered` (400404)
-  - `"suspicious"` → `Suspicious` (400405)
-  - `"low_similarity"` → `LowSimilarity` (400406)
-  - default → `NotSimilar` (400407)
-- Apply party-disabled override for Authentic only
-- Cache result with similarity score/percent, return
+- Call Python AI `/extract-ids` for identifiers in the uploaded document.
+- No identifiers produces `NoIdentifiers` (400408); no ranked extracted candidates produces `NoMatch` (400409). Both are cached without a semantic score.
+- `FindRankedByIds` ranks Mongo extractions by ID intersection count (cap10); `verifyPickBestMatch` prefers non-revoked candidates and newer `IssuedAt` when tied.
+- Call Python `/verify` with the best candidate's stored embedding. No live chain correspondence check occurs on this path.
+- Legacy wire codes/thresholds remain: `tampered`400404 (high text similarity), `suspicious`400405 (similar text), `low_similarity`400406 (limited similarity), otherwise `not_similar`400407 (no close text match).
+- Current Python verdict logic never returns `authentic`; Go retains compatibility handling for that value, including party/expiry overrides.
+- Cache the result with matched ID and similarity score/percent. Stored credential lifecycle is independent of the uploaded-file comparison.
 
-### Party-Disabled Override
+### Meaning and Party Overrides
 
-Applied to `Authentic` verdicts only. Stronger verdicts (Revoked, Tampered, IntegrityWarning) persist unchanged.
+Text similarity does not establish authenticity or prove alteration. Rescans/reexports can change bytes without fraud. Use the original registered file or contact the issuing organization. The service does not independently confirm credential numbers with external issuing organizations.
+
+Party-disabled overrides apply only to `Authentic`:
 
 | Condition | Override Code |
 |-----------|---------------|
@@ -418,14 +425,15 @@ Applied to `Authentic` verdicts only. Stronger verdicts (Revoked, Tampered, Inte
 | Issuer soft-deleted, Holder live | `IssuerDisabled` (400411) |
 | Both soft-deleted | `PartyDisabled` (400412) |
 
-Re-checked **live on every call** including cache hits — cache stores only credential-level verdict; holder/issuer status is always fresh.
+Exact and cached-authentic paths check expiry before disabled parties. Compatibility handling for a future AI `authentic` checks parties before expiry. Existing non-authentic cached codes are not recomputed into every lifecycle override.
 
-### Verdict HTTP Status Codes
+### Verdict and Operational HTTP Status Codes
 
-| Verdict | HTTP Status |
+| Outcome | HTTP Status |
 |---------|-------------|
 | All verdicts except IntegrityWarning | 200 |
-| `IntegrityWarning` (400403) | 409 |
+| `IntegrityWarning` (400403), structured verdict data | 409 |
+| `ChainUnavailable` (400447), no verdict data | 503 |
 
 ---
 
@@ -537,17 +545,18 @@ Direct issuance resolves type, organization and competencies by ID at request ti
 | 400443 | `CodeCredentialVerifyExtractFailed` | 500 | Extraction previously failed |
 | 400444 | `CodeCredentialVerifyAiServiceFailed` | 502 | Python AI service unreachable/errored |
 | 400445 | `CodeCredentialVerifyCredentialNotFound` | 404 | Matched credential not found in DB |
-| 400446 | `CodeCredentialVerifyDocumentUnreadable` | 422 | Uploaded file could not be read as a document (`credential_service.go:1834`) |
+| 400446 | `CodeCredentialVerifyDocumentUnreadable` | 422 | Uploaded file could not be read as a document |
+| 400447 | `CodeCredentialVerifyChainUnavailable` | 503 | Chain read could not complete; no verdict |
 
 #### Verdict Codes (400401-400413)
 
 | Code | Constant | HTTP | Stage | Meaning |
 |------|----------|------|-------|---------|
-| 400401 | `CodeCredentialVerifyAuthentic` | 200 | Exact/Fuzzy | Credential matched and on-chain |
+| 400401 | `CodeCredentialVerifyAuthentic` | 200 | Exact | Exact bytes and registered chain facts correspond; Python currently cannot emit authentic |
 | 400402 | `CodeCredentialVerifyRevoked` | 200 | Exact | Hash matched but revoked on-chain |
-| 400403 | `CodeCredentialVerifyIntegrityWarning` | 409 | Exact | Hash in DB but NOT on-chain |
-| 400404 | `CodeCredentialVerifyTampered` | 200 | Fuzzy | AI detected tampering |
-| 400405 | `CodeCredentialVerifySuspicious` | 200 | Fuzzy | AI flagged as suspicious |
+| 400403 | `CodeCredentialVerifyIntegrityWarning` | 409 | Exact | Missing/invalid token bridge or completed chain read disagrees with stored facts |
+| 400404 | `CodeCredentialVerifyTampered` | 200 | Fuzzy | High text similarity; not proof of alteration |
+| 400405 | `CodeCredentialVerifySuspicious` | 200 | Fuzzy | Similar text; not an authenticity verdict |
 | 400406 | `CodeCredentialVerifyLowSimilarity` | 200 | Fuzzy | Similar but below threshold |
 | 400407 | `CodeCredentialVerifyNotSimilar` | 200 | Fuzzy | No fuzzy match |
 | 400408 | `CodeCredentialVerifyNoIdentifiers` | 200 | Fuzzy | AI could not extract any identifiers |

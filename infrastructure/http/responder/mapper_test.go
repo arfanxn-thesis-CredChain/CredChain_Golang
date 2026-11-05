@@ -114,6 +114,7 @@ var allDomainCodes = []int{
 	domain.CodeCredentialVerifyAiServiceFailed,
 	domain.CodeCredentialVerifyCredentialNotFound,
 	domain.CodeCredentialVerifyDocumentUnreadable,
+	domain.CodeCredentialVerifyChainUnavailable,
 	domain.CodeCredentialVerifyAuthentic,
 	domain.CodeCredentialVerifyRevoked,
 	domain.CodeCredentialVerifyIntegrityWarning,
@@ -237,12 +238,14 @@ var allDomainCodes = []int{
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {
 	tests := map[int]int{
-		domain.CodeSystemSuccess:         http.StatusOK,
-		domain.CodeAuthUnauthorized:      http.StatusUnauthorized,
-		domain.CodeAuthForbidden:         http.StatusForbidden,
-		domain.CodeUserFetchNotFound:     http.StatusNotFound,
-		domain.CodeUserStoreSuccess:      http.StatusCreated,
-		domain.CodeAuthRateLimitExceeded: http.StatusTooManyRequests,
+		domain.CodeCredentialVerifyChainUnavailable: http.StatusServiceUnavailable,
+		domain.CodeCredentialVerifyIntegrityWarning: http.StatusConflict,
+		domain.CodeSystemSuccess:                    http.StatusOK,
+		domain.CodeAuthUnauthorized:                 http.StatusUnauthorized,
+		domain.CodeAuthForbidden:                    http.StatusForbidden,
+		domain.CodeUserFetchNotFound:                http.StatusNotFound,
+		domain.CodeUserStoreSuccess:                 http.StatusCreated,
+		domain.CodeAuthRateLimitExceeded:            http.StatusTooManyRequests,
 	}
 	for code, want := range tests {
 		assert.Equal(t, want, HttpCodeFromCode(code), "code %d", code)
