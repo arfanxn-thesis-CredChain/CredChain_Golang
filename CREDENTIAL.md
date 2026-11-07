@@ -258,10 +258,10 @@ Notes:
 | `/api/competencies/:id` | DELETE | Issuer+ (on-chain) | `Destroy` | Delete a competency |
 | `/api/users/self/credentials` | GET | Authenticated | `SelfPaginate` | Scoped to `holder_user_id == auth_user.id` |
 | `/api/users/self/credentials/:id` | GET | Authenticated | `SelfFind` | 404 if not owned (no ID leak) |
-| `/api/credential-notifications` | GET | Authenticated (no role gate) | `List` | Self-only notifications list with keyset pagination (`?status=all\|unread&limit=N&cursor=...`) |
-| `/api/credential-notifications/unread-count` | GET | Authenticated (no role gate) | `UnreadCount` | Self-only unread notifications count |
-| `/api/credential-notifications/read-all` | PUT | Authenticated (no role gate) | `MarkAllRead` | Self-only mark all unread notifications as read |
-| `/api/credential-notifications/:id/read` | PUT | Authenticated (no role gate) | `MarkRead` | Self-only mark single notification as read |
+| `/api/notifications` | GET | Authenticated (no role gate) | `List` | Self-only notifications list with keyset pagination (`?status=all\|unread&limit=N&cursor=...`) |
+| `/api/notifications/unread-count` | GET | Authenticated (no role gate) | `UnreadCount` | Self-only unread notifications count |
+| `/api/notifications/read-all` | PUT | Authenticated (no role gate) | `MarkAllRead` | Self-only mark all unread notifications as read |
+| `/api/notifications/:id/read` | PUT | Authenticated (no role gate) | `MarkRead` | Self-only mark single notification as read |
 | `/api/overview` | GET | Authenticated (no role gate) | `Get` | Role-conditional dashboard: credential_counts + recents (Holder: own, Issuer+: system-wide). Optional `?limit=N` controls recent items per category (default 5). |
 
 **Route middleware chain:** `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `IssuerRoleMiddleware` (for credential management and taxonomy-write routes).
@@ -657,15 +657,17 @@ Hard deletion is guarded — a row still referenced by a credential cannot be de
 | 400742 | `CodeCredentialIssuerOrganizationDestroyInUse` | 409 | Issuer organization is referenced by a credential |
 | 400743 | `CodeCompetencyDestroyInUse` | 409 | Competency is referenced by a credential |
 
-### Credential Notifications (40-16)
+### Notifications (40-16)
+
+Generic inbox codes retain their existing numeric values for coordinated Go/React compatibility.
 
 | Code | Constant | HTTP | Meaning |
 |------|----------|------|---------|
-| 401600 | `CodeCredentialNotificationFetchSuccess` | 200 | Notifications retrieved |
-| 401601 | `CodeCredentialNotificationUnreadCountSuccess` | 200 | Unread count retrieved |
-| 401602 | `CodeCredentialNotificationMarkReadSuccess` | 200 | Single notification marked as read |
-| 401603 | `CodeCredentialNotificationMarkAllReadSuccess` | 200 | All notifications marked as read |
-| 401640 | `CodeCredentialNotificationNotFound` | 404 | Notification not found (or not owned by user) |
+| 401600 | `CodeNotificationFetchSuccess` | 200 | Notifications retrieved |
+| 401601 | `CodeNotificationUnreadCountSuccess` | 200 | Unread count retrieved |
+| 401602 | `CodeNotificationMarkReadSuccess` | 200 | Single notification marked as read |
+| 401603 | `CodeNotificationMarkAllReadSuccess` | 200 | All notifications marked as read |
+| 401640 | `CodeNotificationNotFound` | 404 | Notification not found (or not owned by user) |
 
 ---
 
@@ -741,17 +743,31 @@ Lifecycle Mutation (Issue / Approve / Reject / Revoke)
   - Job uniqueness is keyed by `(credential_id, event)` with up to 5 retry attempts.
   - Non-retryable conditions (deleted user, missing user, empty email) cancel the job (`river.JobCancel`).
   - Transport failures (SMTP network/auth) trigger exponential backoff retries.
-  - Commit-to-enqueue crashes may drop emails; SMTP acceptance races may cause duplicate emails. In-app rows are stored separately in `credential_notifications` within the lifecycle transaction; they are not an email outbox.
+  - Commit-to-enqueue crashes may drop emails; SMTP acceptance races may cause duplicate emails. In-app rows are stored separately in `notifications` within the lifecycle transaction; they are not an email outbox. The River job kind `credential_notification`, worker, payload, and email event values remain credential-specific.
 - **Security & Privacy**: Email payloads contain no sensitive attributes, file paths, or rejection reasons. Emails link directly to authenticated `/credentials/:id` route.
 
 ---
+
+### Persisted inbox and reference review
+
+`feature/notification` owns the recipient-scoped inbox at `/api/notifications`. Each row has nullable paired `subject_type` / `subject_id`, nullable JSON `data`, and nullable `updated_at`. Subject summaries are current authorized data, not snapshots. Credential summaries remain holder-only. Missing targets produce unavailable entries without navigation; subjectless entries retain localized fallback copy and read actions.
+
+Persisted credential types are `credential_registered`, `credential_approved`, `credential_rejected`, and `credential_revoked`. These prefixes do not change the separate email events above. First mark-read sets `read_at` and `updated_at` to the same database timestamp. Repeated reads and replay-safe inserts preserve timestamps, payload, and independent recipient read state.
+
+Submitting a credential type, issuer organization, or competency creates a pending reference and one alert per eligible reviewer in the same transaction. Recipients are live DB Issuer/Admin/SuperAdmin users except the submitter, selected once and inserted as one batch. Zero reviewers is valid; notification failure rolls back the proposal. Direct approved creation sends no alert. Types are `credential_type_submitted`, `credential_issuer_organization_submitted`, and `competency_submitted`. Approval/rejection preserves that historical type and does not read or delete alerts. No reference outcome emails or alerts, retrospective fan-out, or credential-submission reviewer alerts are generated.
+
+Reviewer alerts, totals, unread counts, and summaries require a current live DB Issuer+ role and one on-chain permission check per request. Chain denial or lookup failure hides reviewer alerts while retaining personal credential alerts. The recipient snapshot never grants review permission.
+
+The bell counts visible unread inbox rows. Review indicators count live pending subject rows (`activated_at IS NULL AND rejected_at IS NULL`) independently of notifications and read state. Reference counts use their list endpoint with `limit=1`, `filters=status=pending`, and pagination `total`. History links use `status=all` and current-name search; queue links use `status=pending`.
+
+This is a breaking API/schema cutover coordinated with React. Existing databases need a separately approved data transition; editing the initial schema does not upgrade them. No live migration, conversion, or reset is authorized by these application changes. See [DATABASE.md](DATABASE.md).
 
 ### Notification seed data
 
 `CredentialNotificationSeeder` runs after `CredentialSeeder` and derives notifications only from the existing credential fixture IDs. It performs one batch read and one batch insert, without invoking lifecycle services, email jobs, or blockchain operations. It does not backfill production credentials.
 
-- Direct issue: `registered` at `CreatedAt`; self-submission: no event until `approved` at `ActivatedAt`.
-- `RejectedAt` and `RevokedAt` add their corresponding events. Revoked and expired credentials retain earlier registration/approval history; expiry and extraction create no events.
+- Direct issue: `credential_registered` at `CreatedAt`; self-submission: no event until `credential_approved` at `ActivatedAt`.
+- `RejectedAt` and `RevokedAt` add `credential_rejected` and `credential_revoked`. Revoked and expired credentials retain earlier registration/approval history; expiry and extraction create no events.
 - Recipients are always credential holders, including soft-deleted fixture holders. Issuers/reviewers receive no rows merely for acting on credentials.
 - IDs and mixed read/unread examples are deterministic per fixture slot and event. Composite conflict handling preserves existing IDs, event timestamps, and user read state on replay.
 - Missing individual fixtures are skipped. No seeded credentials returns a prerequisite error; pending-only fixtures succeed without inserts.

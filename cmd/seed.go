@@ -8,6 +8,7 @@ import (
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/credential"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/user"
 	gormInfra "CredChain_Golang/infrastructure/database/gorm"
 	mongoInfra "CredChain_Golang/infrastructure/database/mongo"
@@ -59,7 +60,7 @@ Examples:
 				credential.NewGormCredentialIssuerOrganizationRepository,
 				credential.NewGormCompetencyRepository,
 				credential.NewGormCredentialRepository,
-				credential.NewGormCredentialNotificationRepository,
+				notification.NewGormNotificationRepository,
 				credential.NewGormCompetencyCredentialRepository,
 				credential.NewMongoCredentialExtractionRepository,
 				func(
@@ -69,7 +70,7 @@ Examples:
 					issuerOrgRepo domain.CredentialIssuerOrganizationRepository,
 					competencyRepo domain.CompetencyRepository,
 					credRepo domain.CredentialRepository,
-					notificationRepo domain.CredentialNotificationRepository,
+					notificationRepo domain.NotificationRepository,
 					compCredRepo domain.CompetencyCredentialRepository,
 					extractRepo domain.CredentialExtractionRepository,
 					stor *storage.Storage,

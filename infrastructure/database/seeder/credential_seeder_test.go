@@ -10,6 +10,7 @@ import (
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/credential"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/user"
 	"CredChain_Golang/infrastructure/database/gorm/model"
 	"CredChain_Golang/infrastructure/database/seeder"
@@ -50,7 +51,7 @@ func (m *mockExtractionRepo) FindRankedByIds(ctx context.Context, values []strin
 type seededCredentials struct {
 	db               *gorm.DB
 	credRepo         domain.CredentialRepository
-	notificationRepo domain.CredentialNotificationRepository
+	notificationRepo domain.NotificationRepository
 	creds            []domain.Credential
 	usersByID        map[string]domain.User
 	extractions      []domain.CredentialExtraction
@@ -63,7 +64,7 @@ func seedCredentials(t *testing.T) seededCredentials {
 	t.Helper()
 
 	gormDB := db.OpenInMemorySQLite(t)
-	require.NoError(t, gormDB.AutoMigrate(&model.CredentialNotification{}))
+	require.NoError(t, gormDB.AutoMigrate(&model.Notification{}))
 	userRepo := user.NewGormUserRepository(gormDB)
 	userUnitRepo := user.NewGormUserUnitRepository(gormDB)
 	typeRepo := credential.NewGormCredentialTypeRepository(gormDB)
@@ -123,7 +124,7 @@ func seedCredentials(t *testing.T) seededCredentials {
 	return seededCredentials{
 		db:               gormDB,
 		credRepo:         credRepo,
-		notificationRepo: credential.NewGormCredentialNotificationRepository(gormDB),
+		notificationRepo: notification.NewGormNotificationRepository(gormDB),
 		creds:            creds,
 		usersByID:        lo.SliceToMap(users, func(u domain.User) (string, domain.User) { return u.Id, u }),
 		extractions:      mockExtract.stored,

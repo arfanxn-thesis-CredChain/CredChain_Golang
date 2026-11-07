@@ -23,6 +23,7 @@ func newCompetencyServiceTest(t *testing.T) (CompetencyService, *gormCompetencyR
 	competencyRepo := NewGormCompetencyRepository(d)
 	competencyCredentialRepo := NewGormCompetencyCredentialRepository(d)
 	return NewCompetencyService(CompetencyServiceParams{
+		UoW:                      referenceTestUnitOfWork(d),
 		CompetencyRepo:           competencyRepo,
 		CompetencyCredentialRepo: competencyCredentialRepo,
 	}), competencyRepo.(*gormCompetencyRepository), competencyCredentialRepo.(*gormCompetencyCredentialRepository)

@@ -62,10 +62,28 @@ Central identity table. Supports soft-delete via `deleted_at`. Four roles (super
 #### `credentials`
 Core credential record. Tracks lifecycle: issue → extract → (optional) revoke. The `file_hash` has a **partial unique index** (`WHERE revoked_at IS NULL`) so re-issuing a credential with the same file after revocation is allowed. Only the extraction status is stored here — the actual extracted data (text, identifiers, embedding) lives in MongoDB.
 
-#### `credential_notifications`
-Holder-specific lifecycle history with exactly six columns: `id`, `notified_user_id` (FK to `users`), `credential_id` (FK to `credentials`), `type`, `created_at`, and nullable `read_at`. Allowed types: `registered`, `approved`, `rejected`, `revoked`. Unique `(notified_user_id, credential_id, type)` makes event insertion replay-safe without resetting read state. Feed index: `(notified_user_id, created_at DESC, id DESC)`; partial unread index: `(notified_user_id) WHERE read_at IS NULL`.
+#### `notifications`
+Recipient-owned inbox history with exactly nine columns in this order:
 
-No credential snapshots or separate event timestamp are stored. Authorized current credential summaries are loaded through the relationship. Pending-review workload is a live query, not individual reviewer notifications. Development notification fixtures derive from existing seeded credential histories; see [CREDENTIAL.md](CREDENTIAL.md).
+| Column | Definition |
+|---|---|
+| `id` | ULID primary key |
+| `notified_user_id` | Required recipient FK to `users` |
+| `subject_type` | Nullable discriminator: `credential`, `credential_type`, `credential_issuer_organization`, or `competency` |
+| `subject_id` | Nullable subject ULID |
+| `type` | Required prefixed historical event type |
+| `data` | Nullable JSONB; mapped with GORM `serializer:json` |
+| `created_at` | Required creation timestamp |
+| `updated_at` | Nullable update timestamp, initially NULL |
+| `read_at` | Nullable recipient read timestamp |
+
+CHECKs require both subject fields to be NULL or both present, allowlist the seven notification types, and enforce subject/type compatibility. Types are `credential_registered`, `credential_approved`, `credential_rejected`, `credential_revoked`, `credential_type_submitted`, `credential_issuer_organization_submitted`, and `competency_submitted`.
+
+Unique `(notified_user_id, subject_type, subject_id, type)` makes subject-backed insertion replay-safe without changing IDs, payload, creation time, or read state. Ordinary NULL uniqueness intentionally does not deduplicate subjectless rows. Feed index: `(notified_user_id, created_at DESC, id DESC)`; partial unread index: `(notified_user_id) WHERE read_at IS NULL`. First mark-read atomically sets `read_at` and `updated_at` to the same database timestamp; repeated reads preserve both.
+
+The recipient FK remains. Polymorphic subjects have no ordinary subject FK, including no credential FK/delete restriction. Trusted producers validate subjects; unavailable targets are handled without leaking details. Current authorized summaries use one allowlisted UNION ALL batch query. Credential summaries are holder-only; reference alerts require live DB and chain reviewer permission before pagination, totals, and unread counts. `data` is recipient-visible optional structured content, never a permission grant, secret store, trusted HTML, or arbitrary navigation URL.
+
+Reference submission and reviewer alerts commit together. Approval/rejection preserves historical alerts and independent read state. Live pending-review workload is queried from subject tables, never counted from inbox rows. Credential lifecycle emails remain separate River jobs. Development notification fixtures derive from existing seeded credential histories; see [CREDENTIAL.md](CREDENTIAL.md).
 
 #### `user_tokens`
 Refresh token store. Single ENUM value (`refresh`). Supports revocation and expiry. Tokens are hashed before storage.
@@ -122,7 +140,7 @@ Keeping heavy AI results in MongoDB means Postgres indexes (including the partia
 | Postgres (River) | `rivermigrate` | Applied independently by the same migrate-up CLI |
 | MongoDB indexes | Custom Go runner | `go run main.go migrate-mongo up --env .env` |
 
-Application DDL lives only in `000001_initial_schema.up.sql` / `.down.sql`, including credential notifications. The up creates notifications after users and credentials; the down drops notifications before both parents. River owns its own migration history and is unchanged.
+Application DDL lives only in `000001_initial_schema.up.sql` / `.down.sql`, including generic notifications. The up creates notifications after users and credentials; the down drops notifications before those tables. River owns its own migration history and is unchanged. The notification schema/type change is incompatible with existing credential-only rows. Deployment against existing data remains blocked until its handling is separately approved; no conversion scripts, ALTER statements, or additional schema files accompany this change.
 
 **Existing database warning:** rewriting migration 1 affects fresh installs only. A database already at version 1 will not replay it, and a database at version 2 cannot find its migration source after the separate notification migration pair is removed. Such installations require a separately authorized transition or development reset before using this consolidated layout. Never silently force migration versions or change migration bookkeeping.
 

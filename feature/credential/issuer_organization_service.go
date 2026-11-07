@@ -32,18 +32,20 @@ type CredentialIssuerOrganizationService interface {
 }
 
 type credentialIssuerOrganizationService struct {
+	uow            domain.UnitOfWork
 	orgRepo        domain.CredentialIssuerOrganizationRepository
 	credentialRepo domain.CredentialRepository
 }
 
 type CredentialIssuerOrganizationServiceParams struct {
 	fx.In
+	UoW            domain.UnitOfWork
 	OrgRepo        domain.CredentialIssuerOrganizationRepository
 	CredentialRepo domain.CredentialRepository
 }
 
 func NewCredentialIssuerOrganizationService(p CredentialIssuerOrganizationServiceParams) CredentialIssuerOrganizationService {
-	return &credentialIssuerOrganizationService{orgRepo: p.OrgRepo, credentialRepo: p.CredentialRepo}
+	return &credentialIssuerOrganizationService{uow: p.UoW, orgRepo: p.OrgRepo, credentialRepo: p.CredentialRepo}
 }
 
 // Paginate returns the requested page and the total number of organizations
@@ -173,15 +175,22 @@ func (s *credentialIssuerOrganizationService) Submit(ctx context.Context, name s
 		SubmitterUserId: &u.Id,
 	}
 
-	stored, err := s.orgRepo.Store(ctx, row)
+	var proposal domain.CredentialIssuerOrganization
+	err = s.uow.Execute(ctx, func(tx domain.UnitOfWork) error {
+		stored, err := tx.CredentialIssuerOrganization().Store(ctx, row)
+		if err != nil {
+			return err
+		}
+		if len(stored) == 0 {
+			return domain.NewError(domain.CodeSystemInternal)
+		}
+		proposal = stored[0]
+		return recordReferenceSubmission(ctx, tx, u.Id, proposal.Id, domain.NotificationTypeCredentialIssuerOrganizationSubmitted)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(stored) == 0 {
-		return nil, domain.NewError(domain.CodeSystemInternal)
-	}
-	o := stored[0]
-	return &o, nil
+	return &proposal, nil
 }
 
 // Approve transitions a pending issuer organization proposal to approved (active=true).

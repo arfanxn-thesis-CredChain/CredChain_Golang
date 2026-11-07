@@ -249,11 +249,11 @@ var CodeToMessageKey = map[int]string{
 	domain.CodeCredentialApproveInactiveMetadata:        "error_credential_approve_inactive_metadata",
 
 	// Credential Notifications
-	domain.CodeCredentialNotificationFetchSuccess:       "success_credential_notification_fetch",
-	domain.CodeCredentialNotificationUnreadCountSuccess: "success_credential_notification_unread_count",
-	domain.CodeCredentialNotificationMarkReadSuccess:    "success_credential_notification_mark_read",
-	domain.CodeCredentialNotificationMarkAllReadSuccess: "success_credential_notification_mark_all_read",
-	domain.CodeCredentialNotificationNotFound:           "error_credential_notification_not_found",
+	domain.CodeNotificationFetchSuccess:       "success_notification_fetch",
+	domain.CodeNotificationUnreadCountSuccess: "success_notification_unread_count",
+	domain.CodeNotificationMarkReadSuccess:    "success_notification_mark_read",
+	domain.CodeNotificationMarkAllReadSuccess: "success_notification_mark_all_read",
+	domain.CodeNotificationNotFound:           "error_notification_not_found",
 }
 
 // HttpCodes maps every domain status code to its exact HTTP status code.
@@ -489,11 +489,11 @@ var HttpCodes = map[int]int{
 	domain.CodeCredentialApproveInactiveMetadata:        http.StatusUnprocessableEntity,
 
 	// Credential Notifications
-	domain.CodeCredentialNotificationFetchSuccess:       http.StatusOK,
-	domain.CodeCredentialNotificationUnreadCountSuccess: http.StatusOK,
-	domain.CodeCredentialNotificationMarkReadSuccess:    http.StatusOK,
-	domain.CodeCredentialNotificationMarkAllReadSuccess: http.StatusOK,
-	domain.CodeCredentialNotificationNotFound:           http.StatusNotFound,
+	domain.CodeNotificationFetchSuccess:       http.StatusOK,
+	domain.CodeNotificationUnreadCountSuccess: http.StatusOK,
+	domain.CodeNotificationMarkReadSuccess:    http.StatusOK,
+	domain.CodeNotificationMarkAllReadSuccess: http.StatusOK,
+	domain.CodeNotificationNotFound:           http.StatusNotFound,
 }
 
 // HttpCodeFromCode looks up the HTTP status for a given domain status code.

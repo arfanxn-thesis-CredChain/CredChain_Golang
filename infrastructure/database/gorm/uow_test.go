@@ -7,6 +7,7 @@ import (
 
 	"CredChain_Golang/domain"
 	"CredChain_Golang/feature/credential"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/user"
 	"CredChain_Golang/infrastructure/database/gorm"
 	"CredChain_Golang/tests/db"
@@ -22,7 +23,10 @@ func TestGormUnitOfWork_Execute_CommitsOnSuccess(t *testing.T) {
 		credential.NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
 		credential.NewGormCompetencyCredentialRepository,
-		credential.NewGormCredentialNotificationRepository)
+		notification.NewGormNotificationRepository,
+		credential.NewGormCredentialTypeRepository,
+		credential.NewGormCredentialIssuerOrganizationRepository,
+		credential.NewGormCompetencyRepository)
 
 	u := fixtures.NewDomainUser(fixtures.WithEmail("commit@x.com"))
 	err := uow.Execute(context.Background(), func(tx domain.UnitOfWork) error {
@@ -44,7 +48,10 @@ func TestGormUnitOfWork_Execute_RollsBackOnError(t *testing.T) {
 		credential.NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
 		credential.NewGormCompetencyCredentialRepository,
-		credential.NewGormCredentialNotificationRepository)
+		notification.NewGormNotificationRepository,
+		credential.NewGormCredentialTypeRepository,
+		credential.NewGormCredentialIssuerOrganizationRepository,
+		credential.NewGormCompetencyRepository)
 
 	u := fixtures.NewDomainUser(fixtures.WithEmail("rollback@x.com"))
 	err := uow.Execute(context.Background(), func(tx domain.UnitOfWork) error {

@@ -253,9 +253,9 @@
     "mail_credential_view": "Lihat Kredensial",
     "mail_fallback": "Jika tombol di atas tidak berfungsi, gunakan tautan berikut:",
     "mail_footer": "Seluruh hak cipta dilindungi. Ini adalah notifikasi otomatis sistem. Mohon tidak membalas email ini.",
-    "success_credential_notification_fetch": "Notifikasi berhasil diambil.",
-    "success_credential_notification_unread_count": "Jumlah notifikasi belum dibaca berhasil diambil.",
-    "success_credential_notification_mark_read": "Notifikasi ditandai sudah dibaca.",
-    "success_credential_notification_mark_all_read": "Semua notifikasi ditandai sudah dibaca.",
-    "error_credential_notification_not_found": "Notifikasi tidak ditemukan."
+    "success_notification_fetch": "Notifikasi berhasil diambil.",
+    "success_notification_unread_count": "Jumlah notifikasi belum dibaca berhasil diambil.",
+    "success_notification_mark_read": "Notifikasi ditandai sudah dibaca.",
+    "success_notification_mark_all_read": "Semua notifikasi ditandai sudah dibaca.",
+    "error_notification_not_found": "Notifikasi tidak ditemukan."
 }

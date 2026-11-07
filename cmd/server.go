@@ -7,6 +7,7 @@ import (
 	"CredChain_Golang/feature/auth"
 	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/feature/meta"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/overview"
 	"CredChain_Golang/feature/user"
 	"CredChain_Golang/infrastructure/ai/pyai"
@@ -76,9 +77,9 @@ var serverCmd = &cobra.Command{
 				credential.NewCredentialPolicy,
 				credential.NewCredentialService,
 				credential.NewCredentialHandler,
-				credential.NewGormCredentialNotificationRepository,
-				credential.NewCredentialNotificationService,
-				credential.NewCredentialNotificationHandler,
+				notification.NewGormNotificationRepository,
+				notification.NewNotificationService,
+				notification.NewNotificationHandler,
 				overview.NewGormOverviewRepository,
 				overview.NewOverviewService,
 				overview.NewOverviewHandler,
@@ -94,7 +95,10 @@ var serverCmd = &cobra.Command{
 						credential.NewGormCredentialRepository,
 						user.NewGormUserTokenRepository,
 						credential.NewGormCompetencyCredentialRepository,
-						credential.NewGormCredentialNotificationRepository,
+						notification.NewGormNotificationRepository,
+						credential.NewGormCredentialTypeRepository,
+						credential.NewGormCredentialIssuerOrganizationRepository,
+						credential.NewGormCompetencyRepository,
 					)
 				},
 				user.NewUserPolicy,

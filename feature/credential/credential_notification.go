@@ -14,28 +14,30 @@ func recordLifecycleNotifications(
 	ctx context.Context,
 	uow domain.UnitOfWork,
 	creds []domain.Credential,
-	nType domain.CredentialNotificationType,
+	nType domain.NotificationType,
 ) error {
 	if uow == nil || len(creds) == 0 {
 		return nil
 	}
 	seen := make(map[string]bool, len(creds))
-	notifications := make([]domain.CredentialNotification, 0, len(creds))
+	notifications := make([]domain.Notification, 0, len(creds))
+	subjectType := domain.NotificationSubjectCredential
 	for _, c := range creds {
 		if c.ID == "" || c.HolderUserID == "" || seen[c.ID] {
 			continue
 		}
 		seen[c.ID] = true
-		notifications = append(notifications, domain.CredentialNotification{
+		notifications = append(notifications, domain.Notification{
 			NotifiedUserID: c.HolderUserID,
-			CredentialID:   c.ID,
+			SubjectType:    &subjectType,
+			SubjectID:      &c.ID,
 			Type:           nType,
 		})
 	}
 	if len(notifications) == 0 {
 		return nil
 	}
-	return uow.CredentialNotification().Store(ctx, notifications...)
+	return uow.Notification().Store(ctx, notifications...)
 }
 
 func (s *credentialService) enqueueLifecycleNotifications(

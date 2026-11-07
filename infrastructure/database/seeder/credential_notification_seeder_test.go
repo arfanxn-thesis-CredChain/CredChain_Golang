@@ -21,11 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func notificationRows(t *testing.T, s seededCredentials) []domain.CredentialNotification {
+func notificationRows(t *testing.T, s seededCredentials) []domain.Notification {
 	t.Helper()
-	var rows []model.CredentialNotification
+	var rows []model.Notification
 	require.NoError(t, s.db.Order("id").Find(&rows).Error)
-	out := make([]domain.CredentialNotification, len(rows))
+	out := make([]domain.Notification, len(rows))
 	for i, row := range rows {
 		out[i] = row.ToDomain()
 	}
@@ -41,11 +41,11 @@ func TestCredentialNotificationSeeder_HistoryAndReplay(t *testing.T) {
 	rows := notificationRows(t, s)
 	require.Len(t, s.creds, 41)
 	require.Len(t, rows, 36)
-	byCredential := map[string][]domain.CredentialNotification{}
-	counts := map[domain.CredentialNotificationType]int{}
+	byCredential := map[string][]domain.Notification{}
+	counts := map[domain.NotificationType]int{}
 	read, unread := 0, 0
 	for _, n := range rows {
-		byCredential[n.CredentialID] = append(byCredential[n.CredentialID], n)
+		byCredential[*n.SubjectID] = append(byCredential[*n.SubjectID], n)
 		counts[n.Type]++
 		if n.ReadAt == nil {
 			unread++
@@ -54,11 +54,11 @@ func TestCredentialNotificationSeeder_HistoryAndReplay(t *testing.T) {
 			assert.Equal(t, n.CreatedAt.Add(time.Hour), *n.ReadAt)
 		}
 	}
-	assert.Equal(t, map[domain.CredentialNotificationType]int{
-		domain.CredentialNotificationTypeRegistered: 16,
-		domain.CredentialNotificationTypeApproved:   10,
-		domain.CredentialNotificationTypeRejected:   5,
-		domain.CredentialNotificationTypeRevoked:    5,
+	assert.Equal(t, map[domain.NotificationType]int{
+		domain.NotificationTypeCredentialRegistered: 16,
+		domain.NotificationTypeCredentialApproved:   10,
+		domain.NotificationTypeCredentialRejected:   5,
+		domain.NotificationTypeCredentialRevoked:    5,
 	}, counts)
 	assert.Positive(t, read)
 	assert.Positive(t, unread)
@@ -66,17 +66,17 @@ func TestCredentialNotificationSeeder_HistoryAndReplay(t *testing.T) {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 	pending, deleted, expiredHistory, revokedHistory := 0, 0, 0, 0
 	for slot, c := range sorted {
-		expected := map[domain.CredentialNotificationType]time.Time{}
+		expected := map[domain.NotificationType]time.Time{}
 		if isDirectIssuance(c) {
-			expected[domain.CredentialNotificationTypeRegistered] = c.CreatedAt
+			expected[domain.NotificationTypeCredentialRegistered] = c.CreatedAt
 		} else if c.ActivatedAt != nil {
-			expected[domain.CredentialNotificationTypeApproved] = *c.ActivatedAt
+			expected[domain.NotificationTypeCredentialApproved] = *c.ActivatedAt
 		}
 		if c.RejectedAt != nil {
-			expected[domain.CredentialNotificationTypeRejected] = *c.RejectedAt
+			expected[domain.NotificationTypeCredentialRejected] = *c.RejectedAt
 		}
 		if c.RevokedAt != nil {
-			expected[domain.CredentialNotificationTypeRevoked] = *c.RevokedAt
+			expected[domain.NotificationTypeCredentialRevoked] = *c.RevokedAt
 			revokedHistory++
 			assert.Len(t, byCredential[c.ID], 2)
 		}
@@ -93,9 +93,9 @@ func TestCredentialNotificationSeeder_HistoryAndReplay(t *testing.T) {
 			at, exists := expected[n.Type]
 			assert.True(t, exists)
 			assert.Equal(t, at, n.CreatedAt)
-			ordinal := map[domain.CredentialNotificationType]int{
-				domain.CredentialNotificationTypeRegistered: 0, domain.CredentialNotificationTypeApproved: 1,
-				domain.CredentialNotificationTypeRejected: 2, domain.CredentialNotificationTypeRevoked: 3,
+			ordinal := map[domain.NotificationType]int{
+				domain.NotificationTypeCredentialRegistered: 0, domain.NotificationTypeCredentialApproved: 1,
+				domain.NotificationTypeCredentialRejected: 2, domain.NotificationTypeCredentialRevoked: 3,
 			}[n.Type]
 			id, err := ulid.ParseStrict(n.ID)
 			require.NoError(t, err)
@@ -116,10 +116,11 @@ func TestCredentialNotificationSeeder_HistoryAndReplay(t *testing.T) {
 		if n.ReadAt != nil {
 			continue
 		}
-		marked, err := s.notificationRepo.MarkRead(ctx, n.NotifiedUserID, n.ID)
+		marked, err := s.notificationRepo.MarkRead(ctx, domain.NotificationScope{UserID: n.NotifiedUserID}, n.ID)
 		require.NoError(t, err)
 		require.NotNil(t, marked.ReadAt)
 		rows[i].ReadAt = marked.ReadAt
+		rows[i].UpdatedAt = marked.UpdatedAt
 		break
 	}
 	require.NoError(t, seed.Seed(ctx))
@@ -141,13 +142,13 @@ func (r *notificationCredentialRead) FindByIds(_ context.Context, ids []string, 
 	return r.rows, r.err
 }
 
-func captureNotifications(t *testing.T, credentials []domain.Credential) ([]domain.CredentialNotification, []string) {
+func captureNotifications(t *testing.T, credentials []domain.Credential) ([]domain.Notification, []string) {
 	t.Helper()
 	r := &notificationCredentialRead{rows: credentials}
-	n := &mocks.MockCredentialNotificationRepository{}
-	var got []domain.CredentialNotification
+	n := &mocks.MockNotificationRepository{}
+	var got []domain.Notification
 	n.On("Store", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		got = slices.Clone(args.Get(1).([]domain.CredentialNotification))
+		got = slices.Clone(args.Get(1).([]domain.Notification))
 	}).Return(nil).Once()
 	require.NoError(t, seeder.NewCredentialNotificationSeeder(r, n).Seed(context.Background()))
 	assert.Equal(t, 1, r.calls)
@@ -171,7 +172,7 @@ func TestCredentialNotificationSeeder_SeedScopeAndStableSlots(t *testing.T) {
 	nonSeed.ID = ulid.Make().String()
 	remaining = append(remaining, nonSeed)
 	partial, _ := captureNotifications(t, remaining)
-	assert.Equal(t, slices.DeleteFunc(slices.Clone(baseline), func(n domain.CredentialNotification) bool { return n.CredentialID == removed }), partial)
+	assert.Equal(t, slices.DeleteFunc(slices.Clone(baseline), func(n domain.Notification) bool { return *n.SubjectID == removed }), partial)
 
 	// The real repository must not select a persisted, non-fixture credential.
 	nonSeed.FileHash = "0x" + nonSeed.ID
@@ -179,7 +180,7 @@ func TestCredentialNotificationSeeder_SeedScopeAndStableSlots(t *testing.T) {
 	require.NoError(t, s.db.Create(model.FromDomainCredential(nonSeed)).Error)
 	require.NoError(t, seeder.NewCredentialNotificationSeeder(s.credRepo, s.notificationRepo).Seed(context.Background()))
 	var count int64
-	require.NoError(t, s.db.Model(&model.CredentialNotification{}).Where("credential_id = ?", nonSeed.ID).Count(&count).Error)
+	require.NoError(t, s.db.Model(&model.Notification{}).Where("subject_id = ?", nonSeed.ID).Count(&count).Error)
 	assert.Zero(t, count)
 }
 
@@ -187,7 +188,7 @@ func TestCredentialNotificationSeeder_EmptyPendingAndErrors(t *testing.T) {
 	ctx := context.Background()
 	t.Run("empty prerequisite", func(t *testing.T) {
 		r := &notificationCredentialRead{}
-		n := &mocks.MockCredentialNotificationRepository{}
+		n := &mocks.MockNotificationRepository{}
 		err := seeder.NewCredentialNotificationSeeder(r, n).Seed(ctx)
 		require.ErrorContains(t, err, "run credential seeder first")
 		n.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
@@ -195,7 +196,7 @@ func TestCredentialNotificationSeeder_EmptyPendingAndErrors(t *testing.T) {
 	t.Run("read error", func(t *testing.T) {
 		cause := errors.New("read failure")
 		r := &notificationCredentialRead{err: cause}
-		n := &mocks.MockCredentialNotificationRepository{}
+		n := &mocks.MockNotificationRepository{}
 		err := seeder.NewCredentialNotificationSeeder(r, n).Seed(ctx)
 		require.ErrorIs(t, err, cause)
 		assert.ErrorContains(t, err, "fetch credentials")
@@ -211,14 +212,14 @@ func TestCredentialNotificationSeeder_EmptyPendingAndErrors(t *testing.T) {
 		}
 		require.NotEmpty(t, pending)
 		r := &notificationCredentialRead{rows: pending}
-		n := &mocks.MockCredentialNotificationRepository{}
+		n := &mocks.MockNotificationRepository{}
 		require.NoError(t, seeder.NewCredentialNotificationSeeder(r, n).Seed(ctx))
 		n.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
 	})
 	t.Run("store error", func(t *testing.T) {
 		cause := errors.New("store failure")
 		r := &notificationCredentialRead{rows: s.creds}
-		n := &mocks.MockCredentialNotificationRepository{}
+		n := &mocks.MockNotificationRepository{}
 		n.On("Store", mock.Anything, mock.Anything).Return(cause).Once()
 		err := seeder.NewCredentialNotificationSeeder(r, n).Seed(ctx)
 		require.ErrorIs(t, err, cause)

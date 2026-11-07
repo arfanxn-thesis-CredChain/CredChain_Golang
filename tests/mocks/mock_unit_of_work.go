@@ -37,12 +37,17 @@ func (m *MockUnitOfWork) CompetencyCredential() domain.CompetencyCredentialRepos
 	return args.Get(0).(domain.CompetencyCredentialRepository)
 }
 
-func (m *MockUnitOfWork) CredentialNotification() domain.CredentialNotificationRepository {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return &MockCredentialNotificationRepository{}
-	}
-	return args.Get(0).(domain.CredentialNotificationRepository)
+func (m *MockUnitOfWork) Notification() domain.NotificationRepository {
+	return m.Called().Get(0).(domain.NotificationRepository)
+}
+func (m *MockUnitOfWork) CredentialType() domain.CredentialTypeRepository {
+	return m.Called().Get(0).(domain.CredentialTypeRepository)
+}
+func (m *MockUnitOfWork) CredentialIssuerOrganization() domain.CredentialIssuerOrganizationRepository {
+	return m.Called().Get(0).(domain.CredentialIssuerOrganizationRepository)
+}
+func (m *MockUnitOfWork) Competency() domain.CompetencyRepository {
+	return m.Called().Get(0).(domain.CompetencyRepository)
 }
 
 // RunUnitOfWorkFn configures the mock to invoke the function passed to Execute.
@@ -66,16 +71,13 @@ func (p *PropagatingUnitOfWork) Execute(ctx context.Context, fn func(domain.Unit
 	return fn(p)
 }
 
-func (p *PropagatingUnitOfWork) CredentialNotification() domain.CredentialNotificationRepository {
-	if len(p.MockUnitOfWork.ExpectedCalls) == 0 {
-		return &MockCredentialNotificationRepository{}
-	}
+func (p *PropagatingUnitOfWork) Notification() domain.NotificationRepository {
 	for _, call := range p.MockUnitOfWork.ExpectedCalls {
-		if call.Method == "CredentialNotification" {
-			return p.MockUnitOfWork.CredentialNotification()
+		if call.Method == "Notification" {
+			return p.MockUnitOfWork.Notification()
 		}
 	}
-	return &MockCredentialNotificationRepository{}
+	return &MockNotificationRepository{}
 }
 
 func NewPropagatingUnitOfWork() *PropagatingUnitOfWork {

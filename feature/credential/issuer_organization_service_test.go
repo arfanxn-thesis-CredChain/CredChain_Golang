@@ -23,6 +23,7 @@ func newCredentialIssuerOrganizationServiceTest(t *testing.T) (CredentialIssuerO
 	orgRepo := NewGormCredentialIssuerOrganizationRepository(d)
 	credRepo := NewGormCredentialRepository(d)
 	return NewCredentialIssuerOrganizationService(CredentialIssuerOrganizationServiceParams{
+		UoW:            referenceTestUnitOfWork(d),
 		OrgRepo:        orgRepo,
 		CredentialRepo: credRepo,
 	}), orgRepo.(*gormIssuerOrganizationRepository), credRepo.(*gormCredentialRepository)

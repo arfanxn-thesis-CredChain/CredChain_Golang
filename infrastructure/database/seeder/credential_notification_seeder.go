@@ -10,10 +10,10 @@ import (
 
 type CredentialNotificationSeeder struct {
 	credRepo         domain.CredentialRepository
-	notificationRepo domain.CredentialNotificationRepository
+	notificationRepo domain.NotificationRepository
 }
 
-func NewCredentialNotificationSeeder(credRepo domain.CredentialRepository, notificationRepo domain.CredentialNotificationRepository) *CredentialNotificationSeeder {
+func NewCredentialNotificationSeeder(credRepo domain.CredentialRepository, notificationRepo domain.NotificationRepository) *CredentialNotificationSeeder {
 	return &CredentialNotificationSeeder{credRepo: credRepo, notificationRepo: notificationRepo}
 }
 
@@ -30,7 +30,7 @@ func (s *CredentialNotificationSeeder) Seed(ctx context.Context) error {
 		byID[c.ID] = c
 	}
 
-	var notifications []domain.CredentialNotification
+	var notifications []domain.Notification
 	found := false
 	for slot, id := range ids {
 		c, ok := byID[id]
@@ -38,11 +38,13 @@ func (s *CredentialNotificationSeeder) Seed(ctx context.Context) error {
 			continue
 		}
 		found = true
-		appendEvent := func(kind domain.CredentialNotificationType, ordinal int, at time.Time) {
-			n := domain.CredentialNotification{
+		subjectType := domain.NotificationSubjectCredential
+		appendEvent := func(kind domain.NotificationType, ordinal int, at time.Time) {
+			n := domain.Notification{
 				ID:             deterministicULID(uint32(10000 + 4*slot + ordinal)),
 				NotifiedUserID: c.HolderUserID,
-				CredentialID:   c.ID,
+				SubjectType:    &subjectType,
+				SubjectID:      &c.ID,
 				Type:           kind,
 				CreatedAt:      at,
 			}
@@ -53,15 +55,15 @@ func (s *CredentialNotificationSeeder) Seed(ctx context.Context) error {
 			notifications = append(notifications, n)
 		}
 		if c.SubmitterUserID != c.HolderUserID {
-			appendEvent(domain.CredentialNotificationTypeRegistered, 0, c.CreatedAt)
+			appendEvent(domain.NotificationTypeCredentialRegistered, 0, c.CreatedAt)
 		} else if c.ActivatedAt != nil {
-			appendEvent(domain.CredentialNotificationTypeApproved, 1, *c.ActivatedAt)
+			appendEvent(domain.NotificationTypeCredentialApproved, 1, *c.ActivatedAt)
 		}
 		if c.RejectedAt != nil {
-			appendEvent(domain.CredentialNotificationTypeRejected, 2, *c.RejectedAt)
+			appendEvent(domain.NotificationTypeCredentialRejected, 2, *c.RejectedAt)
 		}
 		if c.RevokedAt != nil {
-			appendEvent(domain.CredentialNotificationTypeRevoked, 3, *c.RevokedAt)
+			appendEvent(domain.NotificationTypeCredentialRevoked, 3, *c.RevokedAt)
 		}
 	}
 	if !found {

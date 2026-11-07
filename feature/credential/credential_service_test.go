@@ -11,6 +11,7 @@ import (
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
 	domainQuery "CredChain_Golang/domain/query"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/user"
 	pyai "CredChain_Golang/infrastructure/ai/pyai"
 	"CredChain_Golang/infrastructure/chain/contracts"
@@ -2832,7 +2833,10 @@ func newCredentialServiceWithSQLite(t *testing.T) (*credentialService, *gormCred
 		NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
 		NewGormCompetencyCredentialRepository,
-		NewGormCredentialNotificationRepository,
+		notification.NewGormNotificationRepository,
+		NewGormCredentialTypeRepository,
+		NewGormCredentialIssuerOrganizationRepository,
+		NewGormCompetencyRepository,
 	)
 
 	ctx := context.Background()
@@ -3794,19 +3798,22 @@ func TestLinkCompetencies_EmptySetClearsLinks(t *testing.T) {
 
 func TestLifecycleNotificationsTransactionalIntegrity(t *testing.T) {
 	d := db.OpenInMemorySQLite(t)
-	require.NoError(t, d.AutoMigrate(&model.CredentialNotification{}))
+	require.NoError(t, d.AutoMigrate(&model.Notification{}))
 
 	credRepo := NewGormCredentialRepository(d).(*gormCredentialRepository)
 	typeRepo := NewGormCredentialTypeRepository(d)
 	orgRepo := NewGormCredentialIssuerOrganizationRepository(d)
 	compRepo := NewGormCompetencyRepository(d)
-	notifRepo := NewGormCredentialNotificationRepository(d)
+	notifRepo := notification.NewGormNotificationRepository(d)
 	uow := gormInfra.NewGormUnitOfWork(d,
 		user.NewGormUserRepository,
 		NewGormCredentialRepository,
 		user.NewGormUserTokenRepository,
 		NewGormCompetencyCredentialRepository,
-		NewGormCredentialNotificationRepository,
+		notification.NewGormNotificationRepository,
+		NewGormCredentialTypeRepository,
+		NewGormCredentialIssuerOrganizationRepository,
+		NewGormCompetencyRepository,
 	)
 
 	ctx := context.Background()
@@ -3862,11 +3869,11 @@ func TestLifecycleNotificationsTransactionalIntegrity(t *testing.T) {
 	_, err = svc.Reject(authIssuerCtx, []CredentialRejection{{ID: cReject.ID, Reason: "Invalid file"}})
 	require.NoError(t, err)
 
-	page, err := notifRepo.List(ctx, holder.Id, domain.CredentialNotificationListOptions{})
+	page, err := notifRepo.List(ctx, domain.NotificationScope{UserID: holder.Id}, domain.NotificationListOptions{})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
-	assert.Equal(t, domain.CredentialNotificationTypeRejected, page.Items[0].Type)
-	assert.Equal(t, cReject.ID, page.Items[0].CredentialID)
+	assert.Equal(t, domain.NotificationTypeCredentialRejected, page.Items[0].Type)
+	assert.Equal(t, cReject.ID, *page.Items[0].SubjectID)
 	assert.Nil(t, page.Items[0].ReadAt)
 
 	// Test 2: Blockchain sync failure rolls back notification
@@ -3889,9 +3896,9 @@ func TestLifecycleNotificationsTransactionalIntegrity(t *testing.T) {
 	_, err = svc.Approve(authIssuerCtx, cApprove.ID)
 	require.Error(t, err)
 
-	pageAfterRollback, err := notifRepo.List(ctx, holder.Id, domain.CredentialNotificationListOptions{})
+	pageAfterRollback, err := notifRepo.List(ctx, domain.NotificationScope{UserID: holder.Id}, domain.NotificationListOptions{})
 	require.NoError(t, err)
 	// Only the previous rejected notification exists; approved row was rolled back
 	assert.Len(t, pageAfterRollback.Items, 1)
-	assert.Equal(t, cReject.ID, pageAfterRollback.Items[0].CredentialID)
+	assert.Equal(t, cReject.ID, *pageAfterRollback.Items[0].SubjectID)
 }

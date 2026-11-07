@@ -31,18 +31,20 @@ type CompetencyService interface {
 }
 
 type competencyService struct {
+	uow                      domain.UnitOfWork
 	competencyRepo           domain.CompetencyRepository
 	competencyCredentialRepo domain.CompetencyCredentialRepository
 }
 
 type CompetencyServiceParams struct {
 	fx.In
+	UoW                      domain.UnitOfWork
 	CompetencyRepo           domain.CompetencyRepository
 	CompetencyCredentialRepo domain.CompetencyCredentialRepository
 }
 
 func NewCompetencyService(p CompetencyServiceParams) CompetencyService {
-	return &competencyService{competencyRepo: p.CompetencyRepo, competencyCredentialRepo: p.CompetencyCredentialRepo}
+	return &competencyService{uow: p.UoW, competencyRepo: p.CompetencyRepo, competencyCredentialRepo: p.CompetencyCredentialRepo}
 }
 
 // Paginate returns the requested page and the total number of competencies
@@ -172,15 +174,22 @@ func (s *competencyService) Submit(ctx context.Context, name string) (*domain.Co
 		SubmitterUserId: &u.Id,
 	}
 
-	stored, err := s.competencyRepo.Store(ctx, row)
+	var proposal domain.Competency
+	err = s.uow.Execute(ctx, func(tx domain.UnitOfWork) error {
+		stored, err := tx.Competency().Store(ctx, row)
+		if err != nil {
+			return err
+		}
+		if len(stored) == 0 {
+			return domain.NewError(domain.CodeSystemInternal)
+		}
+		proposal = stored[0]
+		return recordReferenceSubmission(ctx, tx, u.Id, proposal.Id, domain.NotificationTypeCompetencySubmitted)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(stored) == 0 {
-		return nil, domain.NewError(domain.CodeSystemInternal)
-	}
-	c := stored[0]
-	return &c, nil
+	return &proposal, nil
 }
 
 // Approve transitions a pending competency proposal to approved (active=true).

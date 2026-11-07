@@ -12,6 +12,7 @@ import (
 	"CredChain_Golang/feature/auth"
 	"CredChain_Golang/feature/credential"
 	"CredChain_Golang/feature/meta"
+	"CredChain_Golang/feature/notification"
 	"CredChain_Golang/feature/overview"
 	"CredChain_Golang/feature/user"
 	"CredChain_Golang/infrastructure/http/middleware"
@@ -63,7 +64,7 @@ type RouteParams struct {
 	CredentialTypeHandler               credential.CredentialTypeHandler
 	CredentialIssuerOrganizationHandler credential.CredentialIssuerOrganizationHandler
 	CompetencyHandler                   credential.CompetencyHandler
-	CredentialNotificationHandler       credential.CredentialNotificationHandler
+	NotificationHandler                 notification.NotificationHandler
 	MetaHandler                         meta.MetaHandler
 	OverviewHandler                     overview.OverviewHandler
 	Logger                              *zap.Logger
@@ -170,12 +171,12 @@ func RegisterRoutes(p RouteParams) {
 				userUnits.PUT("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Update)
 				userUnits.DELETE("/:id", gin.HandlerFunc(p.AdminRoleMiddleware), p.UserUnitHandler.Destroy)
 			}
-			credentialNotifications := secure.Group("/credential-notifications")
+			notifications := secure.Group("/notifications")
 			{
-				credentialNotifications.GET("", p.CredentialNotificationHandler.List)
-				credentialNotifications.GET("/unread-count", p.CredentialNotificationHandler.UnreadCount)
-				credentialNotifications.PUT("/read-all", p.CredentialNotificationHandler.MarkAllRead)
-				credentialNotifications.PUT("/:id/read", p.CredentialNotificationHandler.MarkRead)
+				notifications.GET("", p.NotificationHandler.List)
+				notifications.GET("/unread-count", p.NotificationHandler.UnreadCount)
+				notifications.PUT("/read-all", p.NotificationHandler.MarkAllRead)
+				notifications.PUT("/:id/read", p.NotificationHandler.MarkRead)
 			}
 			secure.GET("/credentials/:id/file", p.CredentialHandler.DownloadFile)
 		}

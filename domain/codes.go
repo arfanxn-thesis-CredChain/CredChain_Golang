@@ -269,9 +269,9 @@ const (
 	CodeCredentialApproveInactiveMetadata        = 401547
 
 	// ── Credential Notifications (16) ────────────────────────────────────────
-	CodeCredentialNotificationFetchSuccess       = 401600
-	CodeCredentialNotificationUnreadCountSuccess = 401601
-	CodeCredentialNotificationMarkReadSuccess    = 401602
-	CodeCredentialNotificationMarkAllReadSuccess = 401603
-	CodeCredentialNotificationNotFound           = 401640
+	CodeNotificationFetchSuccess       = 401600
+	CodeNotificationUnreadCountSuccess = 401601
+	CodeNotificationMarkReadSuccess    = 401602
+	CodeNotificationMarkAllReadSuccess = 401603
+	CodeNotificationNotFound           = 401640
 )

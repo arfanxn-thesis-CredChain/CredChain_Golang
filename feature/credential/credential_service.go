@@ -520,7 +520,7 @@ func (s *credentialService) issueCommit(
 					domain.WithMetadata("credential_id", c.ID))
 			}
 		}
-		if err := recordLifecycleNotifications(ctx, uow, stored, domain.CredentialNotificationTypeRegistered); err != nil {
+		if err := recordLifecycleNotifications(ctx, uow, stored, domain.NotificationTypeCredentialRegistered); err != nil {
 			return err
 		}
 		if err := s.mintCredentials(ctx, uow, authWallet, stored, holderByID,
@@ -1039,7 +1039,7 @@ func (s *credentialService) Approve(ctx context.Context, ids ...string) ([]domai
 			return err
 		}
 
-		if err := recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeApproved); err != nil {
+		if err := recordLifecycleNotifications(ctx, uow, targets, domain.NotificationTypeCredentialApproved); err != nil {
 			return err
 		}
 
@@ -1105,7 +1105,7 @@ func (s *credentialService) Reject(ctx context.Context, rejections []CredentialR
 			return err
 		}
 
-		return recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeRejected)
+		return recordLifecycleNotifications(ctx, uow, targets, domain.NotificationTypeCredentialRejected)
 	})
 	if err == nil && len(rejected) > 0 {
 		s.enqueueLifecycleNotifications(ctx, rejected, jobs.NotificationEventRejected)
@@ -1205,7 +1205,7 @@ func (s *credentialService) Revoke(ctx context.Context, revocations []Credential
 			return err
 		}
 
-		if err := recordLifecycleNotifications(ctx, uow, targets, domain.CredentialNotificationTypeRevoked); err != nil {
+		if err := recordLifecycleNotifications(ctx, uow, targets, domain.NotificationTypeCredentialRevoked); err != nil {
 			return err
 		}
 

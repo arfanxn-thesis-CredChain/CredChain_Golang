@@ -23,6 +23,7 @@ func newCredentialTypeServiceTest(t *testing.T) (CredentialTypeService, *gormCre
 	typeRepo := NewGormCredentialTypeRepository(d)
 	credRepo := NewGormCredentialRepository(d)
 	return NewCredentialTypeService(CredentialTypeServiceParams{
+		UoW:            referenceTestUnitOfWork(d),
 		TypeRepo:       typeRepo,
 		CredentialRepo: credRepo,
 	}), typeRepo.(*gormCredentialTypeRepository), credRepo.(*gormCredentialRepository)

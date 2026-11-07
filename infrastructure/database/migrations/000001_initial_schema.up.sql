@@ -210,22 +210,36 @@ CREATE INDEX idx_user_tokens_user_id ON user_tokens(user_id);
 -- Index for token lookups (refresh token validation)
 CREATE INDEX idx_user_tokens_token ON user_tokens(token);
 
-CREATE TABLE credential_notifications (
+CREATE TABLE notifications (
     id                  VARCHAR(26) PRIMARY KEY,
-    notified_user_id    CHAR(26) NOT NULL REFERENCES users(id),
-    credential_id       CHAR(26) NOT NULL REFERENCES credentials(id),
-    type                TEXT NOT NULL CHECK (
-        type IN ('registered', 'approved', 'rejected', 'revoked')
-    ),
+    notified_user_id     CHAR(26) NOT NULL REFERENCES users(id),
+    subject_type        TEXT,
+    subject_id          CHAR(26),
+    type                TEXT NOT NULL,
+    data                JSONB,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMPTZ,
     read_at             TIMESTAMPTZ,
-    CONSTRAINT credential_notifications_user_credential_type_unique
-        UNIQUE (notified_user_id, credential_id, type)
+    CONSTRAINT notifications_type_check CHECK (
+        type IN ('credential_registered', 'credential_approved', 'credential_rejected', 'credential_revoked',
+                 'credential_type_submitted', 'credential_issuer_organization_submitted', 'competency_submitted')
+    ),
+    CONSTRAINT notifications_subject_check CHECK (
+        (subject_type IS NULL AND subject_id IS NULL) OR
+        (subject_type IS NOT NULL AND subject_id IS NOT NULL AND (
+            (subject_type = 'credential' AND type IN ('credential_registered', 'credential_approved', 'credential_rejected', 'credential_revoked')) OR
+            (subject_type = 'credential_type' AND type = 'credential_type_submitted') OR
+            (subject_type = 'credential_issuer_organization' AND type = 'credential_issuer_organization_submitted') OR
+            (subject_type = 'competency' AND type = 'competency_submitted')
+        ))
+    ),
+    CONSTRAINT notifications_user_subject_type_unique
+        UNIQUE (notified_user_id, subject_type, subject_id, type)
 );
 
-CREATE INDEX credential_notifications_user_feed_idx
-    ON credential_notifications (notified_user_id, created_at DESC, id DESC);
+CREATE INDEX notifications_user_feed_idx
+    ON notifications (notified_user_id, created_at DESC, id DESC);
 
-CREATE INDEX credential_notifications_user_unread_idx
-    ON credential_notifications (notified_user_id)
+CREATE INDEX notifications_user_unread_idx
+    ON notifications (notified_user_id)
     WHERE read_at IS NULL;

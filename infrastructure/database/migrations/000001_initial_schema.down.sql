@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS credential_notifications;
+DROP TABLE IF EXISTS notifications;
 
 -- Drop join table first (FKs to competencies + credentials)
 DROP TABLE IF EXISTS competency_credential;

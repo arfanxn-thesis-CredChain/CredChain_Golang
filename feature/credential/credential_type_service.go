@@ -31,18 +31,20 @@ type CredentialTypeService interface {
 }
 
 type credentialTypeService struct {
+	uow            domain.UnitOfWork
 	typeRepo       domain.CredentialTypeRepository
 	credentialRepo domain.CredentialRepository
 }
 
 type CredentialTypeServiceParams struct {
 	fx.In
+	UoW            domain.UnitOfWork
 	TypeRepo       domain.CredentialTypeRepository
 	CredentialRepo domain.CredentialRepository
 }
 
 func NewCredentialTypeService(p CredentialTypeServiceParams) CredentialTypeService {
-	return &credentialTypeService{typeRepo: p.TypeRepo, credentialRepo: p.CredentialRepo}
+	return &credentialTypeService{uow: p.UoW, typeRepo: p.TypeRepo, credentialRepo: p.CredentialRepo}
 }
 
 // Paginate returns the requested page and the total number of credential types
@@ -172,15 +174,22 @@ func (s *credentialTypeService) Submit(ctx context.Context, name string) (*domai
 		SubmitterUserId: &u.Id,
 	}
 
-	stored, err := s.typeRepo.Store(ctx, row)
+	var proposal domain.CredentialType
+	err = s.uow.Execute(ctx, func(tx domain.UnitOfWork) error {
+		stored, err := tx.CredentialType().Store(ctx, row)
+		if err != nil {
+			return err
+		}
+		if len(stored) == 0 {
+			return domain.NewError(domain.CodeSystemInternal)
+		}
+		proposal = stored[0]
+		return recordReferenceSubmission(ctx, tx, u.Id, proposal.Id, domain.NotificationTypeCredentialTypeSubmitted)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(stored) == 0 {
-		return nil, domain.NewError(domain.CodeSystemInternal)
-	}
-	t := stored[0]
-	return &t, nil
+	return &proposal, nil
 }
 
 // Approve transitions a pending credential type proposal to approved (active=true).

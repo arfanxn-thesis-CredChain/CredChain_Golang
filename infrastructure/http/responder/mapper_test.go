@@ -229,11 +229,11 @@ var allDomainCodes = []int{
 	domain.CodeCredentialApproveUnresolvedMetadata,
 	domain.CodeCredentialApproveInactiveMetadata,
 	// Credential Notifications
-	domain.CodeCredentialNotificationFetchSuccess,
-	domain.CodeCredentialNotificationUnreadCountSuccess,
-	domain.CodeCredentialNotificationMarkReadSuccess,
-	domain.CodeCredentialNotificationMarkAllReadSuccess,
-	domain.CodeCredentialNotificationNotFound,
+	domain.CodeNotificationFetchSuccess,
+	domain.CodeNotificationUnreadCountSuccess,
+	domain.CodeNotificationMarkReadSuccess,
+	domain.CodeNotificationMarkAllReadSuccess,
+	domain.CodeNotificationNotFound,
 }
 
 func TestHttpCodeFromCode_KnownCodes(t *testing.T) {

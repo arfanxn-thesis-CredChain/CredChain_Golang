@@ -146,6 +146,7 @@ CredChain_Golang/
     competency_credential.go → Competency↔Credential join entity
     credential_extraction.go    → Mongo extraction document
     credential_verification.go  → Mongo verification audit document
+    notification.go     → Notification entity, subject/type values, recipient scope, repository interface
     wallet.go           → Wallet struct + WalletFromUser()
     uow.go              → UnitOfWork interface
     query.go + query/   → query DSL + parser for filters/sorts/pagination
@@ -164,6 +165,8 @@ CredChain_Golang/
                           gorm_competency_credential_repository.go
                           mongo_credential_extraction_repository.go,
                           mongo_credential_verification_repository.go
+    notification/       → notification handler/service/request/policy,
+                          gorm_notification_repository.go (+ tests)
     meta/               → meta_handler.go, meta_service.go (+ tests)
     overview/           → overview_handler.go, overview_service.go,
                           gorm_overview_repository.go (+ tests)
@@ -183,7 +186,7 @@ CredChain_Golang/
       helpers.go        → shared filter/sort/pagination/CASE update helpers (ApplyFilters, ApplySorts, ApplyPagination, BuildCaseColumnSQL, BuildBatchUpdateSQL)
       model/            → GORM structs: User, UserToken, UserUnit, Credential,
                           CredentialType, CredentialIssuerOrganization,
-                          Competency, CompetencyCredential
+                          Competency, CompetencyCredential, Notification
     database/migrations → 000001_initial_schema.up.sql / .down.sql
     database/seeder/    → seeder.go (Seeder interface + Registry runner),
                           user_unit_seeder.go, user_seeder.go (15 users),
@@ -310,6 +313,7 @@ Response codes follow a 6-digit `AABBCC` format defined in `domain/codes.go`. Ca
 
 **Response DTOs** live in `infrastructure/http/response/`:
 - `response.User` — mirrors `domain.User` minus `EncryptedWalletPrivateKey`; `Name` is `*string`; includes `Number`, `UnitID`, `JoinedYear`, `BirthDate`, `Gender`, `Meta`, `DeletedAt` (`response/user.go`).
+- `response.Notification` (`response/notification.go`) includes nullable subject type/ID, authorized subject summary, JSON data, and update/read timestamps.
 - `response.Auth` — embeds `response.User` with `json:",inline"` + `AccessToken`, `RefreshToken`, `AccessTokenExpiresIn`, `RefreshTokenExpiresIn`, `TokenType`.
 - Factory: `response.NewAuth(user, accessToken, refreshToken, accessExpirySec, refreshExpirySec)` — `TokenType` hardcoded to `"Bearer"`.
 
@@ -441,6 +445,10 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | PUT | `/api/users/batch/role` | Admin+ | Batch role update (handler `UpdateRole`); syncs DB and on-chain |
 | DELETE | `/api/users/batch` | Admin+ | Soft delete users (handler `Delete`); on-chain role revoked to `RoleNone` |
 | PUT | `/api/users/batch/restore` | Admin+ | Restore trashed users (handler `Restore`); clears soft-delete, re-syncs DB role to chain |
+| GET | `/api/notifications` | Authenticated | Recipient-owned visible inbox; keyset status/limit/cursor pagination |
+| GET | `/api/notifications/unread-count` | Authenticated | Visible unread inbox total, not pending-review workload |
+| PUT | `/api/notifications/:id/read` | Authenticated | Mark one owned visible row read; 404 for hidden/unowned rows |
+| PUT | `/api/notifications/read-all` | Authenticated | Mark owned visible unread rows read |
 | GET | `/api/credentials` | Issuer+ | List credentials |
 | GET | `/api/credentials/:id` | Issuer+ | Single credential |
 | GET | `/api/credentials/:id/file` | Authenticated (no role gate) | Download decrypted file; authorization via policy (holder OR Issuer+) |
@@ -465,6 +473,18 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | POST/PUT/DELETE | `/api/user-units[/:id]` | Admin+ | User unit CRUD |
 | GET | `/api/overview` | Authenticated (no role gate) | Role-conditional dashboard: credential counts, user counts, recents, chain details. Optional `?limit=N` controls recent items per category (default 5). Issuer+ get system-wide data; Holder get own only. Credential counts include total, active, pending_review, rejected, expired, revoked, pending, and failed, all scoped by the existing issued_at date range. Review counts match Credential List filters: pending_review checks null activated_at/rejected_at; rejected checks non-null rejected_at; expired checks activated_at non-null, revoked_at null, and expires_at <= now. These are not recap's mutually exclusive lifecycle buckets. Pending/failed remain independent extraction counts and can overlap review categories. |
 | GET | `/api/overview/credential-recap` | Issuer+ | Current-holder snapshot independent of Overview activity date: `{as_of,rows,units}`. Rows group by nullable exact `unit_id` and `joined_year`, include zero-credential holders, and partition credential counts into active/pending/rejected/expired/revoked at `as_of`. Units include `{id,parent_id,name,active}` (including inactive). No pagination. Existing overview tiles count broader populations and use activity dates, so their totals need not equal the recap. |
+
+### Notifications and live review counts
+
+`feature/notification` owns `/api/notifications`. All operations derive the recipient from authentication context, never a browser-supplied recipient ID. Reviewer-only types require a live DB Issuer+ user and one `AuthorityService.HasRoleOrAbove` call per request. Denial or chain failure hides reviewer rows before pagination, totals, unread counts, and read mutations. Personal credential history remains accessible, with holder-only credential summaries. Resolve mixed subjects with one allowlisted UNION ALL batch query; missing targets are unavailable, while query failures remain errors.
+
+The `notifications` table has nine ordered columns: `id`, `notified_user_id`, `subject_type`, `subject_id`, `type`, `data`, `created_at`, `updated_at`, `read_at`. Subject fields must both be NULL or both present; subject/type values must match. `data` uses nullable JSONB with `serializer:json`. First read sets both timestamps atomically; replay and repeated reads preserve existing state. The recipient FK remains; polymorphic subjects have no ordinary FK. See [DATABASE.md](DATABASE.md) for constraints and deployment warnings.
+
+Reference `Submit` stores pending rows and reviewer alerts in one UoW. Its accessors include `Notification()`, `CredentialType()`, `CredentialIssuerOrganization()`, and `Competency()`. Fetch live DB Issuer/Admin/SuperAdmin recipients once, exclude the submitter, and batch-insert once. Zero recipients is valid; notification failure rolls back submission. Direct approved creation sends no alert. Approve/reject preserves inbox history and recipient read state.
+
+Bell unread counts are persisted inbox state. Pending-review counts query live subjects (`activated_at IS NULL AND rejected_at IS NULL`) independently. No credential-submission reviewer alerts, retrospective fan-out, reference outcome alerts, or reference emails are generated. Credential email workers/payloads and River kind `credential_notification` remain separate and unchanged. See [CREDENTIAL.md](CREDENTIAL.md) for lifecycle details.
+
+Only existing initial up/down schema files define the new table. Existing databases are not upgraded by these edits. Deployment is blocked until data handling is separately approved; never run reset/down-up or author a conversion as a verification step.
 
 ### Database
 
