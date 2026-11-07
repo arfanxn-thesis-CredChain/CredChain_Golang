@@ -268,6 +268,24 @@ Notes:
 
 Credential policy checks use **DB-stored role rank**, not on-chain.
 
+### Credential List Sorting & Query DSL
+
+`GET /api/credentials` and `GET /api/users/self/credentials` accept sorting via query parameters (`sorts=...`). The allowed sort columns in `gormCredentialRepository` are:
+
+- `lifecycle_at`: Virtual sort column mapped to `COALESCE(credentials.revoked_at, credentials.rejected_at, credentials.activated_at, credentials.created_at)`. Orders credentials consistently by their primary lifecycle milestone across all statuses:
+  - Revoked: `revoked_at`
+  - Rejected: `rejected_at`
+  - Approved or expired: `activated_at`
+  - Pending: `created_at`
+  Supports `-lifecycle_at` (descending, newest lifecycle event first) and `lifecycle_at` / `+lifecycle_at` (ascending, oldest lifecycle event first).
+- `issued_at`: Physical certificate issue date printed on the credential (`credentials.issued_at`).
+- `revoked_at`: Explicit revocation date (`credentials.revoked_at`).
+- `expires_at`: Expiration date (`credentials.expires_at`).
+- `name`: Credential name (`credentials.name`).
+- Joined holder columns: `holder_name`, `holder_email`, `holder_number`.
+
+All queries append `credentials.id ASC` as a deterministic tie-breaker.
+
 ---
 
 ## Policy Rules

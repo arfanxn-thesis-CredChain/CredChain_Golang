@@ -1352,3 +1352,239 @@ func TestGormCredentialRepositoryFindWithTypeAndIssuerOrganization(t *testing.T)
 	assert.Equal(t, "Diploma", verifiable.Type.Name)
 	assert.Equal(t, "University of Indonesia", verifiable.IssuerOrganization.Name)
 }
+
+func TestGormCredentialGet_SortByLifecycleAt(t *testing.T) {
+	repo := openCredRepo(t)
+	ctx := context.Background()
+
+	tPendingCreated := time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC)
+	tRejectedCreated := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	tRejected := time.Date(2025, 2, 15, 10, 0, 0, 0, time.UTC)
+	tApprovedCreated := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	tApprovedActivated := time.Date(2025, 3, 20, 10, 0, 0, 0, time.UTC)
+	tExpiredCreated := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
+	tExpiredActivated := time.Date(2025, 4, 10, 10, 0, 0, 0, time.UTC)
+	tExpiredExpires := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
+	tRevokedCreated := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	tRevokedActivated := time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC)
+	tRevokedRevoked := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	tTieActivated := time.Date(2025, 8, 1, 12, 0, 0, 0, time.UTC)
+
+	_, err := repo.Store(ctx,
+		// c_pending: created Jan 2025, but printed/issued in May 2026
+		domain.Credential{
+			ID:           "c_pending",
+			HolderUserID: "h1",
+			IssuerUserID: strPtr("iss"),
+			Name:         "Pending Credential",
+			FileHash:     "0xpending",
+			IssuedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt:    tPendingCreated,
+		},
+		// c_rejected: rejected Feb 15 2025
+		domain.Credential{
+			ID:              "c_rejected",
+			HolderUserID:    "h1",
+			IssuerUserID:    strPtr("iss"),
+			Name:            "Rejected Credential",
+			FileHash:        "0xrejected",
+			IssuedAt:        time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt:       tRejectedCreated,
+			RejectedAt:      &tRejected,
+			RejecterUserID:  strPtr("iss"),
+			RejectionReason: strPtr("invalid document"),
+		},
+		// c_approved: activated Mar 20 2025
+		domain.Credential{
+			ID:           "c_approved",
+			HolderUserID: "h1",
+			IssuerUserID: strPtr("iss"),
+			Name:         "Approved Credential",
+			FileHash:     "0xapproved",
+			IssuedAt:     time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt:    tApprovedCreated,
+			ActivatedAt:  &tApprovedActivated,
+		},
+		// c_expired: activated Apr 10 2025 (lifecycle date), expired Dec 31 2024
+		domain.Credential{
+			ID:           "c_expired",
+			HolderUserID: "h1",
+			IssuerUserID: strPtr("iss"),
+			Name:         "Expired Credential",
+			FileHash:     "0xexpired",
+			IssuedAt:     time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt:    tExpiredCreated,
+			ActivatedAt:  &tExpiredActivated,
+			ExpiresAt:    &tExpiredExpires,
+		},
+		// c_revoked: activated Jan 2025, revoked Jun 1 2026 (lifecycle date)
+		domain.Credential{
+			ID:               "c_revoked",
+			HolderUserID:     "h1",
+			IssuerUserID:     strPtr("iss"),
+			Name:             "Revoked Credential",
+			FileHash:         "0xrevoked",
+			IssuedAt:         time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt:        tRevokedCreated,
+			ActivatedAt:      &tRevokedActivated,
+			RevokedAt:        &tRevokedRevoked,
+			RevokerUserID:    strPtr("iss"),
+			RevocationReason: strPtr("fraudulent"),
+		},
+		// c_tie_b and c_tie_a: same lifecycle date (Aug 1 2025), to test ID tie-breaker
+		domain.Credential{
+			ID:           "c_tie_b",
+			HolderUserID: "h2",
+			IssuerUserID: strPtr("iss"),
+			Name:         "Tie B Credential",
+			FileHash:     "0xtieb",
+			IssuedAt:     time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC),
+			ActivatedAt:  &tTieActivated,
+		},
+		domain.Credential{
+			ID:           "c_tie_a",
+			HolderUserID: "h2",
+			IssuerUserID: strPtr("iss"),
+			Name:         "Tie A Credential",
+			FileHash:     "0xtiea",
+			IssuedAt:     time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC),
+			ActivatedAt:  &tTieActivated,
+		},
+	)
+	require.NoError(t, err)
+
+	// Ensure created_at dates on DB are exactly what we set (in case GORM autoCreateTime touched it)
+	require.NoError(t, repo.db.Model(&model.Credential{}).Where("id = ?", "c_pending").Update("created_at", tPendingCreated).Error)
+	require.NoError(t, repo.db.Model(&model.Credential{}).Where("id = ?", "c_rejected").Update("created_at", tRejectedCreated).Error)
+	require.NoError(t, repo.db.Model(&model.Credential{}).Where("id = ?", "c_approved").Update("created_at", tApprovedCreated).Error)
+	require.NoError(t, repo.db.Model(&model.Credential{}).Where("id = ?", "c_expired").Update("created_at", tExpiredCreated).Error)
+	require.NoError(t, repo.db.Model(&model.Credential{}).Where("id = ?", "c_revoked").Update("created_at", tRevokedCreated).Error)
+
+	t.Run("desc", func(t *testing.T) {
+		q := &domainQuery.Query{
+			Sorts: []domainQuery.Sort{
+				{Column: "lifecycle_at", Order: domainQuery.SortDesc},
+			},
+		}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 7, total)
+		require.Len(t, results, 7)
+
+		expectedOrder := []string{
+			"c_revoked",  // Jun 2026 (revoked_at)
+			"c_tie_a",    // Aug 2025 (activated_at, tie-break ID ASC)
+			"c_tie_b",    // Aug 2025 (activated_at, tie-break ID ASC)
+			"c_expired",  // Apr 2025 (activated_at, expired uses activated_at not expires_at)
+			"c_approved", // Mar 2025 (activated_at)
+			"c_rejected", // Feb 2025 (rejected_at)
+			"c_pending",  // Jan 2025 (created_at fallback, even though issued_at is 2026)
+		}
+		actualOrder := make([]string, len(results))
+		for i, r := range results {
+			actualOrder[i] = r.ID
+		}
+		assert.Equal(t, expectedOrder, actualOrder)
+	})
+
+	t.Run("asc", func(t *testing.T) {
+		q := &domainQuery.Query{
+			Sorts: []domainQuery.Sort{
+				{Column: "lifecycle_at", Order: domainQuery.SortAsc},
+			},
+		}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 7, total)
+		require.Len(t, results, 7)
+
+		expectedOrder := []string{
+			"c_pending",  // Jan 2025 (created_at fallback)
+			"c_rejected", // Feb 2025 (rejected_at)
+			"c_approved", // Mar 2025 (activated_at)
+			"c_expired",  // Apr 2025 (activated_at)
+			"c_tie_a",    // Aug 2025 (activated_at, tie-break ID ASC)
+			"c_tie_b",    // Aug 2025 (activated_at, tie-break ID ASC)
+			"c_revoked",  // Jun 2026 (revoked_at)
+		}
+		actualOrder := make([]string, len(results))
+		for i, r := range results {
+			actualOrder[i] = r.ID
+		}
+		assert.Equal(t, expectedOrder, actualOrder)
+	})
+
+	t.Run("retained_issued_at_sort", func(t *testing.T) {
+		// Explicit issued_at sorting should still work by certificate print date
+		q := &domainQuery.Query{
+			Sorts: []domainQuery.Sort{
+				{Column: "issued_at", Order: domainQuery.SortDesc},
+			},
+		}
+		results, _, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, results, 7)
+		// c_pending has issued_at in May 2026, so it comes first when sorting by issued_at DESC
+		assert.Equal(t, "c_pending", results[0].ID)
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		p1, total1, err := repo.Get(ctx, &domainQuery.Query{
+			Sorts: []domainQuery.Sort{{Column: "lifecycle_at", Order: domainQuery.SortDesc}},
+			Page:  1,
+			Limit: 3,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 7, total1)
+		require.Len(t, p1, 3)
+
+		p2, total2, err := repo.Get(ctx, &domainQuery.Query{
+			Sorts: []domainQuery.Sort{{Column: "lifecycle_at", Order: domainQuery.SortDesc}},
+			Page:  2,
+			Limit: 3,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 7, total2)
+		require.Len(t, p2, 3)
+
+		p3, total3, err := repo.Get(ctx, &domainQuery.Query{
+			Sorts: []domainQuery.Sort{{Column: "lifecycle_at", Order: domainQuery.SortDesc}},
+			Page:  3,
+			Limit: 3,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 7, total3)
+		require.Len(t, p3, 1)
+
+		paginatedIDs := []string{
+			p1[0].ID, p1[1].ID, p1[2].ID,
+			p2[0].ID, p2[1].ID, p2[2].ID,
+			p3[0].ID,
+		}
+		expectedOrder := []string{"c_revoked", "c_tie_a", "c_tie_b", "c_expired", "c_approved", "c_rejected", "c_pending"}
+		assert.Equal(t, expectedOrder, paginatedIDs)
+	})
+
+	t.Run("with_holder_filter_and_search", func(t *testing.T) {
+		q := &domainQuery.Query{
+			Search: "Credential",
+			Filters: []domainQuery.Filter{
+				{Column: "holder_user_id", Operator: domainQuery.OperatorEqual, Values: []string{"h1"}},
+			},
+			Sorts: []domainQuery.Sort{
+				{Column: "lifecycle_at", Order: domainQuery.SortAsc},
+			},
+		}
+		results, total, err := repo.Get(ctx, q)
+		require.NoError(t, err)
+		assert.Equal(t, 5, total)
+		require.Len(t, results, 5)
+
+		expectedH1Order := []string{"c_pending", "c_rejected", "c_approved", "c_expired", "c_revoked"}
+		actualH1Order := make([]string, len(results))
+		for i, r := range results {
+			actualH1Order[i] = r.ID
+		}
+		assert.Equal(t, expectedH1Order, actualH1Order)
+	})
+}

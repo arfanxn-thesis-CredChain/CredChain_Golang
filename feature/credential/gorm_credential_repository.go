@@ -62,6 +62,7 @@ var allowedSortColumns = map[string]bool{
 	"issued_at":     true,
 	"revoked_at":    true,
 	"expires_at":    true,
+	"lifecycle_at":  true,
 	"holder_name":   true,
 	"holder_email":  true,
 	"holder_number": true,
@@ -145,6 +146,8 @@ func mapSortColumn(col string) string {
 	switch col {
 	case "name", "issued_at", "revoked_at", "expires_at":
 		return "credentials." + col
+	case "lifecycle_at":
+		return "COALESCE(credentials.revoked_at, credentials.rejected_at, credentials.activated_at, credentials.created_at)"
 	case "holder_name":
 		return "holder.name"
 	case "holder_email":
