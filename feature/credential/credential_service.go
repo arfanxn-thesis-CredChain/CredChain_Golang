@@ -1322,7 +1322,11 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	if cached != nil {
 		var cred *domain.Credential
 		if cached.MatchedCredentialID != nil {
-			cred, _ = s.repo.FindVerifiableById(ctx, *cached.MatchedCredentialID, verifyQuery)
+			var err error
+			cred, err = s.repo.FindVerifiableById(ctx, *cached.MatchedCredentialID, verifyQuery)
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return CredentialVerificationResult{}, err
+			}
 		}
 		code := cached.VerdictCode
 		if code == domain.CodeCredentialVerifyAuthentic {
@@ -1370,7 +1374,10 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 		return CredentialVerificationResult{VerdictCode: code}, nil
 	}
 
-	best := s.verifyPickBestMatch(ctx, ranked, values)
+	best, err := s.verifyPickBestMatch(ctx, ranked, values)
+	if err != nil {
+		return CredentialVerificationResult{}, err
+	}
 	result, err := s.aiClient.Verify(ctx, file, best.Embedding)
 	if err != nil {
 		if errors.Is(err, pyai.ErrVerifyFileUnprocessable) {
@@ -1380,7 +1387,10 @@ func (s *credentialService) Verify(ctx context.Context, file pyai.ExtractFile) (
 	}
 
 	code := s.verifyVerdictToCode(result.Verdict)
-	cred, _ := s.repo.FindVerifiableById(ctx, best.CredentialID, verifyQuery)
+	cred, err := s.repo.FindVerifiableById(ctx, best.CredentialID, verifyQuery)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return CredentialVerificationResult{}, err
+	}
 	if code == domain.CodeCredentialVerifyAuthentic && cred != nil {
 		holderGone := cred.Holder == nil || cred.Holder.DeletedAt != nil
 		issuerGone := cred.Issuer == nil || cred.Issuer.DeletedAt != nil
@@ -1434,7 +1444,7 @@ func (s *credentialService) verifyApplyExpiry(code int, cred *domain.Credential)
 // results. Uses one FindVerifiableByIds IN-query for tie-breaking (no
 // per-candidate queries). Prefers non-revoked credentials; then prefers
 // newer IssuedAt.
-func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []domain.CredentialExtraction, values []string) domain.CredentialExtraction {
+func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []domain.CredentialExtraction, values []string) (domain.CredentialExtraction, error) {
 	maxCount := s.verifyCountIntersection(ranked[0].IDs, values)
 	var tied []domain.CredentialExtraction
 	for _, r := range ranked {
@@ -1443,16 +1453,12 @@ func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []do
 		}
 	}
 	if len(tied) == 1 {
-		return tied[0]
+		return tied[0], nil
 	}
 	ids := lo.Map(tied, func(e domain.CredentialExtraction, _ int) string { return e.CredentialID })
 	creds, err := s.repo.FindVerifiableByIds(ctx, ids, nil)
 	if err != nil {
-		s.logger.Warn("verifyPickBestMatch: FindVerifiableByIds failed, falling back to first candidate",
-			zap.Error(err),
-			zap.Int("candidate_count", len(tied)),
-		)
-		return tied[0]
+		return domain.CredentialExtraction{}, err
 	}
 	credByID := lo.SliceToMap(creds, func(c domain.Credential) (string, domain.Credential) { return c.ID, c })
 	best, bestCred, bestOK := tied[0], credByID[tied[0].CredentialID], true
@@ -1473,7 +1479,7 @@ func (s *credentialService) verifyPickBestMatch(ctx context.Context, ranked []do
 			best, bestCred = t, tc
 		}
 	}
-	return best
+	return best, nil
 }
 
 // verifyCountIntersection counts how many of the extraction's IDs appear in

@@ -1303,6 +1303,122 @@ func TestVerify_TieBreakNewestIssuedAt(t *testing.T) {
 	assert.Equal(t, []float64{3.0, 0.0}, actualEmbedding)
 }
 
+func TestVerify_FuzzyPath_ExtractIDsError_DoesNotCacheAndReturnsAiServiceFailed(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	m.aiClient.On("ExtractIDs", mock.Anything, mock.Anything).Return(nil, errors.New("gemini 500 internal error"))
+
+	svc := newTestCredentialService(m)
+	_, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.Error(t, err)
+	var domErr *domain.Error
+	require.True(t, errors.As(err, &domErr))
+	assert.Equal(t, domain.CodeCredentialVerifyAiServiceFailed, domErr.Code)
+	m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+func TestVerify_FuzzyPath_GenuineEmptyIDs_CachesNoIdentifiers(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	m.aiClient.On("ExtractIDs", mock.Anything, mock.Anything).Return([]pyai.ExtractedID{}, nil)
+	m.verRepo.On("Store", mock.Anything, mock.MatchedBy(func(v domain.CredentialVerification) bool {
+		return v.VerdictCode == domain.CodeCredentialVerifyNoIdentifiers
+	})).Return(nil)
+
+	svc := newTestCredentialService(m)
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CodeCredentialVerifyNoIdentifiers, verification.VerdictCode)
+	m.verRepo.AssertCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+func TestVerify_CacheHit_DBError_ReturnsTechnicalErrorWithoutCaching(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	dbErr := errors.New("postgres connection failed")
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(&domain.CredentialVerification{
+		VerdictCode:         domain.CodeCredentialVerifyAuthentic,
+		MatchedCredentialID: lo.ToPtr("cred-1"),
+	}, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(nil, dbErr)
+
+	svc := newTestCredentialService(m)
+	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.Error(t, err)
+	assert.Equal(t, dbErr, err)
+	assert.NotEqual(t, domain.CodeCredentialVerifyIntegrityWarning, verification.VerdictCode)
+	m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
+func TestVerify_FuzzyPath_CredentialLookupDBError_DoesNotCacheAndReturnsError(t *testing.T) {
+	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
+	ctx := ctxWithAuth(&user)
+
+	m := &testCredentialMocks{
+		credRepo: &mocks.MockCredentialRepository{},
+		verRepo:  &mocks.MockCredentialVerificationRepository{},
+		extRepo:  &mocks.MockCredentialExtractionRepository{},
+		aiClient: &mocks.MockPythonAIClient{},
+		regSvc:   &mocks.MockRegistryService{},
+	}
+
+	dbErr := errors.New("postgres disk full")
+	m.verRepo.On("FindByUploadedFileHash", mock.Anything, mock.Anything).Return(nil, nil)
+	m.credRepo.On("FindByFileHashes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	m.aiClient.On("ExtractIDs", mock.Anything, mock.Anything).Return([]pyai.ExtractedID{
+		{Type: "student_id", Value: "12345"},
+	}, nil)
+	m.extRepo.On("FindRankedByIds", mock.Anything, mock.Anything, 10).Return([]domain.CredentialExtraction{
+		{CredentialID: "cred-1", IDs: []domain.CredentialExtractedID{{Value: "12345"}}, Embedding: []float64{0.1, 0.2}},
+	}, nil)
+	m.aiClient.On("Verify", mock.Anything, mock.Anything, mock.Anything).Return(&pyai.VerifyResult{
+		Verdict: "authentic", SimilarityScore: 0.99, SimilarityPercent: "99.0%",
+	}, nil)
+	m.credRepo.On("FindVerifiableById", mock.Anything, "cred-1", mock.Anything).Return(nil, dbErr)
+
+	svc := newTestCredentialService(m)
+	_, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test-file")})
+
+	assert.Error(t, err)
+	assert.Equal(t, dbErr, err)
+	m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
+}
+
 func TestIssue_ValidationErrors(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
@@ -2191,7 +2307,7 @@ func TestVerify_DoesNotOverrideTampered_WhenHolderDeleted(t *testing.T) {
 	assert.Equal(t, "30%", *percent)
 }
 
-func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
+func TestVerify_Fuzzy_TieBreak_FindByIdsErrorDoesNotCache(t *testing.T) {
 	user := fixtures.NewDomainUser(fixtures.WithRole(domain.RoleIssuer))
 	ctx := ctxWithAuth(&user)
 
@@ -2215,7 +2331,7 @@ func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
 		{CredentialID: "cred-b", IDs: []domain.CredentialExtractedID{{Value: "ID1"}, {Value: "ID2"}}, Embedding: []float64{2.0, 0.0}},
 	}, nil)
 
-	// FindVerifiableByIds errors → verifyPickBestMatch should fall back to tied[0] without crashing
+	// A failed tie-break lookup must not select or cache an arbitrary candidate.
 	m.credRepo.On("FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
 	m.aiClient.On("Verify", mock.Anything, mock.Anything, []float64{1.0, 0.0}).Return(
 		&pyai.VerifyResult{Verdict: "tampered", SimilarityScore: 0.3, SimilarityPercent: "30%"}, nil,
@@ -2227,12 +2343,12 @@ func TestVerify_Fuzzy_TieBreak_FindByIdsErrorFallsBack(t *testing.T) {
 	verification, err := svc.Verify(ctx, pyai.ExtractFile{Data: []byte("test")})
 	code, cred := verification.VerdictCode, verification.Credential
 
-	assert.NoError(t, err)
-	assert.Equal(t, domain.CodeCredentialVerifyTampered, code)
-	assert.NotNil(t, cred)
-	assert.Equal(t, "cred-a", cred.ID)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Zero(t, code)
+	assert.Nil(t, cred)
 	m.credRepo.AssertCalled(t, "FindVerifiableByIds", mock.Anything, mock.Anything, mock.Anything)
-	m.aiClient.AssertCalled(t, "Verify", mock.Anything, mock.Anything, []float64{1.0, 0.0})
+	m.aiClient.AssertNotCalled(t, "Verify", mock.Anything, mock.Anything, mock.Anything)
+	m.verRepo.AssertNotCalled(t, "Store", mock.Anything, mock.Anything)
 }
 
 func TestVerifyCacheVerdict_StoreFails(t *testing.T) {

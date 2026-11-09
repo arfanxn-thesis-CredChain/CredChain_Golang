@@ -3,6 +3,8 @@ package pyai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -84,7 +86,9 @@ func TestExtract_SetsAuthHeader(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"code":    500100,
 			"message": "ok",
-			"data":    []any{},
+			"data": []map[string]any{
+				{"text": "ok", "ids": []any{}, "embedding": []float64{0.1}},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -189,4 +193,126 @@ func TestResolveMIME_FromFilename(t *testing.T) {
 func TestResolveMIME_Explicit(t *testing.T) {
 	f := ExtractFile{Filename: "test.pdf", MIMEType: "image/jpeg"}
 	assert.Equal(t, "image/jpeg", f.resolveMIME())
+}
+
+func TestExtract_HTTPErrorReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":    500010,
+			"message": "Invalid or missing API key",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv.URL, "bad-key")
+	_, err := client.Extract(context.Background(), ExtractFile{
+		Filename: "test.pdf",
+		Data:     []byte("test"),
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "401")
+}
+
+func TestVerify_TechnicalErrorDoesNotReturnUnprocessable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":    500150,
+			"message": "Gemini extraction failed",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv.URL, "")
+	_, err := client.Verify(context.Background(), ExtractFile{
+		Filename: "test.pdf",
+		Data:     []byte("test"),
+	}, []float64{0.1, 0.2})
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrVerifyFileUnprocessable), "HTTP 500 must not return ErrVerifyFileUnprocessable")
+}
+
+func TestVerify_MissingSuccessDataReturnsTechnicalError(t *testing.T) {
+	for _, data := range []string{`[]`, `[null]`} {
+		t.Run(data, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"code":500200,"data":%s}`, data)
+			}))
+			defer srv.Close()
+
+			client := newTestClient(srv.URL, "")
+			result, err := client.Verify(context.Background(), ExtractFile{
+				Filename: "test.pdf",
+				Data:     []byte("test"),
+			}, []float64{0.1, 0.2})
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.False(t, errors.Is(err, ErrVerifyFileUnprocessable))
+		})
+	}
+}
+
+func TestVerify_DocumentErrorReturnsUnprocessable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":    500240,
+			"message": "No readable text",
+			"data":    []any{nil},
+			"errors": map[string][]string{
+				"files.0": {"No text extracted from document"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv.URL, "")
+	_, err := client.Verify(context.Background(), ExtractFile{
+		Filename: "test.pdf",
+		Data:     []byte("test"),
+	}, []float64{0.1, 0.2})
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrVerifyFileUnprocessable))
+}
+
+func TestExtractIDs_ErrorEnvelopeReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":    500150,
+			"message": "Gemini failed",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv.URL, "")
+	_, err := client.ExtractIDs(context.Background(), ExtractFile{
+		Filename: "test.pdf",
+		Data:     []byte("test"),
+	})
+	assert.Error(t, err, "Technical error in ExtractIDs must return an error, not empty slice")
+}
+
+func TestExtractIDs_HTTP200ErrorEnvelopeReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":    500350,
+			"message": "OCR failed",
+			"data":    []any{nil},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv.URL, "")
+	_, err := client.ExtractIDs(context.Background(), ExtractFile{
+		Filename: "test.pdf",
+		Data:     []byte("test"),
+	})
+	assert.Error(t, err, "Error envelope in ExtractIDs must return an error, not empty slice")
 }

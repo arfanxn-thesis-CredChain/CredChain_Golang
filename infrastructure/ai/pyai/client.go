@@ -157,12 +157,18 @@ func (c *pythonAIClient) Extract(ctx context.Context, files ...ExtractFile) ([]P
 	if err != nil {
 		return nil, fmt.Errorf("python extract: read body: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("python extract: unexpected http status %d: %s", resp.StatusCode, string(raw))
+	}
 	var parsed pythonResponse[*extractData]
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("python extract: decode: %w", err)
 	}
-	if parsed.Code == 500150 {
-		return nil, fmt.Errorf("python extract: all files failed (code %d)", parsed.Code)
+	if parsed.Code != 500100 {
+		return nil, fmt.Errorf("python extract: failed (code %d, message: %s)", parsed.Code, parsed.Message)
+	}
+	if len(parsed.Data) != len(files) {
+		return nil, fmt.Errorf("python extract: expected %d results, got %d", len(files), len(parsed.Data))
 	}
 	results := make([]PythonExtractResult, len(parsed.Data))
 	for i, d := range parsed.Data {
@@ -214,19 +220,29 @@ func (c *pythonAIClient) Verify(ctx context.Context, file ExtractFile, storedEmb
 	if err != nil {
 		return nil, fmt.Errorf("python verify: read body: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("python verify: unexpected http status %d: %s", resp.StatusCode, string(raw))
+	}
 	var parsed pythonResponse[*verifyData]
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("python verify: decode: %w", err)
 	}
+	if parsed.Code != 500200 {
+		reason := parsed.Message
+		if msgs, ok := parsed.Errors["files.0"]; ok && len(msgs) > 0 {
+			reason = msgs[0]
+		}
+		if parsed.Code == 500240 || parsed.Code == 500040 {
+			return nil, fmt.Errorf("%w: %s (code %d)", ErrVerifyFileUnprocessable, reason, parsed.Code)
+		}
+		return nil, fmt.Errorf("python verify: failed (code %d): %s", parsed.Code, reason)
+	}
 	if len(parsed.Data) == 0 || parsed.Data[0] == nil {
-		// HTTP 200 but no result for this file: Python rejected the upload or
-		// extracted no text. Surface as an unprocessable-file error (distinct
-		// from a service-down error) so callers can show a human message.
 		reason := "no result"
 		if msgs, ok := parsed.Errors["files.0"]; ok && len(msgs) > 0 {
 			reason = msgs[0]
 		}
-		return nil, fmt.Errorf("%w: %s (code %d)", ErrVerifyFileUnprocessable, reason, parsed.Code)
+		return nil, fmt.Errorf("python verify: missing data: %s (code %d)", reason, parsed.Code)
 	}
 	d := parsed.Data[0]
 	return &VerifyResult{
@@ -258,11 +274,20 @@ func (c *pythonAIClient) ExtractIDs(ctx context.Context, file ExtractFile) ([]Ex
 	if err != nil {
 		return nil, fmt.Errorf("python extract-ids: read body: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("python extract-ids: unexpected http status %d: %s", resp.StatusCode, string(raw))
+	}
 	var parsed pythonResponse[*extractIdsData]
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("python extract-ids: decode: %w", err)
 	}
+	if parsed.Code != 500300 {
+		return nil, fmt.Errorf("python extract-ids: failed (code %d, message: %s)", parsed.Code, parsed.Message)
+	}
 	if len(parsed.Data) == 0 || parsed.Data[0] == nil {
+		return nil, fmt.Errorf("python extract-ids: missing data for file (code %d)", parsed.Code)
+	}
+	if parsed.Data[0].IDs == nil {
 		return []ExtractedID{}, nil
 	}
 	return parsed.Data[0].IDs, nil

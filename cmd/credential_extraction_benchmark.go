@@ -493,6 +493,9 @@ func (c *benchmarkPythonAIClient) Extract(ctx context.Context, files ...pyai.Ext
 	if err != nil {
 		return nil, fmt.Errorf("python extract: read body: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("python extract: unexpected http status %d: %s", resp.StatusCode, string(raw))
+	}
 
 	type extractData struct {
 		Text      string             `json:"text"`
@@ -511,8 +514,11 @@ func (c *benchmarkPythonAIClient) Extract(ctx context.Context, files ...pyai.Ext
 		return nil, fmt.Errorf("python extract: decode: %w", err)
 	}
 
-	if parsed.Code == 500150 {
-		return nil, fmt.Errorf("python extract: all files failed (code %d)", parsed.Code)
+	if parsed.Code != 500100 {
+		return nil, fmt.Errorf("python extract: failed (code %d, message: %s)", parsed.Code, parsed.Message)
+	}
+	if len(parsed.Data) != len(files) {
+		return nil, fmt.Errorf("python extract: expected %d results, got %d", len(files), len(parsed.Data))
 	}
 
 	results := make([]pyai.PythonExtractResult, len(parsed.Data))
