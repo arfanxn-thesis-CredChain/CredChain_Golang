@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/api/idtoken"
+	"gorm.io/gorm"
 )
 
 func mkAuthSvcCfg() *config.Config {
@@ -123,7 +124,7 @@ func TestAuthService_GoogleLogin_Success(t *testing.T) {
 
 func TestAuthService_Refresh_TokenNotFound(t *testing.T) {
 	repo := &mocks.MockUserTokenRepository{}
-	repo.On("FindByToken", mock.Anything, "nope").Return(nil, errors.New("not found"))
+	repo.On("FindByToken", mock.Anything, "nope").Return(nil, gorm.ErrRecordNotFound)
 
 	svc := NewAuthService(AuthServiceParams{
 		UserRepo:      &mocks.MockUserRepository{},
@@ -215,6 +216,71 @@ func TestAuthService_Refresh_Success(t *testing.T) {
 	assert.NotEmpty(t, user.Id)
 	assert.NotEmpty(t, token.Token)
 	assert.NotEmpty(t, accessToken)
+}
+
+func TestAuthService_Refresh_DeletedUserRejected(t *testing.T) {
+	tokenRepo := &mocks.MockUserTokenRepository{}
+	tokenRepo.On("FindByToken", mock.Anything, "ok").Return(&domain.UserToken{UserId: "u1"}, nil)
+	userRepo := &mocks.MockUserRepository{}
+	u := fixtures.NewDomainUser(fixtures.WithID("u1"))
+	now := time.Now()
+	u.DeletedAt = &now
+	userRepo.On("Find", mock.Anything, "u1").Return(&u, nil)
+	uow := &mocks.MockUnitOfWork{}
+	// Existing implementation wrongly enters rotation for a deleted user.
+	uow.On("Execute", mock.Anything, mock.Anything).Return(errors.New("rotation attempted"))
+	svc := NewAuthService(AuthServiceParams{UserRepo: userRepo, UserTokenRepo: tokenRepo, UoW: uow, Config: mkAuthSvcCfg()})
+	_, _, _, err := svc.Refresh(context.Background(), "ok")
+	var de *domain.Error
+	if assert.ErrorAs(t, err, &de) {
+		assert.Equal(t, domain.CodeAuthRefreshTokenRevoked, de.Code)
+	}
+}
+
+func TestAuthService_Refresh_DatabaseFailureIsNotInvalidSession(t *testing.T) {
+	repo := &mocks.MockUserTokenRepository{}
+	repo.On("FindByToken", mock.Anything, "ok").Return(nil, errors.New("database unavailable"))
+	svc := NewAuthService(AuthServiceParams{UserTokenRepo: repo, Config: mkAuthSvcCfg()})
+	_, _, _, err := svc.Refresh(context.Background(), "ok")
+	var de *domain.Error
+	if assert.ErrorAs(t, err, &de) {
+		assert.Equal(t, domain.CodeSystemInternal, de.Code)
+	}
+}
+
+func TestAuthService_LogoutByToken_OnlyActiveCredentialsRevoke(t *testing.T) {
+	for _, state := range []string{"active", "revoked", "expired", "missing", "database"} {
+		t.Run(state, func(t *testing.T) {
+			repo := &mocks.MockUserTokenRepository{}
+			token := fixtures.NewDomainUserToken(fixtures.TokenWithUserID("u1"))
+			now := time.Now().Add(-time.Minute)
+			var lookupErr error
+			if state == "revoked" {
+				token.RevokedAt = &now
+			}
+			if state == "expired" {
+				token.ExpiresAt = &now
+			}
+			if state == "missing" {
+				lookupErr = gorm.ErrRecordNotFound
+			}
+			if state == "database" {
+				lookupErr = errors.New("database down")
+			}
+			repo.On("FindByToken", mock.Anything, "token").Return(&token, lookupErr)
+			if state == "active" {
+				repo.On("RevokeByUserIdAndType", mock.Anything, "u1", domain.UserTokenTypeRefresh).Return(1, nil)
+			}
+			svc := NewAuthService(AuthServiceParams{UserTokenRepo: repo, Config: mkAuthSvcCfg()})
+			err := svc.LogoutByToken(context.Background(), "token")
+			if state == "database" {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			repo.AssertExpectations(t)
+		})
+	}
 }
 
 func TestAuthService_Logout_Success(t *testing.T) {

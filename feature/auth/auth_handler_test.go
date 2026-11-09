@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+
+	"CredChain_Golang/infrastructure/security"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,6 +44,10 @@ func (m *mockAuthService) Refresh(ctx context.Context, refreshToken string) (dom
 
 func (m *mockAuthService) Logout(ctx context.Context, userId string) error {
 	return m.Called(ctx, userId).Error(0)
+}
+
+func (m *mockAuthService) LogoutByToken(ctx context.Context, token string) error {
+	return m.Called(ctx, token).Error(0)
 }
 
 func mkHandlerCfg() *config.Config {
@@ -198,6 +206,51 @@ func TestRefresh_NoTokenAtAll_ReturnsError(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusOK, w.Code)
 	svc.AssertNotCalled(t, "Refresh", mock.Anything, mock.Anything)
+}
+
+func TestLogout_WithoutAccessTokenClearsCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewAuthHandler(AuthHandlerParams{Service: &mockAuthService{}, Config: mkHandlerCfg()})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	assert.NotPanics(t, func() { h.Logout(c) })
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotNil(t, findCookie(w.Result().Cookies(), CookieRefreshToken))
+}
+
+func TestLogout_ExpiredAccessUsesRefreshAndReportsDatabaseFailure(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprint(failed), func(t *testing.T) {
+			svc := &mockAuthService{}
+			var revokeErr error
+			if failed {
+				revokeErr = errors.New("database unavailable")
+			}
+			svc.On("LogoutByToken", mock.Anything, "refresh").Return(revokeErr)
+			h := NewAuthHandler(AuthHandlerParams{Service: svc, Config: mkHandlerCfg()})
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+			expired, err := security.GenerateJWT("u1", []byte("test-secret"), -time.Hour)
+			assert.NoError(t, err)
+			c.Request.AddCookie(&http.Cookie{Name: CookieAccessToken, Value: expired})
+			c.Request.AddCookie(&http.Cookie{Name: CookieRefreshToken, Value: "refresh"})
+			h.Logout(c)
+			wantStatus := http.StatusOK
+			if failed {
+				wantStatus = http.StatusInternalServerError
+			}
+			assert.Equal(t, wantStatus, w.Code)
+			for _, name := range []string{CookieAccessToken, CookieRefreshToken} {
+				cookie := findCookie(w.Result().Cookies(), name)
+				if assert.NotNil(t, cookie) {
+					assert.Negative(t, cookie.MaxAge)
+				}
+			}
+			svc.AssertExpectations(t)
+		})
+	}
 }
 
 func TestLogout_ClearsAuthCookies(t *testing.T) {

@@ -91,13 +91,13 @@ func RegisterRoutes(p RouteParams) {
 		api.GET("/meta", p.MetaHandler.Get)
 		api.POST("/auth/google", gin.HandlerFunc(p.LoginRateLimitMiddleware), p.AuthHandler.GoogleLogin)
 		api.POST("/auth/refresh", gin.HandlerFunc(p.RefreshRateLimitMiddleware), p.AuthHandler.Refresh)
+		api.POST("/auth/logout", gin.HandlerFunc(p.LogoutRateLimitMiddleware), p.AuthHandler.Logout)
 		// Public credential verification — used by external verifiers (HR, employers).
 		// No auth required; rate-limited by the global ApiRateLimitMiddleware.
 		api.POST("/credentials/verify", p.CredentialHandler.Verify)
 		secure := api.Group("/")
 		secure.Use(p.AuthMiddleware)
 		{
-			secure.POST("/auth/logout", gin.HandlerFunc(p.LogoutRateLimitMiddleware), p.AuthHandler.Logout)
 			secure.GET("/overview", p.OverviewHandler.Get)
 			secure.GET("/overview/credential-recap", gin.HandlerFunc(p.IssuerRoleMiddleware), p.OverviewHandler.CredentialRecap)
 			users := secure.Group("/users")

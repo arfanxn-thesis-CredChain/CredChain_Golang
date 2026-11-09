@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"gorm.io/gorm"
 
 	"CredChain_Golang/config"
 	"CredChain_Golang/domain"
@@ -18,6 +21,7 @@ type AuthService interface {
 	GoogleLogin(ctx context.Context, idToken string) (domain.User, domain.UserToken, string, error)
 	Refresh(ctx context.Context, refreshToken string) (domain.User, domain.UserToken, string, error)
 	Logout(ctx context.Context, userId string) error
+	LogoutByToken(ctx context.Context, refreshToken string) error
 }
 
 type authService struct {
@@ -101,7 +105,10 @@ func (s *authService) GoogleLogin(ctx context.Context, idToken string) (domain.U
 func (s *authService) Refresh(ctx context.Context, refreshToken string) (domain.User, domain.UserToken, string, error) {
 	token, err := s.userTokenRepo.FindByToken(ctx, refreshToken)
 	if err != nil {
-		return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeAuthRefreshInvalidToken)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeAuthRefreshInvalidToken)
+		}
+		return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeSystemInternal, domain.WithError(err))
 	}
 
 	if token.RevokedAt != nil {
@@ -114,7 +121,13 @@ func (s *authService) Refresh(ctx context.Context, refreshToken string) (domain.
 
 	user, err := s.userRepo.Find(ctx, token.UserId)
 	if err != nil {
-		return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeAuthRefreshUserNotFound)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeAuthRefreshUserNotFound)
+		}
+		return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeSystemInternal, domain.WithError(err))
+	}
+	if user.DeletedAt != nil {
+		return domain.User{}, domain.UserToken{}, "", domain.NewError(domain.CodeAuthRefreshTokenRevoked)
 	}
 
 	var newRefreshToken domain.UserToken
@@ -126,6 +139,10 @@ func (s *authService) Refresh(ctx context.Context, refreshToken string) (domain.
 		token.RevokedAt = &now
 		_, err = uow.UserToken().Update(ctx, *token)
 		if err != nil {
+			var de *domain.Error
+			if errors.As(err, &de) {
+				return err
+			}
 			return domain.NewError(domain.CodeSystemInternal, domain.WithError(err))
 		}
 
@@ -158,6 +175,21 @@ func (s *authService) Refresh(ctx context.Context, refreshToken string) (domain.
 	}
 
 	return *user, newRefreshToken, newAccessToken, nil
+}
+
+func (s *authService) LogoutByToken(ctx context.Context, refreshToken string) error {
+	token, err := s.userTokenRepo.FindByToken(ctx, refreshToken)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return domain.NewError(domain.CodeSystemInternal, domain.WithError(err))
+	}
+	if token.Type != domain.UserTokenTypeRefresh || token.RevokedAt != nil ||
+		(token.ExpiresAt != nil && !token.ExpiresAt.After(time.Now())) {
+		return nil
+	}
+	return s.Logout(ctx, token.UserId)
 }
 
 func (s *authService) Logout(ctx context.Context, userId string) error {

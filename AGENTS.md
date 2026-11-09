@@ -330,13 +330,15 @@ Adding a new `domain.Code*` constant requires updating: `mapper.go` (both `CodeT
 
 ### Token Management & Cookie Auth
 
-- **Access tokens:** stateless JWTs; cannot be server-revoked; expire naturally.
-- **Refresh tokens:** stored in DB; can be revoked individually or in bulk via `UserTokenRepository.RevokeByUserIdAndType(ctx, userId, tokenType)`. Type-safe — prevents accidentally revoking the wrong token type.
-- **Token rotation:** uses `Update` (single query sets both `last_used_at` and `revoked_at`).
+- **Access tokens:** stateless JWTs; cannot be server-revoked; expire naturally. Checked environment configuration uses `JWT_ACCESS_EXPIRY_MINUTES=15` and `JWT_REFRESH_EXPIRY_HOURS=168` (7 days). Rotation renews the refresh expiry; there is no fixed one-hour session.
+- **Refresh tokens:** stored in DB; can be revoked individually or in bulk via `UserTokenRepository.RevokeByUserIdAndType(ctx, userId, tokenType)`. `RevokeByUserIdsAndType` revokes a batch with one query. Login, logout, email changes, SuperAdmin transfer, and account deletion invalidate refresh credentials intentionally.
+- **Token rotation:** `Update` conditionally consumes an unrevoked, unexpired refresh token with one atomic UPDATE, setting both `last_used_at` and `revoked_at`, then reads the result. Consumption and successor creation run in one UoW; a consumed token cannot mint another successor. No revoked-token reuse grace. Missing/revoked/expired credentials are authentication failures; database failures remain system errors. Soft-deleted users cannot refresh.
 - **Login flow:** revokes all existing refresh tokens before issuing new ones.
 - **Token generation:** `crypto.MustGenerateRandomHex32()` returns a 32-byte (64-char hex) cryptographically secure random string.
 
-**Cookie auth:** `POST /api/auth/google` and `POST /api/auth/refresh` set two httpOnly cookies — `access_token` (Path=/api) and `refresh_token` (Path=/api/auth). `POST /api/auth/logout` clears both. `AuthMiddleware` reads `access_token` cookie first, falls back to `Authorization: Bearer` header (for CLI/Postman).
+**Cookie auth:** `POST /api/auth/google` and `POST /api/auth/refresh` set two httpOnly cookies — `access_token` (Path=/api) and `refresh_token` (Path=/api/auth). `AuthMiddleware` reads `access_token` cookie first, falls back to `Authorization: Bearer` header (for CLI/Postman).
+
+**Logout:** `/api/auth/logout` runs outside access-token middleware so expired access cookies cannot block cleanup. The handler clears both cookies and revokes refresh tokens using a valid access JWT or an active refresh cookie. Expired JWTs and revoked refresh credentials do not authorize revocation. Database failures return 500 rather than falsely reporting successful revocation. Missing credentials still allow idempotent cookie cleanup. The existing logout limiter falls back to IP on this public route.
 
 `GIN_CORS_ALLOW_ORIGINS` must NOT be `*` when `GIN_CORS_ALLOW_CREDENTIALS=true` — router panics at startup if misconfigured. Cookie env vars: `COOKIE_DOMAIN`, `COOKIE_SECURE` (must be `true` in prod), `COOKIE_SAMESITE` (strict/lax/none), `COOKIE_ACCESS_PATH` (default `/api`), `COOKIE_REFRESH_PATH` (default `/api/auth`).
 
@@ -405,7 +407,7 @@ Four FX-injectable middlewares with named wrapper types:
 |---|---|---|
 | `LoginRateLimitMiddleware` | per IP | 300/min, burst 50 |
 | `RefreshRateLimitMiddleware` | per IP | 200/min, burst 30 |
-| `LogoutRateLimitMiddleware` | per user | 100/min, burst 10 |
+| `LogoutRateLimitMiddleware` | per user ID or IP fallback (public logout uses IP) | 100/min, burst 10 |
 | `ApiRateLimitMiddleware` | per user ID or IP fallback | 1200/min, burst 100 |
 
 `ApiRateLimitMiddleware` is applied globally on the `/api` group before any endpoint-specific limiter (global → specific; more restrictive wins).
@@ -432,7 +434,7 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | GET | `/api/meta` | None | Public metadata endpoint (issuing organization name, authority/registry contract addresses, chain ID, last block) |
 | POST | `/api/auth/google` | None | Google OAuth login |
 | POST | `/api/auth/refresh` | None | Refresh token (rotates) |
-| POST | `/api/auth/logout` | Authenticated | Revoke all refresh tokens |
+| POST | `/api/auth/logout` | Valid access JWT or active refresh cookie for revocation | Clear cookies even after access expiry; revoke all refresh tokens when authenticated |
 | GET | `/api/users` | Issuer+ | Paginated user list (handler `Paginate`); read-only for Issuer/Admin |
 | GET | `/api/users/self` | Authenticated | Current user (handler `Self`) |
 | PUT | `/api/users/self/email` | Authenticated | Update own email; requires fresh Google ID token |

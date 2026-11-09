@@ -54,6 +54,11 @@ func (m *MockUserTokenRepository) RevokeByUserIdAndType(ctx context.Context, use
 	return int64(args.Int(0)), args.Error(1)
 }
 
+func (m *MockUserTokenRepository) RevokeByUserIdsAndType(ctx context.Context, ids []string, tokenType domain.UserTokenType) (int64, error) {
+	args := m.Called(ctx, ids, tokenType)
+	return int64(args.Int(0)), args.Error(1)
+}
+
 func (m *MockUserTokenRepository) Update(ctx context.Context, token domain.UserToken) (*domain.UserToken, error) {
 	args := m.Called(ctx, token)
 	if v := args.Get(0); v != nil {

@@ -194,6 +194,9 @@ type UserTokenRepository interface {
 	// RevokeByUserIdAndType revokes all tokens of a specific type for a user, returns rows affected
 	RevokeByUserIdAndType(ctx context.Context, userId string, tokenType UserTokenType) (int64, error)
 
-	// Update updates a single user token, returns the updated entity
+	// RevokeByUserIdsAndType revokes tokens for a batch of users in one query.
+	RevokeByUserIdsAndType(ctx context.Context, userIds []string, tokenType UserTokenType) (int64, error)
+
+	// Update consumes an active refresh token once, returning an error if already revoked or expired.
 	Update(ctx context.Context, token UserToken) (*UserToken, error)
 }

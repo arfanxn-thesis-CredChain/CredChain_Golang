@@ -126,6 +126,94 @@ func TestGormUserTokenRepository_RevokeByUserIdAndType_OnlyMatchingType(t *testi
 	assert.Nil(t, gotOther.RevokedAt)
 }
 
+func TestGormUserTokenRepository_Update_RejectsRepeatedConsumption(t *testing.T) {
+	repo := newTokenRepo(t)
+	tok := fixtures.NewDomainUserToken()
+	_, err := repo.Store(context.Background(), tok)
+	assert.NoError(t, err)
+	now := time.Now()
+	tok.LastUsedAt, tok.RevokedAt = &now, &now
+	_, err = repo.Update(context.Background(), tok)
+	assert.NoError(t, err)
+	_, err = repo.Update(context.Background(), tok)
+	var de *domain.Error
+	if assert.ErrorAs(t, err, &de) {
+		assert.Equal(t, domain.CodeAuthRefreshTokenRevoked, de.Code)
+	}
+}
+
+func TestGormUserTokenRepository_Update_RejectsExpiredToken(t *testing.T) {
+	repo := newTokenRepo(t)
+	tok := fixtures.NewDomainUserToken()
+	expired := time.Now().Add(-time.Minute)
+	tok.ExpiresAt = &expired
+	_, err := repo.Store(context.Background(), tok)
+	assert.NoError(t, err)
+	now := time.Now()
+	tok.LastUsedAt, tok.RevokedAt = &now, &now
+	_, err = repo.Update(context.Background(), tok)
+	assert.Error(t, err)
+}
+
+func TestGormUserTokenRepository_Update_ConcurrentConsumption(t *testing.T) {
+	repo := newTokenRepo(t)
+	tok := fixtures.NewDomainUserToken()
+	_, err := repo.Store(context.Background(), tok)
+	if !assert.NoError(t, err) {
+		return
+	}
+	now := time.Now()
+	tok.LastUsedAt, tok.RevokedAt = &now, &now
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := repo.Update(context.Background(), tok)
+			results <- err
+		}()
+	}
+	close(start)
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		} else {
+			var de *domain.Error
+			if assert.ErrorAs(t, err, &de) {
+				assert.Equal(t, domain.CodeAuthRefreshTokenRevoked, de.Code)
+			}
+		}
+	}
+	assert.Equal(t, 1, successes)
+}
+
+func TestGormUserTokenRepository_RevokeByUserIdsAndType_ScopedBatch(t *testing.T) {
+	repo := newTokenRepo(t)
+	tokens := []domain.UserToken{
+		fixtures.NewDomainUserToken(fixtures.TokenWithUserID("u1")),
+		fixtures.NewDomainUserToken(fixtures.TokenWithUserID("u2")),
+		fixtures.NewDomainUserToken(fixtures.TokenWithUserID("u3")),
+		fixtures.NewDomainUserToken(fixtures.TokenWithUserID("u1"), fixtures.TokenWithType("other")),
+	}
+	_, err := repo.Store(context.Background(), tokens...)
+	if !assert.NoError(t, err) {
+		return
+	}
+	n, err := repo.RevokeByUserIdsAndType(context.Background(), nil, domain.UserTokenTypeRefresh)
+	assert.NoError(t, err)
+	assert.Zero(t, n)
+	n, err = repo.RevokeByUserIdsAndType(context.Background(), []string{"u1", "u2"}, domain.UserTokenTypeRefresh)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 2, n)
+	for i, token := range tokens {
+		got, err := repo.Find(context.Background(), token.Id)
+		if assert.NoError(t, err) {
+			assert.Equal(t, i < 2, got.RevokedAt != nil)
+		}
+	}
+}
+
 func TestGormUserTokenRepository_Update_SetsLastUsedAndRevoked(t *testing.T) {
 	repo := newTokenRepo(t)
 	tok := fixtures.NewDomainUserToken()

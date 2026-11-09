@@ -328,7 +328,10 @@ func TestUserService_Delete_BlockchainRevokeFailure_RollsBack(t *testing.T) {
 
 func TestUserService_Delete_Success_CallsAuthorityServiceWithRoleNone(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
+	tokenRepo := &mocks.MockUserTokenRepository{}
 	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("UserToken").Return(tokenRepo)
+	tokenRepo.On("RevokeByUserIdsAndType", mock.Anything, []string{"u1"}, domain.UserTokenTypeRefresh).Return(1, nil)
 	auth := &mocks.MockAuthorityService{}
 	policy := &mocks.MockUserPolicy{}
 
@@ -352,6 +355,7 @@ func TestUserService_Delete_Success_CallsAuthorityServiceWithRoleNone(t *testing
 	count, err := svc.Delete(ctxWithAuth(&authUser), "u1")
 	assert.NoError(t, err)
 	assert.EqualValues(t, 1, count)
+	tokenRepo.AssertExpectations(t)
 	auth.AssertCalled(t, "UpdateUserRole", mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -385,7 +389,10 @@ func TestUserService_Delete_AlreadyTrashed_SkipsChainSync(t *testing.T) {
 
 func TestUserService_Delete_MixedLiveAndTrashed_OnlyLiveSyncsToChain(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
+	tokenRepo := &mocks.MockUserTokenRepository{}
 	uow := mocks.NewPropagatingUnitOfWork()
+	uow.On("UserToken").Return(tokenRepo)
+	tokenRepo.On("RevokeByUserIdsAndType", mock.Anything, []string{"u2"}, domain.UserTokenTypeRefresh).Return(1, nil)
 	auth := &mocks.MockAuthorityService{}
 	policy := &mocks.MockUserPolicy{}
 

@@ -10,6 +10,7 @@ import (
 	httpContext "CredChain_Golang/infrastructure/http/context"
 	"CredChain_Golang/infrastructure/http/responder"
 	"CredChain_Golang/infrastructure/http/response"
+	"CredChain_Golang/infrastructure/security"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
@@ -182,15 +183,28 @@ func (h *authHandler) Refresh(c *gin.Context) {
 }
 
 func (h *authHandler) Logout(c *gin.Context) {
-	authUser := httpContext.MustGetUser(c.Request.Context())
-
-	err := h.service.Logout(c.Request.Context(), authUser.Id)
+	// Clearing this browser's cookies never requires a live access token.
+	h.clearAuthCookies(c)
+	ctx := c.Request.Context()
+	var err error
+	if authUser, _ := httpContext.GetUser(ctx); authUser != nil {
+		err = h.service.Logout(ctx, authUser.Id)
+	} else {
+		accessToken, _ := c.Cookie(CookieAccessToken)
+		if accessToken == "" {
+			accessToken = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		}
+		if claims, parseErr := security.ValiparseJWT(accessToken, []byte(*h.config.JWTSecret)); parseErr == nil {
+			err = h.service.Logout(ctx, claims.UserId)
+		} else if refreshToken, _ := c.Cookie(CookieRefreshToken); refreshToken != "" {
+			err = h.service.LogoutByToken(ctx, refreshToken)
+		}
+	}
 	if err != nil {
-		c.Error(err)
-		responder.SendError(c, err)
+		wrapped := domain.NewError(domain.CodeSystemInternal, domain.WithError(err))
+		c.Error(wrapped)
+		responder.SendError(c, wrapped)
 		return
 	}
-
-	h.clearAuthCookies(c)
 	responder.Send[any](c, domain.CodeAuthLogoutSuccess, nil)
 }

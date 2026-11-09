@@ -485,7 +485,15 @@ func (s *userService) Delete(ctx context.Context, ids ...string) (int64, error) 
 		// and on-chain via CredentialRegistry.batchRevokeCredentialsWithSignature
 		// once the credential feature is implemented. Without this, deleted users'
 		// credentials remain active in the database and on-chain indefinitely.
-		return s.syncBlockchainRoles(ctx, revocationUsers, domain.CodeUserDeleteBlockchainSyncFailed)
+		if err := s.syncBlockchainRoles(ctx, revocationUsers, domain.CodeUserDeleteBlockchainSyncFailed); err != nil {
+			return err
+		}
+		userIds := make([]string, len(liveTargets))
+		for i, target := range liveTargets {
+			userIds[i] = target.Id
+		}
+		_, err = uow.UserToken().RevokeByUserIdsAndType(ctx, userIds, domain.UserTokenTypeRefresh)
+		return err
 	})
 	return rowsAffected, err
 }

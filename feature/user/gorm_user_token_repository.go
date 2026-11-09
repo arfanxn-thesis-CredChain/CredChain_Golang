@@ -83,18 +83,31 @@ func (r *gormUserTokenRepository) Revoke(ctx context.Context, tokenIDs ...string
 
 // RevokeByUserIdAndType revokes all tokens of a specific type for a user
 func (r *gormUserTokenRepository) RevokeByUserIdAndType(ctx context.Context, userId string, tokenType domain.UserTokenType) (int64, error) {
-	now := time.Now()
+	return r.RevokeByUserIdsAndType(ctx, []string{userId}, tokenType)
+}
+
+func (r *gormUserTokenRepository) RevokeByUserIdsAndType(ctx context.Context, userIds []string, tokenType domain.UserTokenType) (int64, error) {
+	if len(userIds) == 0 {
+		return 0, nil
+	}
 	result := r.db.WithContext(ctx).Model(&model.UserToken{}).
-		Where("user_id = ? AND type = ?", userId, tokenType).
-		Update("revoked_at", now)
+		Where("user_id IN ? AND type = ?", userIds, tokenType).
+		Update("revoked_at", time.Now())
 	return result.RowsAffected, result.Error
 }
 
 // Update updates a single user token
 func (r *gormUserTokenRepository) Update(ctx context.Context, token domain.UserToken) (*domain.UserToken, error) {
 	modelToken := model.FromDomainUserToken(token)
-	if err := r.db.WithContext(ctx).Model(&model.UserToken{}).Where("id = ?", token.Id).Updates(modelToken).Error; err != nil {
-		return nil, err
+	// Consume only an active refresh token. A concurrent rotation must not mint a second successor.
+	result := r.db.WithContext(ctx).Model(&model.UserToken{}).
+		Where("id = ? AND type = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", token.Id, domain.UserTokenTypeRefresh, time.Now()).
+		Updates(modelToken)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, domain.NewError(domain.CodeAuthRefreshTokenRevoked)
 	}
 	updated, err := r.Find(ctx, token.Id)
 	if err != nil {
