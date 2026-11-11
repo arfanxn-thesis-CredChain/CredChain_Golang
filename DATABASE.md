@@ -7,13 +7,13 @@ CredChain uses a **dual-database architecture**: PostgreSQL for relational/core 
 | Database | Purpose | Engine |
 |---|---|---|
 | **PostgreSQL** | User accounts, credential metadata, auth tokens, job queue (River) | PG 15+ |
-| **MongoDB** | AI extraction results, verification cache | Mongo 7+ |
+| **MongoDB** | AI extraction results, verification cache | Mongo 8.0 |
 
 ---
 
 ## Why Two Databases?
 
-The `credentials` table in Postgres holds only structural metadata (50 bytes per row excluding JSONB). The heavy AI payload — full OCR text, extracted identifiers, float64 embedding vector — lives in MongoDB's `credential_extractions` collection. This keeps:
+The `credentials` table in Postgres holds structural metadata and lifecycle timestamps; no measured per-row size is established here. The heavy AI payload (full OCR text, extracted identifiers, float64 embedding vector) lives in MongoDB's `credential_extractions` collection. This keeps:
 - **Postgres rows small** — faster scans, cheaper partial indexes
 - **Mongo flexible** — no schema migrations for evolving extraction output
 - **Scaling independent** — AI read-path throughput doesn't contend with OLTP
@@ -23,6 +23,8 @@ The `credential_verifications` cache uses MongoDB's native TTL index for automat
 ---
 
 ## Entity Relationships
+
+Partial sketch of the core cross-database references (the schema also holds `user_units`, `credential_types`, `credential_issuer_organizations`, `competencies`, `competency_credential`, and `notifications`; see Application Tables below):
 
 ```
 ┌─────────┐       ┌──────────────┐       ┌──────────────┐
@@ -60,7 +62,7 @@ MongoDB has no foreign key constraints. References are enforced at the applicati
 Central identity table. Supports soft-delete via `deleted_at`. Four roles (super_admin, admin, issuer, holder) controlled by the `role` ENUM. Wallet address is unique — one wallet per user.
 
 #### `credentials`
-Core credential record. Tracks lifecycle: issue → extract → (optional) revoke. The `file_hash` has a **partial unique index** (`WHERE revoked_at IS NULL`) so re-issuing a credential with the same file after revocation is allowed. Only the extraction status is stored here — the actual extracted data (text, identifiers, embedding) lives in MongoDB.
+Core credential record. Review lifecycle and extraction state are independent and timestamp-derived. The `file_hash` has a **partial unique index** (`WHERE revoked_at IS NULL AND rejected_at IS NULL`), allowing reuse after revocation or rejection, but not expiry alone. Type and organization IDs are required; references must be approved and active when selected. Extracted text, identifiers, and embeddings live in MongoDB.
 
 #### `notifications`
 Recipient-owned inbox history with exactly nine columns in this order:
@@ -86,11 +88,26 @@ The recipient FK remains. Polymorphic subjects have no ordinary subject FK, incl
 Reference submission and reviewer alerts commit together. Approval/rejection preserves historical alerts and independent read state. Live pending-review workload is queried from subject tables, never counted from inbox rows. Credential lifecycle emails remain separate River jobs. Development notification fixtures derive from existing seeded credential histories; see [CREDENTIAL.md](CREDENTIAL.md).
 
 #### `user_tokens`
-Refresh token store. Single ENUM value (`refresh`). Supports revocation and expiry. Tokens are hashed before storage.
+Refresh token store. Single ENUM value (`refresh`). Supports single-use rotation, revocation, and expiry. **Requirement conflict:** tokens should be hashed before storage, but current issuance and repository lookup persist and compare the raw refresh-token value. Hash-at-rest protection is not implemented.
+
+#### `user_units`
+Self-referencing org/faculty/program tree. `parent_id` FK → `user_units(id)` (NULL root), `name` VARCHAR(256), `active` BOOLEAN default true. `users.unit_id` references this table; Issuer seed rows get root faculty units, Holders get leaf study programs.
+
+#### `credential_types`
+Credential taxonomy rows with a submit/approve/reject lifecycle: `submitter_user_id`, `approver_user_id`, `rejecter_user_id` FKs to `users`, `name`, `active` BOOLEAN default false, `rejection_reason`, `activated_at`, `rejected_at`. CHECK constraint `chk_credential_types_activated_xor_rejected` prevents both lifecycle timestamps from being non-NULL; both may be NULL for pending rows.
+
+#### `credential_issuer_organizations`
+Same submit/approve/reject lifecycle shape as `credential_types` (submitter/approver/rejecter FKs, `active` default false, `rejection_reason`, a CHECK preventing both `activated_at` and `rejected_at` from being non-NULL). Referenced by `credentials.issuer_organization_id`.
+
+#### `competencies`
+Same submit/approve/reject lifecycle shape as `credential_types` (submitter/approver/rejecter FKs, `active` default false, `rejection_reason`, a CHECK preventing both `activated_at` and `rejected_at` from being non-NULL). Linked to credentials through `competency_credential`.
+
+#### `competency_credential`
+Join table: composite PK (`competency_id`, `credential_id`), FKs to `competencies(id)` and `credentials(id)`.
 
 ### River Queue Tables
 
-River provides PostgreSQL-backed job queue tables for async processing. The application uses it for credential extraction jobs.
+River provides PostgreSQL-backed job queue tables for async processing. The application uses it for credential extraction and lifecycle email jobs.
 
 | Table | Purpose | Noteworthy |
 |---|---|---|
@@ -112,7 +129,7 @@ One document per credential. Upserted by `credential_id`. Contains:
 - **`embedding`**: Float64 vector from Python AI service
 
 #### `credential_verifications`
-Verify-result cache. Keyed by `uploaded_file_hash`. TTL index on `created_at` expires entries after 24 hours (configurable). Sliding expiry: re-verifying the same file resets the TTL window.
+Verify-result cache. Keyed by `uploaded_file_hash`. TTL index on `created_at` expires entries after 24 hours (configurable). `Store` resets `created_at` on an upsert; cache-hit reads do not renew it. MongoDB TTL cleanup is asynchronous, and lookup does not independently reject an overdue document.
 
 ---
 
@@ -122,10 +139,10 @@ Verify-result cache. Keyed by `uploaded_file_hash`. TTL index on `created_at` ex
 Postgres and MongoDB cannot share a distributed transaction. The extraction flow uses idempotent upserts: Mongo upsert first, then Postgres update. If Postgres fails, River retries the job, and the Mongo upsert safely overwrites.
 
 ### Re-Issuable File Hashes
-The partial unique index on `credentials.file_hash WHERE revoked_at IS NULL` allows a credential to be revoked and then re-issued with the same file (same hash) — the old row's `revoked_at` is set, removing it from the uniqueness scope.
+The partial unique index on `credentials.file_hash WHERE revoked_at IS NULL AND rejected_at IS NULL` removes revoked and rejected rows from uniqueness scope. Expiry alone does not release the hash; the chain's Issued status also remains until revocation.
 
-### Sliding TTL Cache
-Unlike a fixed-expiry cache, re-verifying the same file resets `created_at` in MongoDB, keeping recently-verified files warm while still bounding total storage.
+### Write-Reset TTL Cache
+A new cache result upsert resets `created_at`. Returning an existing cached verdict does not call `Store`, so repeated cache hits do not create sliding read expiry. Exact-hash outcomes bypass this cache and always repeat the live correspondence check.
 
 ### Offloaded Extraction Payload
 Keeping heavy AI results in MongoDB means Postgres indexes (including the partial unique on `file_hash`) stay small and fast. The extraction collection can be indexed or schema-changed independently.

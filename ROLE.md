@@ -15,9 +15,9 @@ Five roles form strict hierarchy (0=lowest, 4=highest):
 | 4 | `RoleSuperAdmin` | `"super_admin"` | `SuperAdmin` | 4 | `super_admin` | Full system control |
 
 **Sources:**
-- Go: `domain/user.go:14-18` (constants), `domain/user.go:45-60` (`ToUint8`), `domain/user.go:63-78` (`RoleFromUint8`)
-- Solidity: `CredentialAuthority.sol:19-25` (enum)
-- Postgres: `infrastructure/database/migrations/000001_initial_schema.up.sql:1-6`
+- Go: `domain/user.go` (`Role` constants, `ToUint8`, `RoleFromUint8`)
+- Solidity: `contracts/CredentialAuthority.sol` (`Role` enum)
+- Postgres: `infrastructure/database/migrations/000001_initial_schema.up.sql:5-10`
 
 `RoleNone` is never persisted in the database — it exists only in Go domain code for on-chain revocation calls.
 
@@ -25,7 +25,7 @@ Five roles form strict hierarchy (0=lowest, 4=highest):
 
 ## Role Hierarchy
 
-**Go** (`domain/user.go:22-37`):
+**Go** (`domain/user.go`, `Role.Rank`):
 ```go
 func (r Role) Rank() int {
     switch r {
@@ -39,7 +39,7 @@ func (r Role) Rank() int {
 }
 ```
 
-**Solidity** (`CredentialAuthority.sol:118-120`):
+**Solidity** (`contracts/CredentialAuthority.sol`, `hasRoleOrAbove`):
 ```solidity
 function hasRoleOrAbove(address user, Role minimumRole) public view returns (bool) {
     return userToRole[user] >= minimumRole;
@@ -52,18 +52,19 @@ Both leverage Solidity enum natural ordering, with Go mirroring via `Rank()`.
 
 ## API Route Authorization
 
-**Source:** `infrastructure/http/router.go:78-166`
+**Source:** `infrastructure/http/router.go`
 
 Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimitMiddleware` → `AuthMiddleware` → `RoleMiddleware` (if applicable)
 
 | Route | Method | Auth | Min Role (on-chain) |
 |-------|--------|------|---------------------|
 | `/api/health` | GET | None | None |
-| `/api/meta` | GET | None | — | Public metadata: issuing organization name, authority/registry contract addresses, chain ID, last block |
+| `/api/meta` | GET | None | None (public organization and chain metadata) |
 | `/api/auth/google` | POST | None | None |
 | `/api/auth/refresh` | POST | None | None |
-| `/api/auth/logout` | POST | Authenticated | Any |
+| `/api/auth/logout` | POST | Public cookie cleanup; valid access JWT or active refresh cookie authorizes revocation | None |
 | `/api/users/self` | GET | Authenticated | Any |
+| `/api/users/self/language` | PUT | Authenticated | Any |
 | `/api/users/self/email` | PUT | Authenticated | Any |
 | `/api/users/self/transfer-super-admin` | POST | Authenticated | SuperAdmin |
 | `/api/users/self/credentials` | GET | Authenticated | Any — lists own credentials (handler `SelfPaginate`) |
@@ -79,11 +80,9 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/credentials` | GET | Authenticated | Issuer+ |
 | `/api/credentials/:id` | GET | Authenticated | Issuer+ |
 | `/api/credentials/:id/competencies` | PUT | Authenticated | Issuer+ — replace-set of resolved competency links |
-| `/api/credentials/:id/metadata/suggestions` | GET | Authenticated | Issuer+ — top-5 pg_trgm suggestions per staged name |
-| `/api/credentials/:id/metadata` | PUT | Authenticated | Issuer+ — resolve staged names (link existing or create new) |
 | `/api/credentials/batch/issue` | POST | Authenticated | Issuer+ |
-| `/api/credentials/batch/submit` | POST | Authenticated | Any — self-submit; unmatched names staged, not created |
-| `/api/credentials/batch/approve` | POST | Authenticated | Issuer+ — blocked while metadata unresolved |
+| `/api/credentials/batch/submit` | POST | Authenticated | Any; self-submit using approved, active reference IDs |
+| `/api/credentials/batch/approve` | POST | Authenticated | Issuer+; rechecks reference eligibility |
 | `/api/credentials/batch/reject` | POST | Authenticated | Issuer+ |
 | `/api/credentials/batch` | PUT | Authenticated | Issuer+ |
 | `/api/credentials/batch/revoke` | POST | Authenticated | Issuer+ |
@@ -101,6 +100,13 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/competencies` | POST | Authenticated | Issuer+ |
 | `/api/competencies/:id` | PUT | Authenticated | Issuer+ |
 | `/api/competencies/:id` | DELETE | Authenticated | Issuer+ |
+| `/api/{credential-types,issuer-organizations,competencies}/submit` | POST | Authenticated | Any; three separate reference prefixes |
+| `/api/{credential-types,issuer-organizations,competencies}/:id/approve` | POST | Authenticated | Issuer+ |
+| `/api/{credential-types,issuer-organizations,competencies}/:id/reject` | POST | Authenticated | Issuer+ |
+| `/api/notifications` | GET | Authenticated | Any; recipient-scoped visibility |
+| `/api/notifications/unread-count` | GET | Authenticated | Any; visible unread rows |
+| `/api/notifications/:id/read` | PUT | Authenticated | Any; owned visible row only |
+| `/api/notifications/read-all` | PUT | Authenticated | Any; owned visible unread rows |
 | `/api/user-units` | GET | Authenticated | Any — organizational unit lookup |
 | `/api/user-units` | POST | Authenticated | Admin+ |
 | `/api/user-units/:id` | PUT | Authenticated | Admin+ |
@@ -108,7 +114,7 @@ Middleware chain: `ErrorLoggerMiddleware` → `I18nMiddleware` → `ApiRateLimit
 | `/api/overview` | GET | Authenticated | Any — role-conditional response (Holder: own data; Issuer+: system-wide) |
 | `/api/overview/credential-recap` | GET | Authenticated | Issuer+ — current-holder grouped snapshot; middleware and service role guard |
 
-**Role middlewares** (`infrastructure/http/middleware/auth.go:94-146`):
+**Role middlewares** (`infrastructure/http/middleware/auth.go`):
 - `AdminRoleMiddleware` → checks `HasRoleOrAbove(ctx, wallet, RoleAdmin)` on-chain
 - `IssuerRoleMiddleware` → checks `HasRoleOrAbove(ctx, wallet, RoleIssuer)` on-chain
 - `SuperAdminRoleMiddleware` → checks `HasRoleOrAbove(ctx, wallet, RoleSuperAdmin)` on-chain
@@ -120,6 +126,8 @@ All check the **on-chain** role from CredentialAuthority contract, not the DB ro
 ## Policy Layer Rules
 
 ### User Policy (`feature/user/user_policy.go`)
+
+Minimum Admin access for these HTTP mutations is enforced by on-chain route middleware, not by the policy methods below. Policies enforce the listed DB-role and target rules after authentication; their names do not imply an additional minimum-role check.
 
 #### Store (Admin+)
 
@@ -134,7 +142,6 @@ Allowed combos: Admin creates Holder/Issuer; SuperAdmin creates anything except 
 
 | Rule | Condition | Code |
 |------|-----------|------|
-| Signer must be Admin+ | Below Admin | `CodeUserRoleSignerAdminRequiredForbidden` (300542) |
 | Cannot update self via batch | Signer ID in target list **AND signer is not SuperAdmin** | `CodeUserUpdateSelfForbidden` (300844) |
 
 > **SuperAdmin self-edit carve-out:** SuperAdmin may include their own ID in the batch payload (Admin still blocked). This lets SuperAdmin manage their own profile fields. See email guard in UpdatePostFetch.
@@ -156,7 +163,6 @@ Allowed combos: Admin creates Holder/Issuer; SuperAdmin creates anything except 
 
 | Rule | Condition | Code |
 |------|-----------|------|
-| Signer must be Admin+ | Below Admin | `CodeUserRoleSignerAdminRequiredForbidden` (300542) |
 | Cannot assign SuperAdmin | Target role is SuperAdmin | `CodeUserRoleSuperAdminBatchForbidden` (300544) |
 | Cannot target self | Signer ID in target list | `CodeUserRoleSelfTargetForbidden` (300546) |
 
@@ -174,7 +180,6 @@ Allowed combos: Admin creates Holder/Issuer; SuperAdmin creates anything except 
 
 | Rule | Condition | Code |
 |------|-----------|------|
-| Signer must be Admin+ | Below Admin | `CodeUserRoleSignerAdminRequiredForbidden` (300542) |
 | Cannot self-delete | Signer ID in target list | `CodeUserDeleteSelfTargetForbidden` (300743) |
 
 #### DeletePostFetch
@@ -187,7 +192,6 @@ Allowed combos: Admin creates Holder/Issuer; SuperAdmin creates anything except 
 
 | Rule | Condition | Code |
 |------|-----------|------|
-| Signer must be Admin+ | Below Admin | `CodeUserRestoreSignerAdminRequiredForbidden` (300941) |
 | Cannot self-restore | Signer ID in target list | `CodeUserRestoreSelfTargetForbidden` (300942) |
 
 #### RestorePostFetch
@@ -205,7 +209,7 @@ Allowed combos: Admin creates Holder/Issuer; SuperAdmin creates anything except 
 
 ### Credential Policy Rules
 
-Credential-specific policies are documented in [CREDENTIAL.md](CREDENTIAL.md). Role enforcement for credential operations (issue, revoke, re-extract) is at the route level via `IssuerRoleMiddleware` (on-chain check at `router.go:112-116`).
+Credential-specific policies are documented in [CREDENTIAL.md](CREDENTIAL.md). Role enforcement for credential operations (issue, revoke, re-extract) is at the route level via `IssuerRoleMiddleware` (on-chain check in `infrastructure/http/router.go`).
 
 ---
 
@@ -214,20 +218,20 @@ Credential-specific policies are documented in [CREDENTIAL.md](CREDENTIAL.md). R
 | Function | Min Role | Contract | Location |
 |----------|----------|----------|----------|
 | `initialize()` | deployer only (`_requireDeployer`) | All | All contracts |
-| `batchUpdateUserRoleWithSignature(params)` | Signer Admin+ | CredentialAuthority | `CredentialAuthority.sol:140-161` |
-| `transferSuperAdminWithSignature(params)` | Signer SuperAdmin | CredentialAuthority | `CredentialAuthority.sol:174-192` |
-| `batchIssueCredentialsWithSignature(params)` | Issuer+ | CredentialRegistry | `CredentialRegistry.sol:134-166` |
-| `batchRevokeCredentialsWithSignature(params)` | Issuer+ | CredentialRegistry | `CredentialRegistry.sol:178-201` |
+| `batchUpdateUserRoleWithSignature(params)` | Signer Admin+ | CredentialAuthority | `contracts/CredentialAuthority.sol` |
+| `transferSuperAdminWithSignature(params)` | Signer SuperAdmin | CredentialAuthority | `contracts/CredentialAuthority.sol` |
+| `batchIssueCredentialsWithSignature(params)` | Issuer+ | CredentialRegistry | `contracts/CredentialRegistry.sol` |
+| `batchRevokeCredentialsWithSignature(params)` | Issuer+ | CredentialRegistry | `contracts/CredentialRegistry.sol` |
 
-Solidity `_enforceUserRoleUpdateHierarchy` (`CredentialAuthority.sol:246-260`):
+Solidity `_enforceUserRoleUpdateHierarchy` (`contracts/CredentialAuthority.sol`):
 - Signer below Admin → revert `RoleBelowAdminError`
 - Admin cannot modify Admin+ targets → revert `AdminUpdatePeerAdminRoleError`
 - Admin cannot assign Admin+ roles → revert `RoleBelowAdminError`
 
-Additional checks in `batchUpdateUserRoleWithSignature` (`CredentialAuthority.sol:154`):
+Additional checks in `batchUpdateUserRoleWithSignature` (`contracts/CredentialAuthority.sol`):
 - Any SuperAdmin assignment → revert `SuperAdminRoleNotUpdatableError`
 
-Additional check in `_updateUserRole` (`CredentialAuthority.sol:222`):
+Additional check in `_updateUserRole` (`contracts/CredentialAuthority.sol`):
 - Same-role update → revert `SameRoleUpdateError`
 
 ---
@@ -264,7 +268,8 @@ Revoke credentials              —      —       ✓       ✓       ✓
 Re-extract credential           —      —       ✓       ✓       ✓
 Submit own credentials          —      ✓       ✓       ✓       ✓
 Approve/reject submissions      —      —       ✓       ✓       ✓
-Resolve staged metadata         —      —       ✓       ✓       ✓
+Propose reference rows          —      ✓       ✓       ✓       ✓
+Approve/reject reference rows    —      —       ✓       ✓       ✓
 Read taxonomy lookups           —      ✓       ✓       ✓       ✓
 Create/update taxonomy rows     —      —       ✓       ✓       ✓
 Verify credential (public)      ✓      ✓       ✓       ✓       ✓
@@ -309,18 +314,17 @@ Read/manage own notifications   —      ✓       ✓       ✓       ✓
 | Update SuperAdmin's profile | Admin+ (SuperAdmin can self-edit; cannot change own email via batch) | `CodeUserUpdateSuperAdminForbidden` (300843) |
 | Same-role update | Admin+ | `CodeUserRoleSameRoleUpdateForbidden` (300543) |
 | Below-Admin accesses Admin+ endpoint | Holder, Issuer | `CodeUserRoleSignerAdminRequiredForbidden` (300542) / `CodeAuthForbidden` (200142) |
-| Create a taxonomy row (credential type / issuer org / competency) | Holder | `CodeAuthForbidden` (200142) — submit a free-text name instead; a reviewer resolves it |
-| Approve a submission with unresolved metadata | Everyone (incl. Issuer+) | `CodeCredentialApproveUnresolvedMetadata` (401546) — resolve staged names first |
-| Resolve metadata on a non-pending credential | Everyone | `CodeCredentialMetadataResolveNotPending` (401541) |
+| Directly create an approved taxonomy row | Holder | `CodeAuthForbidden` (200142); use the reference `/submit` route to propose a pending row |
+| Approve a credential with missing, unapproved, or inactive references | Issuer+ | `CodeCredentialApproveInactiveMetadata` (401547) |
 
-**Taxonomy writes are Issuer+ by design, not Admin+.** The metadata resolver is an Issuer, so a reviewer who could create a taxonomy row but not rename a typo'd one would be stuck. `POST` was previously unguarded — any authenticated holder could create globally-visible taxonomy rows — so the write role was deliberately lowered from Admin+ to Issuer+ (still above Holder) rather than left open.
+**Direct taxonomy CRUD and review require Issuer+, not Admin+.** Any authenticated user may propose a pending reference through its separate `/submit` route. Proposal visibility does not make it eligible for credential use before approval and activation.
 
 ### Reference Read Visibility (Taxonomy Lookups)
 
 `GET /api/credential-types`, `GET /api/issuer-organizations`, `GET /api/competencies` share identical endpoints across all authenticated roles without client-facing visibility query parameters:
 
 - **Service-Owned Policy:** The HTTP handler binds `requestQuery.QueryRequest` into `domainQuery.Query`. Reference services (`credential_type_service.go`, `issuer_organization_service.go`, `competency_service.go`) inspect the authenticated user (`httpContext.GetUser(ctx)`).
-- **Holder Scoping:** When caller rank is below Issuer (`u.Role.Rank() < RoleIssuer.Rank()`), the service sanitizes any client-supplied `holder_user_id` and injects `domainQuery.NewFilter("holder_user_id", domainQuery.OperatorEqual, u.Id)`.
+- **Holder Scoping:** The service removes client-supplied `holder_user_id` filters for every role. When caller rank is below Issuer (`u.Role.Rank() < RoleIssuer.Rank()`), it injects `domainQuery.NewFilter("holder_user_id", domainQuery.OperatorEqual, u.Id)`.
 - **Repository Execution:** Repositories remain pure and decoupled from HTTP context. In their filter processing loops, they apply the table-qualified visibility predicate before `Count(&total)` and pagination:
   ```sql
   ((<table_name>.activated_at IS NOT NULL AND <table_name>.rejected_at IS NULL AND <table_name>.active = ?) OR
@@ -337,7 +341,7 @@ Read/manage own notifications   —      ✓       ✓       ✓       ✓
 
 ### SuperAdmin Creation
 
-**Only via CLI.** Source: `cmd/init_super_admin.go:322`
+**Only via CLI.** Source: `cmd/init_super_admin.go`
 
 ```bash
 go run main.go init-super-admin --env .env             # host
@@ -352,21 +356,21 @@ Pre-conditions:
 
 ### Transfer SuperAdmin
 
-**Only endpoint that changes SuperAdmin role.** Source: `feature/user/user_service.go:420-471`
+**Only endpoint that changes SuperAdmin role.** Source: `feature/user/user_service.go`, `TransferSuperAdmin`
 
 Endpoint: `POST /api/users/self/transfer-super-admin`
 
 Flow:
 1. SuperAdmin calls endpoint targeting another user
 2. Policy blocks self-transfer (`CodeUserTransferSuperAdminSelfTargetForbidden`, step 5 in `TransferSuperAdminPreFetch`)
-3. The trashed-target check (`CodeUserTransferSuperAdminTrashedForbidden`, 300643) happens in the **service layer** (`user_service.go:443-446`), not in `TransferSuperAdminPreFetch`. The policy method only checks that the caller is not transferring to themselves.
+3. The trashed-target check (`CodeUserTransferSuperAdminTrashedForbidden`, 300643) happens in the **service layer** (`user_service.go`, `TransferSuperAdmin`), not in `TransferSuperAdminPreFetch`. The policy method only checks that the caller is not transferring to themselves.
 4. On-chain: `authorityService.TransferSuperAdmin()` — atomic swap (signer→Admin, target→SuperAdmin)
 5. DB: both users' roles updated
 6. Refresh tokens revoked for both users
 
 ### On-Chain Role Sync
 
-**`syncBlockchainRoles`** (`feature/user/user_service.go:153-160`) called by all mutation paths:
+**`syncBlockchainRoles`** (`feature/user/user_service.go`) called by all mutation paths:
 - `Store` → `storeUsersAndSyncBlockchainRoles`
 - `Update` (when role changes) → inside single `s.uow.Execute`
 - `UpdateRole` → inside single `s.uow.Execute`
@@ -377,7 +381,7 @@ All five flows call `syncBlockchainRoles` directly inside a single `s.uow.Execut
 
 ### RoleNone (On-Chain Revocation Only)
 
-`RoleNone` (`domain/user.go:14`, value `"none"` → Solidity `0`) is **never persisted** in Postgres (the `role` ENUM excludes `none`). It exists solely as the Solidity revocation target used by `Delete` to revoke the user's on-chain role.
+`RoleNone` (`domain/user.go`, value `"none"` → Solidity `0`) is **never persisted** in Postgres (the `role` ENUM excludes `none`). It exists solely as the Solidity revocation target used by `Delete` to revoke the user's on-chain role.
 
 ### Restore (PUT /api/users/batch/restore)
 
@@ -387,7 +391,7 @@ Endpoint: `PUT /api/users/batch/restore`
 
 Flow:
 1. Admin submits a batch of trashed user IDs
-2. Policy blocks: below-Admin signers (300941), self-target (300942), SuperAdmin targets (300943), live non-trashed targets (300944)
+2. Route middleware requires on-chain Admin+. Policy blocks self-target (300942), SuperAdmin targets (300943), and live non-trashed targets (300944)
 3. Single DB transaction: clears `deleted_at` via `uow.User().Restore()` repo method
 4. On-chain: re-syncs the preserved DB role via `syncBlockchainRoles`
 5. If chain sync fails, DB restore rolls back (single UoW)
@@ -399,19 +403,19 @@ Constraints:
 
 ### Credential Verify: Party-Disabled and Expired Verdicts
 
-When `/api/credentials/verify` matches a credential whose holder or issuer has been soft-deleted, the verdict is overridden to indicate manual review is needed. Three codes: `holder_disabled` (400410), `issuer_disabled` (400411), `party_disabled` (400412 — both deleted). A fourth override, `expired` (400413), fires when the credential's `expires_at` has passed (`verifyApplyExpiry`, `credential_service.go:1860-1866`).
+When `/api/credentials/verify` matches a credential whose holder or issuer has been soft-deleted, the verdict is overridden to indicate manual review is needed. Three codes: `holder_disabled` (400410), `issuer_disabled` (400411), `party_disabled` (400412; both deleted). A fourth override, `expired` (400413), fires when the credential's `expires_at` has passed (`verifyApplyExpiry` in `credential_service.go`).
 
 All four only override `Authentic` (400401); non-authentic verification outcomes persist unchanged. Stored lifecycle is separate: `Credential.Status()` uses revoked, rejected, expired, approved, then pending precedence. Expiry therefore appears outside verification too, including an unactivated submission whose expiry has passed.
 
-Exact-hash and cached-authentic paths apply expiry first, so an expired credential with a disabled holder returns400413. Go's compatibility path for an AI `authentic` applies party checks first. Current Python scoring never emits `authentic`; AI similarity results must not be interpreted as lifecycle or authenticity verdicts.
+Exact-hash and cached-authentic paths apply expiry first, so an expired credential with a disabled holder returns 400413. Go's compatibility path for an AI `authentic` applies party checks first. Current Python scoring never emits `authentic`; AI similarity results must not be interpreted as lifecycle or authenticity verdicts.
 
-Activated exact-hash credentials receive live chain correspondence checks before cache lookup and exact outcomes are not cached. Chain read failures return inconclusive HTTP503/code400447, not integrity mismatch. Other uploads can use Mongo's24h cache without a chain read. Only cached `Authentic` receives fresh DB revocation, expiry and party overrides; other cached codes retain their verdict while the matched record is fetched fresh. Do not assume all cached outcomes receive every live override.
+Activated exact-hash credentials receive live chain correspondence checks before cache lookup and exact outcomes are not cached. Chain read failures return inconclusive HTTP 503/code 400447, not integrity mismatch. Other uploads can use Mongo's configurable cache (default 24h) without a chain read. Only cached `Authentic` receives fresh DB revocation, expiry and party overrides; other cached codes retain their verdict while the matched record is fetched fresh. Do not assume all cached outcomes receive every live override.
 
 The ordinary eleven-field public verification summary includes nullable `issuer_organization_name` and `credential_type_name` from the linked organization and type for exact, cache and text-comparison results, equally for anonymous and authenticated visitors. Only those names are newly disclosed; candidate Holder information, expanded details and stored files remain protected. Candidate fields describe the compared credential rather than proving the upload's issuance.
 
-Public verification emits `exact_match_confirmed` separately from the verdict. Only successful live byte-hash/registry correspondence checks set it true; cache results and AI similarity (even100%) cannot unlock expanded public details. The same upload response may then include the nineteen-field `public_details` allowlist documented in CREDENTIAL.md, equally for anonymous and authenticated visitors, including revoked/expired/disabled exact matches with their warnings. This explicitly permits the displayed Holder account fields (including email, wallet, role, account dates and resolved unit name), name-only competencies, credential Additional Information and the existing technical/lifecycle footer. It does not expose raw user/unit IDs, user metadata, secrets, staff identities, storage URI, extraction or private workflow reasons. Holder account/reference information is current database data, not immutable issuance-time identity or independent issuer confirmation.
+Public verification emits `exact_match_confirmed` separately from the verdict. Only successful live byte-hash/registry correspondence checks set it true; cache results and AI similarity (even 100%) cannot unlock expanded public details. The same upload response may then include the nineteen-field `public_details` allowlist documented in CREDENTIAL.md, equally for anonymous and authenticated visitors, including revoked/expired/disabled exact matches with their warnings. This explicitly permits the displayed Holder account fields (including email, wallet, role, account dates and resolved unit name), name-only competencies, credential Additional Information and the existing technical/lifecycle footer. It does not expose raw user/unit IDs, user metadata, secrets, staff identities, storage URI, extraction or private workflow reasons. Holder account/reference information is current database data, not immutable issuance-time identity or independent issuer confirmation.
 
-No public GET-by-ID, profile directory, shareable details URL or stored-file download access is introduced. Public details preview only the submitted upload. Own Holders use `/users/self/credentials/:id`; Issuer/Admin/SuperAdmin use the existing protected credential endpoint to inspect applicable lifecycle parties and stored files. An unrelated Holder retains only confirmed public details, even if authenticated. Authorized text-comparison candidates can open the private compared credential; anonymous or unrelated viewers cannot. AI100% changes neither authorization nor evidence. Private detail/file query caches are scoped by account and role; session changes close open verification details.
+No public GET-by-ID, profile directory, shareable details URL or stored-file download access is introduced. Public details preview only the submitted upload. Own Holders use `/users/self/credentials/:id`; Issuer/Admin/SuperAdmin use the existing protected credential endpoint to inspect applicable lifecycle parties and stored files. An unrelated Holder retains only confirmed public details, even if authenticated. Authorized text-comparison candidates can open the private compared credential; anonymous or unrelated viewers cannot. AI 100% changes neither authorization nor evidence. Private detail/file query caches are scoped by account and role; session changes close open verification details.
 
 **Seed coverage:** the credential seeder covers `holder_disabled` (an approved credential held by soft-deleted Anna Sorokin) and `expired`. It deliberately does **not** seed a soft-deleted *issuer*, so `issuer_disabled` and `party_disabled` are untested by seed data: `seed-chain` signs each mint batch with the wallet named by `issuer_user_id`, and a soft-deleted user is deregistered on-chain (`RoleNone`), so `batchIssueCredentialsWithSignature` would revert `RoleBelowIssuerError`. A disabled *holder* is chain-safe because `_issueCredential` only requires a non-zero holder address.
 
@@ -427,4 +431,4 @@ Roles are stored in two places, kept in sync:
 | Policy layer (`feature/*/policy.go`) | **Database** (Postgres `role` column) | Business rule enforcement |
 | Credential policy (`credential_policy.go`) | **Database** | Store-level checks |
 
-The middleware checks the on-chain role (via `authorityService.HasRoleOrAbove`), while policy layers check the DB-stored role rank. The `syncBlockchainRoles` utility keeps both sources in sync on every mutation. If diverged (e.g., due to a failed chain tx that DB rolled back), the middleware enforces the stricter (on-chain) role.
+The middleware checks the on-chain role (via `authorityService.HasRoleOrAbove`), while policy layers check the DB-stored role rank. The `syncBlockchainRoles` utility keeps both sources in sync on every mutation. If the sources diverge, middleware applies the on-chain threshold and policies apply DB-based rules independently. Neither source is guaranteed to be stricter; database rollback cannot undo a successfully mined chain transaction.

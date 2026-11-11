@@ -1,8 +1,10 @@
 # CredChain — VPS Deployment Runbook
 
-Authoritative, executable deployment guide for AI agents and engineers. Target: a fresh Ubuntu 24.04 VPS. Live deployment: **https://credchain.web.id** (Tencent Lighthouse, `43.133.135.133`).
+Deployment runbook for AI agents and engineers. Target: a fresh Ubuntu 24.04 VPS. Recorded deployment: **https://credchain.web.id** (Tencent Lighthouse, `43.133.135.133`); availability and host state were not checked in this documentation audit.
 
-`CredChain_Golang` is the orchestrator for the whole monorepo. `make prod-up` **pulls** prebuilt images and runs the full stack — it never builds on the VPS.
+**Deployment gate:** the current initial-schema edits do not upgrade existing databases. Existing credential-only notification rows require separately approved handling before deployment. Do not use `prod-up`, migrations, or fresh/reset targets to verify this documentation. The steps below are operating guidance, not evidence that deployment is currently approved.
+
+`CredChain_Golang` is the orchestrator for the whole monorepo. `make prod-up` **pulls** prebuilt service images and runs the full stack. Contract compilation and deployment can still run on the VPS host for a fresh chain.
 
 ---
 
@@ -35,7 +37,7 @@ Same-origin: React talks to `/api` (relative), so a domain change needs **no reb
 | `mongo:8.0` | official | — |
 | `ghcr.io/foundry-rs/foundry` (anvil) | official | — |
 
-**Never build on the VPS.** Build + push from the Mac; the VPS pulls.
+**Never build service images on the VPS.** Build + push from the Mac; the VPS pulls. This restriction does not cover host-side contract compilation.
 
 ---
 
@@ -61,6 +63,8 @@ build-push:
 	docker buildx build --platform linux/amd64,linux/arm64 -t arfanxn/credchain-python:latest --push ../CredChain_Python
 	@echo "build-push: all 3 images built (amd64+arm64) and pushed"
 ```
+
+The target requests both architectures, but the Go Dockerfile hardcodes `GOARCH=amd64`. Treat Go ARM64 support as unresolved; a multi-platform manifest alone does not prove the ARM64 image contains a matching executable.
 
 **2. `docker-compose.yml` — port hardening.** Bind internal services to loopback so Docker's publish does not bypass the firewall. Only nginx stays public.
 ```yaml
@@ -179,12 +183,11 @@ sudo chown -R 1000:1000 logs uploads docker/backups
 
 ## Phase D — TLS + deploy
 
-**Issue the cert (first-boot ordering).** The nginx `:443` block references cert files that don't exist yet, so nginx won't start clean until the cert is issued. Use webroot with the ACME challenge:
+**Issue the cert (first-boot ordering).** The nginx `:443` block references cert files that don't exist yet, so nginx won't start clean until the cert is issued. Obtain it standalone before nginx binds `:80` (renewal later stops nginx via cron hooks, matching GOTCHA #4):
 ```bash
 cd ~/credchain/CredChain_Golang
 sudo mkdir -p /var/www/certbot
-# bring up just enough to serve the challenge on :80 (react + golang + nginx),
-# OR obtain standalone before nginx binds :80:
+# Keep nginx stopped so certbot can bind :80 for the standalone challenge:
 sudo certbot certonly --standalone \
   -d credchain.web.id -d www.credchain.web.id \
   --email arfan2173@gmail.com --agree-tos --no-eff-email
@@ -253,7 +256,7 @@ make prod-up
 
 5. **`crontab -e` fails on exotic `TERM`.** With `TERM=xterm-ghostty`, `sensible-editor` exits 1 → `Error opening terminal`. Fix: install the line non-interactively by piping to `sudo crontab -` (Phase E).
 
-6. **Go → Python `401 Unauthorized` → empty embedding.** Python validates the `x-api-key` header against its `API_KEY`; Go sends `PYTHON_AI_API_KEY`. If they differ (e.g. Go's is empty), every `POST /extract` returns 401, the extract job retries ~4× then gives up, and the credential shows extraction failed (`extract_failed_at` set) / `python extract returned empty embedding for ...` (issuance itself still succeeds on-chain). Fix: set `PYTHON_AI_API_KEY` = Python's `API_KEY`, then `docker restart golang` — `docker compose up -d golang` may report "up-to-date" and NOT recreate the container, so it keeps the old env in memory. Go reads `.env.docker` only at process start.
+6. **Go → Python `401 Unauthorized` → empty embedding.** Python validates the `x-api-key` header against its `API_KEY`; Go sends `PYTHON_AI_API_KEY`. If they differ (e.g. Go's is empty), every `POST /extract` returns 401, the extract job uses `CREDENTIAL_EXTRACT_WORKER_MAX_ATTEMPTS` (default `3` total attempts, including the first) before giving up, and the credential shows extraction failed (`extract_failed_at` set) / `python extract returned empty embedding for ...` (issuance itself still succeeds on-chain). Fix: set `PYTHON_AI_API_KEY` = Python's `API_KEY`, then `docker restart golang`; `docker compose up -d golang` may report "up-to-date" and NOT recreate the container, so it keeps the old env in memory. Go reads `.env.docker` only at process start.
 
 7. **`413 Request Entity Too Large` on credential upload.** nginx default `client_max_body_size` is 1 MB, but the app accepts 10 MB (`feature/credential/credential_request.go`). nginx rejects the upload before it reaches Go. Fix: `client_max_body_size 12m;` at the `http {}` level of `docker/nginx/nginx.conf`. This nginx.conf is bind-mounted, so `docker restart nginx` applies it — no image rebuild.
 
@@ -265,3 +268,6 @@ make prod-up
 
 - [README.md](README.md) — human quick reference
 - [AGENTS.md](AGENTS.md) — architecture, patterns, conventions
+- [DATABASE.md](DATABASE.md): PostgreSQL and MongoDB schemas, migrations, indexes
+- [ROLE.md](ROLE.md): role hierarchy and route authorization
+- [CREDENTIAL.md](CREDENTIAL.md): credential lifecycle and verification pipeline

@@ -10,15 +10,18 @@ Sibling to `CredChain_Solidity/` (smart contracts), `CredChain_React/` (frontend
 
 - **`CredChain_Solidity/`:** abigen-generated contract bindings live at `infrastructure/chain/contracts/{authority.go,registry.go}`. These are artifacts — **never hand-edit**. Go-side `chain.AuthorityBinding` / `chain.RegistryBinding` interfaces are satisfied structurally by the abigen output.
 - **`CredChain_React/`:** sole HTTP consumer of this API. All routes live under `/api`. Frontend communicates via httpOnly cookies set by `/api/auth/google` and `/api/auth/refresh`.
-- **`CredChain_Python/`:** AI service called over HTTP for OCR, extraction, similarity. The Go backend serializes requests to it (single-worker on the Python side).
+- **`CredChain_Python/`:** AI service called over HTTP for OCR, extraction, similarity. Each Go Python-client instance serializes its requests with a mutex; replicas do not share the lock. Python uses one worker but offloads blocking calls to threads.
 
 ## Documentation Map
 
 | Doc | Purpose |
 |---|---|
 | **AGENTS.md** (this file) | Project overview, commands, architecture, patterns, deployment |
+| [**README.md**](README.md) | Package introduction, setup, usage, testing |
 | [**ROLE.md**](ROLE.md) | Role hierarchy, authorization matrix, user policy rules |
 | [**CREDENTIAL.md**](CREDENTIAL.md) | Credential lifecycle, verification pipeline, credential policies |
+| [**DATABASE.md**](DATABASE.md) | PostgreSQL and MongoDB schemas, migrations, indexes |
+| [**DEPLOYMENT.md**](DEPLOYMENT.md) | Docker/VPS deployment runbook and environment topology |
 
 ## Critical Commands
 
@@ -29,7 +32,7 @@ cd CredChain_Golang
 
 # Full stack (Docker / prod)
 make local-up                             # network, contracts, migrate, super-admin, all services
-make prod-up                        # full stack from prebuilt images (VPS; builds nothing)
+make prod-up                        # pulls service images; fresh-chain contract compilation runs on host
 make down                           # Stop all containers (React + Python + Golang/infra)
 make local-fresh                          # Wipe volumes + uploads, then up
 make logs                           # Follow backend/infra logs
@@ -70,9 +73,9 @@ git log --oneline -5                # Recent commits
 
 Hot reload via Air: config in `.air.toml` — watches `**/*.go`, excludes `vendor/`, `docker/`, `tmp/`, `bin/`, 1s debounce.
 
-All CLI commands use `go run main.go <command> --env <path>` (the `--env`/`-e` flag is required).
+CLI commands accept `go run main.go <command> --env <path>`. The `--env`/`-e` flag defaults to `.env`; pass it explicitly when selecting another file.
 
-No CI pipeline is configured. `make lint` = `go vet ./... && gofmt -l .`; there is no separate typecheck step.
+`.github/workflows/ci.yml` runs tests and lint on pushes to `master`, with PostgreSQL 15 and MongoDB 8 services. `make lint` = `go vet ./... && gofmt -l .`; its formatting list must be empty. There is no separate typecheck step.
 
 ## Environment Setup
 
@@ -96,20 +99,18 @@ make local-fresh                              # same, but wipes persisted data f
 - **`make local-up`** (prod bootstrap) runs `init-super-admin` (one SuperAdmin).
 - **`make dev-up`** (dev seeding) runs `seed` → `seed-chain` (15 test users + on-chain roles).
 
-**Required env vars** (app exits at startup if empty or invalid):
+**Startup configuration checks** (`config.NewConfig`):
 
 | Var | Constraint |
 |---|---|
-| `GIN_PORT` | HTTP port (default 8080) |
 | `JWT_SECRET` | fatal if empty |
-| `WALLET_ENCRYPTION_KEY` | **must be exactly 32 bytes** (AES-256); fatal if wrong length |
-| `FILE_ENCRYPTION_KEY` | **must be exactly 32 bytes** (AES-256); fatal if wrong length — for credential file at-rest encryption |
-| `GEMINI_API_KEY` | no fatal check, but AI features break |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `GOOGLE_REDIRECT_URI` | default `http://localhost:3000/google/callback` |
-| `GIN_CORS_*` | 6 vars (origins, methods, headers, credentials, max_age, expose_headers) |
-| `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_SAMESITE` | httpOnly cookie config |
+| `WALLET_ENCRYPTION_KEY` | **must be exactly 32 bytes** (AES-256); fatal otherwise |
+| `FILE_ENCRYPTION_KEY` | **must be exactly 32 bytes** (AES-256); fatal otherwise; credential file at-rest encryption |
+| `ISSUING_ORGANIZATION_NAME` | fatal if empty |
+| `COOKIE_SAMESITE` | `strict` (default), `lax`, or `none`; `none` requires `COOKIE_SECURE=true` |
+| `MAIL_*` / `SMTP_*`, `APP_BASE_URL` | validated when a mail host is configured; see configuration table below |
+
+Database and chain providers validate their own connection settings. OAuth, CORS, port, and Python AI settings are listed below; they are not all required-field checks in `NewConfig`. `GEMINI_API_KEY` belongs to Python, not Go.
 
 **Super admin init env vars** (optional; used only by `init-super-admin`):
 
@@ -117,7 +118,7 @@ make local-fresh                              # same, but wipes persisted data f
 |---|---|
 | `INITIAL_SUPER_ADMIN_EMAIL` | required for init-super-admin |
 | `INITIAL_SUPER_ADMIN_PRIVATE_KEY` | 64-char hex with 0x prefix; required for init-super-admin |
-| `INITIAL_SUPER_ADMIN_NAME`, `_NUMBER`, `_PHONE_NUMBER`, `_BIRTH_DATE`, `_GENDER`, `_META` | optional profile fields |
+| `INITIAL_SUPER_ADMIN_NAME`, `_NUMBER`, `_BIRTH_DATE`, `_GENDER`, `_META` | optional profile fields (`_PHONE_NUMBER` is not read by `NewConfig` or `init-super-admin`; there is no phone field or `users.phone` column) |
 
 CLI flags take priority over env vars when both are supplied.
 
@@ -131,6 +132,9 @@ CredChain_Golang/
     context.go          → ConfigFromCmd, NewConfigFromCmd helpers
     server.go           → FX app wiring for HTTP server
     migrate.go          → inline migrateUp / migrateDown (private helpers)
+    migrate_mongo.go    → MongoDB index migrations
+    seed.go, seed_chain.go → database fixtures and chain registration
+    credential_extraction_benchmark.go → extraction benchmark CLI
     init_super_admin.go → initSuperAdmin* helpers, FX lifecycle, explicit shutdown
     get_google_id_token.go → CLI to obtain ID token via Authorization Code Flow
   config/               → env loading (godotenv), required-field validation (pointer types)
@@ -159,7 +163,7 @@ CredChain_Golang/
                           user_unit_request.go, gorm_user_unit_repository.go (+ tests)
     credential/         → credential_handler.go, credential_service.go,
                           gorm_credential_repository.go, credential_policy.go,
-                          credential_request.go, mock_credential_service_test.go (+ tests, 67% coverage)
+                          credential_request.go, mock_credential_service_test.go (+ tests)
                           taxonomy CRUD: credential_type_*.go, issuer_organization_*.go,
                           competency_*.go + their gorm repositories,
                           gorm_competency_credential_repository.go
@@ -171,18 +175,19 @@ CredChain_Golang/
     overview/           → overview_handler.go, overview_service.go,
                           gorm_overview_repository.go (+ tests)
   infrastructure/
-    ai/pyai/client.go   → Python AI service HTTP client (no tests)
+    ai/pyai/client.go   → Python AI service HTTP client (+ httptest-based tests)
     jobs/               → River workers for async credential extraction and lifecycle notifications
     mail/               → SMTP client, HTML email renderer, and notification templates
     chain/              → go-ethereum chain infrastructure
       contracts/        → abigen-generated bindings (DO NOT EDIT)
       bindings.go       → AuthorityBinding + RegistryBinding interfaces
       authority_service.go → AuthorityService interface + implementation
+      registry_service.go → RegistryService interface + implementation
       client.go         → RPC + contract client facade
       address.go        → mustHexToAddress, validateHexToAddress
       signer.go         → signature packing utilities
-    crypto/             → AES-256 encryption (encryption.go), random hex (token.go)
-    database/gorm/      → GORM setup, UnitOfWork, gorm_context
+    crypto/             → AES-256 encryption (encryption.go), random hex (token.go), BIP39/BIP44 wallet derivation (hdwallet.go)
+    database/gorm/      → GORM setup, UnitOfWork, uow_context.go
       helpers.go        → shared filter/sort/pagination/CASE update helpers (ApplyFilters, ApplySorts, ApplyPagination, BuildCaseColumnSQL, BuildBatchUpdateSQL)
       model/            → GORM structs: User, UserToken, UserUnit, Credential,
                           CredentialType, CredentialIssuerOrganization,
@@ -197,10 +202,13 @@ CredChain_Golang/
     http/               → router.go + sub-packages
       context/          → auth user injection helpers
       middleware/        → AuthMiddleware, ErrorLoggerMiddleware,
-                           I18nMiddleware, RateLimitMiddleware (4 types)
+                           I18nMiddleware, RateLimitMiddleware (4 types),
+                           AdminRoleMiddleware, IssuerRoleMiddleware, SuperAdminRoleMiddleware
       request/query/    → query DSL parser (HTTP layer)
       responder/        → mapper.go (code→message key), responder.go
-      response/         → Auth, User, Pagination DTOs + factory methods
+      response/         → feature DTOs (Auth, User, Notification, Overview, Meta, UserUnit,
+                          Competency, Credential, CredentialType, IssuerOrganization, Pagination)
+                          + factory methods
     i18n/bundle.go      → go-i18n bundle factory
     logger/logger.go    → Zap logger
     oauth/google.go     → GoogleOAuthClient interface + impl
@@ -214,9 +222,9 @@ CredChain_Golang/
     fixtures/         → NewDomainUser, NewModelUser, NewDomainUserToken, NewWallet, TestWalletEncryptionKey
     gintest/          → NewContext, LoadTestI18nBundle
     mocks/            → testify mocks: repos, UoW, AuthorityService, UserPolicy, GoogleOAuthClient, bindings
-  Makefile              → 22+ targets
+  Makefile              → 18 declared .PHONY targets
   Dockerfile            → multi-stage Go 1.25-alpine → alpine:3.19
-  docker-compose.yml    → backend + nginx + postgres:16 + mongo:8.0
+  docker-compose.yml    → anvil + backend + nginx + postgres:15-alpine + mongo:8.0
   .air.toml             → hot reload config
   go.mod                → module CredChain_Golang (underscore), Go 1.25.1
   CredChain_postman_collection.json → API testing collection
@@ -226,13 +234,13 @@ CredChain_Golang/
 
 ### Cobra CLI Entry Point
 
-`cmd/root.go` registers a required `--env`/`-e` flag. All subcommands obtain config via `ConfigFromCmd(cmd)` or `NewConfigFromCmd(cmd)` (defined in `cmd/context.go`). `main.go` is a thin wrapper that calls `cmd.Execute()` and uses `log.Fatal` for startup errors.
+`cmd/root.go` registers `--env`/`-e` with default `.env`. All subcommands obtain config via `ConfigFromCmd(cmd)` or `NewConfigFromCmd(cmd)` (defined in `cmd/context.go`). `main.go` is a thin wrapper that calls `cmd.Execute()` and uses `log.Fatal` for startup errors.
 
 **Helper function naming:** all helper functions in `cmd/` use the command name as prefix (e.g., `initSuperAdmin*` in `init_super_admin.go`, `getGoogleIdToken*` in `get_google_id_token.go`).
 
 **Config helper functions:** `getEnv`, `getIntEnv`, `getBoolEnv`, `getStringSliceEnv` for standard types; `getTimeEnv` (ISO 8601), `getJSONEnv` (JSON object, returns nil if empty) for super admin initialization.
 
-**Config pointer types:** all `Config` struct fields are pointers (`*string`, `*int`, `*bool`, `*[]string`); `nil` = not provided, non-nil = provided (from env or default); consumers dereference with `*cfg.Field`. CORS slice fields (`GinCorsAllowOrigins`, etc.) are `[]string` (not pointers) since slices are already nilable.
+**Config field types:** scalar settings use pointers (`*string`, `*int`, `*bool`, `*time.Time`); consumers dereference with `*cfg.Field`. CORS lists are `[]string`, `GinCorsMaxAge` is `time.Duration`, and `InitialSuperAdminMeta` is `map[string]any`.
 
 ### FX Dependency Injection
 
@@ -244,7 +252,7 @@ Uber FX wires every component. `cmd/server.go` declares the full provider list. 
 
 ### Feature Internal Structure
 
-Each domain folder under `feature/` follows the same five-file pattern:
+Feature folders generally use these file roles:
 
 - `<feature>_handler.go` — Gin HTTP handlers (exported interface + unexported impl)
 - `<feature>_service.go` — business logic (exported interface + unexported impl)
@@ -262,7 +270,7 @@ Each domain folder under `feature/` follows the same five-file pattern:
 
 ### GORM Model Mapping
 
-`infrastructure/database/gorm/model/` contains GORM-specific structs (`User`, `UserToken`, `Credential`) that map domain entities to database tables.
+`infrastructure/database/gorm/model/` contains GORM-specific structs (`User`, `UserToken`, `UserUnit`, `Credential`, `CredentialType`, `CredentialIssuerOrganization`, `Competency`, `CompetencyCredential`, `Notification`) that map domain entities to database tables.
 
 - `model.User.Meta` uses `gorm:"type:jsonb;serializer:json"` — Postgres stores native JSONB, SQLite stores as TEXT, GORM handles round-tripping.
 - `model.UserToken.Type` uses Postgres ENUM `user_token_type` (stored as TEXT in SQLite).
@@ -305,15 +313,15 @@ Every HTTP response uses `{code, message, data?}` envelope. Helpers:
 - `responder.SendPagination(c, code, items, total, page, perPage)` — paginated success
 - `responder.SendError(c, err)` — error (auto-resolves code → message via i18n)
 - `responder.SendValidationError(c, errors)` — Ozzo validation errors
-- **Service-level validation.Errors dispatch:** Services can return `validation.Errors` directly for business-logic validation beyond request-DTO validation (e.g., `userService.storeValidateEmails` checks for duplicate emails across a batch, `credentialService.validateIssueCredential` checks for duplicate file hashes). Handlers catch these via `if verrs, ok := err.(validation.Errors); ok { responder.SendValidationError(c, verrs) }`. This produces the `{code, message, errors: {...}}` response envelope with per-field error messages, HTTP 400. See `feature/user/user_handler.go` and `feature/credential/credential_handler.go` for handler dispatch patterns.
+- **Service-level validation.Errors dispatch:** Services can return `validation.Errors` directly for business-logic validation beyond request-DTO validation (e.g., `userService.storeValidateEmails` checks for duplicate emails across a batch, `credentialService.issueValidate` checks for duplicate file hashes). Handlers catch these via `if verrs, ok := err.(validation.Errors); ok { responder.SendValidationError(c, verrs) }`. This produces the `{code, message, errors: {...}}` response envelope with per-field error messages, HTTP 400. See `feature/user/user_handler.go` and `feature/credential/credential_handler.go` for handler dispatch patterns.
 
-Response codes follow a 6-digit `AABBCC` format defined in `domain/codes.go`. Categories: `10` (system), `20` (auth), `30` (user), `40` (credential — sub-categories 01=fetch, 02=issue, 03=revoke, 04=verify, 05=reextract, 06=file download). The `50` category is owned by `CredChain_Python` (AI service) and propagates through this backend untouched.
+Response codes follow a 6-digit `AABBCC` format defined in `domain/codes.go`. Categories: `10` (system), `20` (auth), `30` (user; `3010xx` covers UserUnit CRUD, while the separate destroy-in-use guard is `300650`, mapped to HTTP 409), `40` (credential; sub-categories 01=fetch, 02=issue, 03=revoke, 04=verify, 05=reextract, 06=file download, 07=lookup destroy guards (`400741`–`400743`), 08=credential types (CRUD/submit/review), 09=issuer organizations (CRUD/submit/review), 10=competencies (CRUD/submit/review), 11=submission, 12=review, 13=competency link, 14=update, 15=legacy metadata resolution/suggestion codes and approval guards (`401547` still guards approval), 16=notifications). The `50` category is owned by `CredChain_Python` (AI service). The Python client converts failures to Go errors; verification maps them to backend codes such as `400444` and `400446`.
 
 `SendError` detects malformed-body errors (`io.EOF`, `io.ErrUnexpectedEOF`, `*json.SyntaxError`, `*json.UnmarshalTypeError` from `c.ShouldBindJSON`) via `isMalformedBodyError` helper and returns `CodeSystemValidation` (400) instead of falling through to `CodeSystemInternal` (500).
 
 **Response DTOs** live in `infrastructure/http/response/`:
 - `response.User` — mirrors `domain.User` minus `EncryptedWalletPrivateKey`; `Name` is `*string`; includes `Number`, `UnitID`, `JoinedYear`, `BirthDate`, `Gender`, `Meta`, `DeletedAt` (`response/user.go`).
-- `response.Notification` (`response/notification.go`) includes nullable subject type/ID, authorized subject summary, JSON data, and update/read timestamps.
+- `response.NotificationResponse` (`response/notification.go`) includes nullable subject type/ID, authorized subject summary, JSON data, and update/read timestamps (alongside `NotificationSubject`, `NotificationUnreadCountResponse`, `NotificationReadCountResponse`, `NotificationPageResponse`).
 - `response.Auth` — embeds `response.User` with `json:",inline"` + `AccessToken`, `RefreshToken`, `AccessTokenExpiresIn`, `RefreshTokenExpiresIn`, `TokenType`.
 - Factory: `response.NewAuth(user, accessToken, refreshToken, accessExpirySec, refreshExpirySec)` — `TokenType` hardcoded to `"Bearer"`.
 
@@ -393,7 +401,7 @@ CredChain uses a two-method policy split: `PreFetch` methods validate before gor
 
 **Verify verdicts (400401-400413):** authentic, revoked, integrity_warning, tampered, suspicious, low_similarity, not_similar, no_identifiers, no_match, holder_disabled, issuer_disabled, party_disabled, expired. `integrity_warning` returns HTTP 409, all others 200.
 
-**Verify cache:** the MongoDB `credential_verifications` cache (24h TTL) stores only the credential-level verdict snapshot. Holder/issuer deleted status and `expires_at` are re-checked live on every call (including cache hits), so the party-disabled (400410–400412) and expired (400413) verdicts are always fresh. All four only override an otherwise-`Authentic` result; revocation is checked first (`credential_service.go:1721-1736`).
+**Verify cache:** MongoDB `credential_verifications` stores verdict snapshots with a configurable TTL (default 24h). Cached `Authentic` receives fresh DB revocation, expiry, and party-disabled checks. Other cached verdicts retain their code even if accompanying credential data changes. Activated exact-hash matches always require a live chain check before cache lookup. See [CREDENTIAL.md](CREDENTIAL.md).
 
 **RoleNone:** `domain.RoleNone` (Solidity enum value 0) is the on-chain revocation target. Used by `userService.Delete` to revoke roles via `AuthorityService.UpdateUserRole`. **Never persisted to the Postgres `role` ENUM** — in-memory only for chain calls.
 
@@ -407,12 +415,10 @@ Four FX-injectable middlewares with named wrapper types:
 |---|---|---|
 | `LoginRateLimitMiddleware` | per IP | 300/min, burst 50 |
 | `RefreshRateLimitMiddleware` | per IP | 200/min, burst 30 |
-| `LogoutRateLimitMiddleware` | per user ID or IP fallback (public logout uses IP) | 100/min, burst 10 |
-| `ApiRateLimitMiddleware` | per user ID or IP fallback | 1200/min, burst 100 |
+| `LogoutRateLimitMiddleware` | per user ID or IP fallback; the route sits outside the secure group, so live traffic keys by IP | 100/min, burst 10 |
+| `ApiRateLimitMiddleware` | per user ID or IP fallback; mounts above `AuthMiddleware`, so live `/api` traffic keys by IP | 1200/min, burst 100 |
 
-`ApiRateLimitMiddleware` is applied globally on the `/api` group before any endpoint-specific limiter (global → specific; more restrictive wins).
-
-Production should re-tighten these (suggested: login 30/burst 5, refresh 60/burst 10, logout 30/burst 5, API 600/burst 50).
+`ApiRateLimitMiddleware` is applied on the `/api` group before any endpoint-specific limiter (global → specific; more restrictive wins). It mounts above `secure.Use(p.AuthMiddleware)`, so `GetUser` is unset for live `/api` traffic and the limiter keys by IP only; the user-ID key path applies only where a user is already in context. Production should re-tighten these (suggested: login 30/burst 5, refresh 60/burst 10, logout 30/burst 5, API 600/burst 50).
 
 ### Google OAuth
 
@@ -426,7 +432,7 @@ Backend validates **ID tokens only** (not the full OAuth flow). Use `make get-go
 
 > **For full authorization details** (exact role requirements, on-chain vs DB role sources, denied operations), see [ROLE.md §Route Authorization](ROLE.md).
 
-All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMiddleware`.
+All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMiddleware` (both on the root router), then `ApiRateLimitMiddleware` on the `/api` group; `AuthMiddleware` and role middlewares apply inside the `secure` subgroup.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
@@ -437,6 +443,7 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | POST | `/api/auth/logout` | Valid access JWT or active refresh cookie for revocation | Clear cookies even after access expiry; revoke all refresh tokens when authenticated |
 | GET | `/api/users` | Issuer+ | Paginated user list (handler `Paginate`); read-only for Issuer/Admin |
 | GET | `/api/users/self` | Authenticated | Current user (handler `Self`) |
+| PUT | `/api/users/self/language` | Authenticated | Persist own `id` or `en` language preference |
 | PUT | `/api/users/self/email` | Authenticated | Update own email; requires fresh Google ID token |
 | POST | `/api/users/self/transfer-super-admin` | SuperAdmin | Transfer SuperAdmin role (handler `TransferSuperAdmin`); caller → Admin, target → SuperAdmin, both refresh tokens revoked |
 | GET | `/api/users/self/credentials` | Authenticated | Paginated list of own credentials (handler `SelfPaginate`); same query DSL as `GET /api/credentials`, scoped to `holder_user_id == auth_user.id` |
@@ -455,14 +462,12 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | GET | `/api/credentials/:id` | Issuer+ | Single credential |
 | GET | `/api/credentials/:id/file` | Authenticated (no role gate) | Download decrypted file; authorization via policy (holder OR Issuer+) |
 | PUT | `/api/credentials/:id/competencies` | Issuer+ | Link competencies to a credential |
-| GET | `/api/credentials/:id/metadata/suggestions` | Issuer+ | Suggest taxonomy rows for staged free text |
-| PUT | `/api/credentials/:id/metadata` | Issuer+ | Resolve staged free text to taxonomy IDs (pending rows only) |
 | POST | `/api/credentials/batch/issue` | Issuer+ | Direct issuance — born approved, type/org required as IDs |
-| POST | `/api/credentials/batch/submit` | Authenticated (no role gate) | Holder self-submission — awaits review; type/org may be staged free text |
+| POST | `/api/credentials/batch/submit` | Authenticated (no role gate) | Holder self-submission; awaits review and requires approved, active reference IDs |
 | POST | `/api/credentials/batch/approve` | Issuer+ | Approve pending submissions; mints on chain, stamps `issuer_user_id` with the approving officer |
 | POST | `/api/credentials/batch/reject` | Issuer+ | Reject pending submissions with a reason |
 | PUT | `/api/credentials/batch` | Issuer+ | Batch update credentials (pending only) |
-| POST | `/api/credentials/batch/revoke` | Issuer+ | Revoke credentials (approved only) |
+| POST | `/api/credentials/batch/revoke` | Issuer+ | Revoke activated, non-rejected credentials, including expired rows |
 | POST | `/api/credentials/batch/reextract` | Issuer+ | Re-extract failed credentials |
 | POST | `/api/credentials/verify` | None (public) | Returns verdict code (400401-400413) + locale description; used by external verifiers (HR, employers) — no auth required |
 | GET | `/api/credential-types` | Authenticated | List credential types (a holder needs these to submit) |
@@ -471,6 +476,9 @@ All under `/api` prefix. Middleware order: `ErrorLoggerMiddleware` → `I18nMidd
 | POST/PUT/DELETE | `/api/issuer-organizations[/:id]` | Issuer+ | Issuer organization CRUD |
 | GET | `/api/competencies` | Authenticated | List competencies |
 | POST/PUT/DELETE | `/api/competencies[/:id]` | Issuer+ | Competency CRUD |
+| POST | `/api/{credential-types,issuer-organizations,competencies}/submit` | Authenticated | Propose a pending reference; braces denote three separate prefixes |
+| POST | `/api/{credential-types,issuer-organizations,competencies}/:id/approve` | Issuer+ | Approve a pending reference |
+| POST | `/api/{credential-types,issuer-organizations,competencies}/:id/reject` | Issuer+ | Reject a pending reference |
 | GET | `/api/user-units` | Authenticated | List organizational units |
 | POST/PUT/DELETE | `/api/user-units[/:id]` | Admin+ | User unit CRUD |
 | GET | `/api/overview` | Authenticated (no role gate) | Role-conditional dashboard: credential counts, user counts, recents, chain details. Optional `?limit=N` controls recent items per category (default 5). Issuer+ get system-wide data; Holder get own only. Credential counts include total, active, pending_review, rejected, expired, revoked, pending, and failed, all scoped by the existing issued_at date range. Review counts match Credential List filters: pending_review checks null activated_at/rejected_at; rejected checks non-null rejected_at; expired checks activated_at non-null, revoked_at null, and expires_at <= now. These are not recap's mutually exclusive lifecycle buckets. Pending/failed remain independent extraction counts and can overlap review categories. |
@@ -492,18 +500,18 @@ Only existing initial up/down schema files define the new table. Existing databa
 
 **PostgreSQL** (via GORM + golang-migrate):
 
-- Primary store for `users`, `credentials`, `user_tokens`
+- Primary store for users, tokens, units, credentials, taxonomy references, competency links, and notifications
 - Migration files in `infrastructure/database/migrations/` (currently only `000001_initial_schema`)
 - Migration logic is inlined in `cmd/migrate.go` (no separate `infrastructure/database/migrate.go`)
 - DSN: `POSTGRES_DSN=postgres://...?sslmode=disable`
 - Repository search uses dialect-agnostic `LOWER(name) LIKE LOWER(?)` (not Postgres-only `ILIKE`); works on both Postgres and SQLite
-- `pg_trgm` extension enabled (`000001_initial_schema.up.sql`); trigram GIN indexes on taxonomy `name` columns back the reviewer's metadata suggestions (`similarity(name, ?)`)
+- `pg_trgm` extension and taxonomy-name trigram GIN indexes remain in the initial schema; there is no current credential metadata suggestions route
 
 **SQLite (testing only):** GORM repository tests run against in-memory SQLite via `github.com/glebarez/sqlite` (pure Go, no CGO). Not used in production.
 
 **Credentials schema note:** the `credentials.embeddings` column is removed. Extraction data (text, ids, embedding) now lives in MongoDB `credential_extractions`.
 
-**Credential metadata staging:** a submitted credential may carry free-text `submitted_type_name` / `submitted_issuer_organization_name` / `submitted_competencies` names with NULL FKs — the unmatched text is staged on the row, not silently created, and a reviewer resolves it via `PUT /api/credentials/:id/metadata` before approval (approval is blocked while unresolved, `CodeCredentialApproveUnresolvedMetadata` 401546).
+**Credential references:** submission and direct issue require existing approved, active type and organization IDs, with optional eligible competency IDs. The approved-active requirement also applies to competencies, but direct issue currently checks only their existence and `Active` flag (`issueValidate`); submission and approval check approval state. Missing references use separate proposal/review endpoints. Credential staged-name fields and metadata resolution routes no longer exist.
 
 **MongoDB:** Actively used. Two collections: `credential_extractions` (text, ids, embedding, file_hash) and `credential_verifications` (TTL-bounded verify cache keyed by uploaded_file_hash). Migration runs inside `make local-up` / `make dev-up`; standalone via `go run main.go migrate-mongo up` / `migrate-mongo down --env .env`. `infrastructure/database/mongo/client.go` provides FX providers.
 
@@ -519,11 +527,11 @@ Only existing initial up/down schema files define the new table. Existing databa
 
 **Repository nil-safety (Get):** `Get` and the shared helpers `ApplySorts` / `ApplyPagination` accept a nil `*Query` — nil queries skip search, filters, and pagination, returning all rows. The default sort is still applied.
 
-**Database Seeder:** `infrastructure/database/seeder/` implements a `Seeder` interface with a `Registry` runner accepting variadic `--names` flags, run inside `make dev-up`; standalone via `go run main.go seed` and `go run main.go seed-chain --env .env`. Seeders run in dependency order: `UserUnitSeeder` → `UserSeeder` → `CredentialTypeSeeder` → `CredentialIssuerOrganizationSeeder` → `CompetencySeeder` → `CredentialSeeder` → `CredentialNotificationSeeder`. Shared helpers live in `pdf.go` (deterministic PDF bytes) and `ulid.go` (`deterministicULID`, the only order-independent handle on a seeded row — `userRepo.Get` sorts by `updated_at DESC, id ASC`, so slice position is not stable). The `UserSeeder` creates 15 users (5 defined + 10 randomised Indonesian names, 60/40 Holder/Issuer tilt) with wallet keys derived from the standard Hardhat mnemonic via BIP44 (`DeriveKeyFromMnemonic`). All users receive an employee number (NIP, 18-digit `YYYYMMDDYYYYMMXNNN`) for Issuer+ roles or a student number (NIM, `2209XXXX`) for Holder roles. Issuers are assigned a root faculty unit and Holders a leaf study program unit (both round-robin, independent counters); Admin and SuperAdmin keep `unit_id` unset. Half the users receive random `{"key":"...}` metadata. Five users are soft-deleted (Anna Sorokin at index 4 + 4 users at indices 10-13). All timestamps (created_at, updated_at, deleted_at) are deterministically generated from a seeded RNG. Chain roles are registered via the `seed-chain` CLI, which reads the database with a nil query and signs batch `UpdateUserRole` transactions in chunks of ≤100 (respecting `MAX_BATCH_ROLE=100` limit in the CredentialAuthority contract) with the SuperAdmin wallet (Hardhat node #1). SuperAdmin and users whose target role is `RoleNone` on a fresh deploy are skipped to avoid contract reverts (`SuperAdminRoleNotUpdatableError`, `SameRoleUpdateError`). The seeded SuperAdmin still holds `Role.SuperAdmin` on chain despite being skipped, because `INITIAL_SUPER_ADMIN_WALLET_ADDRESS` grants it at contract initialization. Soft-deleted users are created with `DeletedAt` pre-set; the `seed-chain` CLI detects these via `DeletedAt != nil` and assigns `RoleNone` on-chain.
+**Database Seeder:** `infrastructure/database/seeder/` implements a `Seeder` interface with a `Registry` runner accepting variadic `--names` flags, run inside `make dev-up`; standalone via `go run main.go seed` and `go run main.go seed-chain --env .env`. Seeders run in dependency order: `UserUnitSeeder` → `UserSeeder` → `CredentialTypeSeeder` → `CredentialIssuerOrganizationSeeder` → `CompetencySeeder` → `CredentialSeeder` → `CredentialNotificationSeeder`. Shared helpers live in `pdf.go` (deterministic PDF bytes) and `ulid.go` (`deterministicULID`, the only order-independent handle on a seeded row; `userRepo.Get` sorts by `updated_at DESC, id ASC`, so slice position is not stable). The `UserSeeder` creates 15 users (5 defined + 10 randomised Indonesian names, 60/40 Holder/Issuer tilt) with wallet keys derived from the standard Hardhat mnemonic via BIP44 (`DeriveKeyFromMnemonic`). All users receive an employee number (NIP, 18-digit `YYYYMMDDYYYYMMXNNN`) for Issuer+ roles or a student number (NIM, `2209XXXX`) for Holder roles. Issuers are assigned a root faculty unit and Holders a leaf study program unit (both round-robin, independent counters); Admin and SuperAdmin keep `unit_id` unset. Half the users receive random `{"key":"..."}` metadata. Five users are soft-deleted (Anna Sorokin at index 5 + 4 users at indices 10-13). All timestamps (created_at, updated_at, deleted_at) are deterministically generated from a seeded RNG. Chain roles are registered via the `seed-chain` CLI, which reads the database with a nil query and signs batch `UpdateUserRole` transactions in chunks of ≤100 (respecting `MAX_BATCH_ROLE=100` limit in the CredentialAuthority contract) with the SuperAdmin wallet (Hardhat node #1). SuperAdmin and users whose target role is `RoleNone` on a fresh deploy are skipped to avoid contract reverts (`SuperAdminRoleNotUpdatableError`, `SameRoleUpdateError`). The seeded SuperAdmin still holds `Role.SuperAdmin` on chain despite being skipped, because `INITIAL_SUPER_ADMIN_WALLET_ADDRESS` grants it at contract initialization. Soft-deleted users are created with `DeletedAt` pre-set; the `seed-chain` CLI detects these via `DeletedAt != nil` and assigns `RoleNone` on-chain.
 
 > `seed-chain` is not idempotent against a chain that already holds the seeded roles — a re-run reverts with `SameRoleUpdateError` (selector `0x538b255d`). Reset the chain first (`docker compose stop anvil && rm -rf docker/anvil/data/* && docker compose up -d anvil`), then redeploy with `ENV_FILE=.env python3 scripts/setup-contracts.py` so the new contract addresses land in `.env`.
 
-**Credential Seeder:** `credential_seeder.go` builds every row from four orthogonal enums — `credWorkflow` (issue/submit), `credOutcome` (pending/approved/rejected/revoked), `credExtract` (unextracted/pending/succeeded/failed) and `credMetadata` (resolved/staged/resolved-from-staged) — so each row is a shape one of the two real service paths could have produced. A fixed A/B/C matrix covers the named scenarios (both workflows, all four acting roles, a past `expires_at`, a soft-deleted holder, and one file hash reused after rejection); filler rows repeat those shapes across the randomised pool. The seeder never sets `token_id` — `seed-chain` writes it back after minting.
+**Credential Seeder:** `credential_seeder.go` builds every row from three orthogonal enums: `credWorkflow` (issue/submit), `credOutcome` (pending/approved/rejected/revoked), and `credExtract` (unextracted/pending/succeeded/failed). Each row represents a shape one of the two real service paths could have produced. A fixed A/B/C matrix covers the named scenarios (both workflows, all four acting roles, a past `expires_at`, a soft-deleted holder, and one file hash reused after rejection); filler rows repeat those shapes across the randomised pool. The seeder never sets `token_id`; `seed-chain` writes it back after minting.
 
 **Credential Notification Seeder:** `credential-notification` reads only shared deterministic credential fixture IDs in one batch and reconstructs holder lifecycle history from persisted timestamps. It runs immediately after `credential` in a full seed. Named runs do not auto-run prerequisites; see [CREDENTIAL.md](CREDENTIAL.md) for ordering and replay caveats. Notification-only replay preserves existing read state; full credential seeding is not idempotent. No email or chain calls are made by this seeder.
 
@@ -568,11 +576,11 @@ Updated 2026-06-14: Credential endpoints (List, Get, Issue, Revoke, ReExtract) n
 
 **Collection variables:** `BASE_URL`, `ID_TOKEN`, `ACCESS_TOKEN`, `REFRESH_TOKEN`, `AUTH_USER_ID`, `AUTH_USER_EMAIL`, `AUTH_USER_NAME`, `TARGET_USER_ID`, `TARGET_CREDENTIAL_ID`, `TEST_EMAIL`, `TEST_PHONE`, `TEST_BIRTH_DATE`.
 
-Every endpoint has response examples for all domain codes it can return (success + all error paths). Auth responses include `deleted_at` field in User DTO. List Users and Find User by ID include "trashed user" success variants (non-null `deleted_at`); Batch Update Users / Update Roles include `300846` / `300547` (trashed-target forbidden, 403) examples.
+The collection contains response examples but is not an exhaustive current route or error-code reference. Compare request bodies and routes with `router.go` and request DTOs before use. Auth responses include `deleted_at` field in User DTO. List Users and Find User by ID include "trashed user" success variants (non-null `deleted_at`); Batch Update Users / Update Roles include `300846` / `300547` (trashed-target forbidden, 403) examples.
 
 ## Configuration / Env Vars
 
-All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided (env or default). Application exits fast at startup for required fields.
+Scalar Config settings are pointers; CORS slices, the max-age duration, and initial-admin metadata are exceptions. The table distinguishes operational requirements from `NewConfig` validation described above.
 
 | Var | Required | Default | Purpose |
 |---|---|---|---|
@@ -580,9 +588,8 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | `JWT_SECRET` | **yes** | — | JWT signing key (fatal if empty) |
 | `WALLET_ENCRYPTION_KEY` | **yes** | — | exactly 32 bytes (AES-256); fatal otherwise |
 | `FILE_ENCRYPTION_KEY` | **yes** | — | exactly 32 bytes (AES-256); for credential file at-rest encryption; fatal otherwise |
-| `GEMINI_API_KEY` | recommended | — | AI features break without it |
-| `GOOGLE_CLIENT_ID` | **yes** | — | OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | **yes** | — | OAuth client secret |
+| `GOOGLE_CLIENT_ID` | for OAuth | none | OAuth client ID; not checked by `NewConfig` |
+| `GOOGLE_CLIENT_SECRET` | for token CLI | none | Authorization Code Flow secret; not checked by `NewConfig` |
 | `GOOGLE_REDIRECT_URI` | no | `http://localhost:3000/google/callback` | OAuth callback URL |
 | `POSTGRES_DSN` | **yes** | — | `postgres://...?sslmode=disable` |
 | `MONGO_URI` | yes | — | MongoDB connection string |
@@ -590,14 +597,14 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | `AUTHORITY_CONTRACT` | **yes** | — | CredentialAuthority contract address |
 | `REGISTRY_CONTRACT` | **yes** | — | CredentialRegistry contract address |
 | `GIN_CORS_ALLOW_ORIGINS` | no | `*` | must NOT be `*` if credentials=true |
-| `GIN_CORS_ALLOW_METHODS` | no | all | |
-| `GIN_CORS_ALLOW_HEADERS` | no | incl. Authorization | |
-| `GIN_CORS_ALLOW_CREDENTIALS` | no | `false` | set `true` for cookie auth |
-| `GIN_CORS_MAX_AGE` | no | | seconds |
-| `GIN_CORS_EXPOSE_HEADERS` | no | | |
+| `GIN_CORS_ALLOW_METHODS` | no | `GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS` | |
+| `GIN_CORS_ALLOW_HEADERS` | no | `Origin,Content-Type,Accept,Authorization,X-Requested-With` | |
+| `GIN_CORS_ALLOW_CREDENTIALS` | no | `true` | requires explicit allowed origins for cookie auth |
+| `GIN_CORS_MAX_AGE` | no | `43200` | seconds |
+| `GIN_CORS_EXPOSE_HEADERS` | no | `Content-Length` | |
 | `COOKIE_DOMAIN` | no | empty | |
 | `COOKIE_SECURE` | recommended | `false` | **must be `true` in production** |
-| `COOKIE_SAMESITE` | no | `lax` | `strict`/`lax`/`none` |
+| `COOKIE_SAMESITE` | no | `strict` | `strict`/`lax`/`none` |
 | `COOKIE_ACCESS_PATH` | no | `/api` | |
 | `COOKIE_REFRESH_PATH` | no | `/api/auth` | |
 | `LOG_LEVEL` | no | `info` | `debug`/`info`/`warn`/`error` |
@@ -607,51 +614,51 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | `INITIAL_SUPER_ADMIN_PRIVATE_KEY` | only for init | — | 64-char hex with `0x` prefix |
 | `INITIAL_SUPER_ADMIN_NAME` | no | — | optional profile field |
 | `INITIAL_SUPER_ADMIN_NUMBER` | no | — | employee/student number |
-| `INITIAL_SUPER_ADMIN_PHONE_NUMBER` | no | — | E.164 format |
+| `INITIAL_SUPER_ADMIN_PHONE_NUMBER` | no | — | Not read: `config.Config` has no phone field, `init-super-admin` never consumes it, and `users` has no phone column |
 | `INITIAL_SUPER_ADMIN_BIRTH_DATE` | no | — | ISO 8601 `YYYY-MM-DD` |
-| `INITIAL_SUPER_ADMIN_GENDER` | no | — | `male` or `female` only (Postgres ENUM, `migration:12-15`) |
+| `INITIAL_SUPER_ADMIN_GENDER` | no | — | `male` or `female` only (Postgres ENUM, `infrastructure/database/migrations/000001_initial_schema.up.sql:12-15`) |
 | `INITIAL_SUPER_ADMIN_META` | no | — | JSON object string |
-| `PYTHON_AI_API_KEY` | no | — | Python AI service API key (empty = auth disabled) |
+| `PYTHON_AI_API_KEY` | no | — | Python AI service API key; empty omits the header, not Python's auth requirement |
 | `MONGO_DATABASE` | no | `credchain` | MongoDB database name |
 | `AI_VERIFICATION_CACHE_TTL_HOURS` | no | `24` | Verify cache TTL hours before auto-expiry |
 | `RIVER_MAX_WORKERS` | no | `10` | River job worker pool size |
 | `STORAGE_PATH` | no | `uploads` | Base directory for file storage |
 | `CREDENTIAL_FILE_STORAGE_PATH` | no | `credentials` | Subdirectory under STORAGE_PATH for credential files |
-| `ISSUING_ORGANIZATION_NAME` | no | — | Organization name displayed on issued credentials |
+| `ISSUING_ORGANIZATION_NAME` | **yes** | — | Organization name displayed on issued credentials |
 | `RELAYER_PRIVATE_KEY` | **yes** | — | Relayer wallet private key for on-chain transactions |
 | `HARDHAT_MNEMONIC` | no | — | Hardhat development mnemonic (local dev only) |
-| `PYTHON_AI_BASE_URL` | no | — | Python AI service base URL |
-| `PYTHON_AI_TIMEOUT_SECONDS` | no | — | Python AI request timeout |
-| `POSTGRES_USER` | **yes** | — | PostgreSQL user |
-| `POSTGRES_PASSWORD` | **yes** | — | PostgreSQL password |
-| `POSTGRES_DB` | **yes** | — | PostgreSQL database name |
-| `DB_MAX_OPEN_CONNS` | no | — | Max open DB connections |
-| `DB_MAX_IDLE_CONNS` | no | — | Max idle DB connections |
-| `DB_CONN_MAX_LIFETIME` | no | — | Max connection lifetime |
-| `DB_CONN_MAX_IDLE_TIME` | no | — | Max idle connection time |
+| `PYTHON_AI_BASE_URL` | no | `http://localhost:8081` | Python AI service base URL |
+| `PYTHON_AI_TIMEOUT_SECONDS` | no | `120` | Python AI request timeout in seconds |
+| `POSTGRES_USER` | for Compose | none | Container initialization; Go connects using `POSTGRES_DSN` |
+| `POSTGRES_PASSWORD` | for Compose | none | Container initialization; not consumed by Go providers |
+| `POSTGRES_DB` | for Compose | none | Container initialization; not consumed by Go providers |
+| `DB_MAX_OPEN_CONNS` | no | `25` | Max open DB connections |
+| `DB_MAX_IDLE_CONNS` | no | `25` | Max idle DB connections |
+| `DB_CONN_MAX_LIFETIME` | no | `5` | Max connection lifetime in minutes |
+| `DB_CONN_MAX_IDLE_TIME` | no | `1` | Max idle connection time in minutes |
 | `MONGO_INIT_DB_USERNAME` | no | — | MongoDB init username |
 | `MONGO_INITDB_ROOT_PASSWORD` | no | — | MongoDB root password |
-| `JWT_ACCESS_EXPIRY_MINUTES` | no | — | JWT access token expiry in minutes |
-| `JWT_REFRESH_EXPIRY_HOURS` | no | — | JWT refresh token expiry in hours |
-| `CREDENTIAL_EXTRACT_WORKER_COUNT` | no | — | Credential extract worker count |
-| `CREDENTIAL_EXTRACT_WORKER_POLL_SECONDS` | no | — | Credential extract poll interval |
-| `CREDENTIAL_EXTRACT_WORKER_MAX_ATTEMPTS` | no | — | Credential extract max attempts |
+| `JWT_ACCESS_EXPIRY_MINUTES` | no | `15` | JWT access token expiry in minutes |
+| `JWT_REFRESH_EXPIRY_HOURS` | no | `168` | JWT refresh token expiry in hours |
+| `CREDENTIAL_EXTRACT_WORKER_COUNT` | no | `1` | Parsed but unused by River workers |
+| `CREDENTIAL_EXTRACT_WORKER_POLL_SECONDS` | no | `2` | Parsed but unused by River workers |
+| `CREDENTIAL_EXTRACT_WORKER_MAX_ATTEMPTS` | no | `3` | Total extraction job attempts, including the first |
 | `MAIL_HOST` / `SMTP_HOST` | no | — | SMTP host; empty disables email notifications |
 | `MAIL_PORT` / `SMTP_PORT` | no | `587` | SMTP server port (1-65535) |
 | `MAIL_USERNAME` / `SMTP_USERNAME` | no | — | SMTP authentication username (paired with password) |
 | `MAIL_PASSWORD` / `SMTP_PASSWORD` | no | — | SMTP authentication password (paired with username) |
 | `MAIL_FROM` / `SMTP_FROM` | if mail enabled | — | Sender email address (e.g. `no-reply@credchain.com`) |
-| `APP_BASE_URL` | if mail enabled | `http://localhost:5173` | Frontend application base URL for notification action links |
+| `APP_BASE_URL` | if mail enabled | none | Frontend application base URL for notification action links |
 
 ## Testing
 
 - **Framework:** `stretchr/testify/assert` (assertions) + `stretchr/testify/mock` (mocks)
 - **Style:** white-box, in-package (same package as source)
-- **Count:** 61+ test files
+- **Count:** 107 `*_test.go` files, excluding temporary worktrees (file count, not a passing-test count)
 - **Database tests:** in-memory SQLite via `github.com/glebarez/sqlite` (pure Go, no CGO). Postgres-specific JSONB operators are not exercised — `Meta` round-trips via `serializer:json`. `UserTokenType` Postgres ENUM stores as TEXT in SQLite.
-- **No integration tests** against real Postgres / MongoDB / IPFS / RPC.
+- **Verification boundary:** inspected repository tests use SQLite, mocks and local HTTP test servers. This audit did not establish live Postgres, MongoDB, IPFS or RPC integration coverage.
 
-**Coverage** (from `go test -cover ./...`):
+**Historical coverage snapshot** (previously recorded from `go test -cover ./...`; not a current measurement or passing-test claim):
 
 | Range | Packages |
 |---|---|
@@ -661,12 +668,14 @@ All Config fields are pointers (`*T`); `nil` = not provided, non-nil = provided 
 | 30–55% | `feature/auth` (54%), `oauth` (50%), `database/gorm` (32%) |
 | 0% (intentional) | `cmd`, `ai`, `chain/contracts`, `http`, `logger`, `storage` |
 
+`infrastructure/ai/pyai/client_test.go` and `infrastructure/http/router_test.go` now exist. Coverage was not rerun; their presence does not establish current coverage percentages.
+
 **Test Infrastructure** (`tests/`, test-only, never imported by production):
 
-- `tests/db/sqlite.go` — `OpenInMemorySQLite(t)` opens in-memory SQLite, auto-migrates `model.User`, `model.UserToken`, `model.Credential`; parallel-safe via random per-call shared-cache name
+- `tests/db/sqlite.go`: `OpenInMemorySQLite(t)` opens in-memory SQLite, auto-migrates `model.UserUnit`, `model.CredentialType`, `model.CredentialIssuerOrganization`, `model.Competency`, `model.CompetencyCredential`, `model.User`, `model.UserToken`, `model.Credential` (8 models; `model.Notification` is not auto-migrated); parallel-safe via random per-call shared-cache name
 - `tests/fixtures/` — entity builders with options pattern: `NewDomainUser(opts...)`, `NewModelUser(opts...)`, `NewDomainUserToken(opts...)`, `NewWallet(t)`, `TestWalletEncryptionKey()`
 - `tests/gintest/` — `NewContext(t, opts...)` builds gin context with i18n/user injection; `LoadTestI18nBundle(t)` loads real `locales/` (cached via `runtime.Caller`)
-- `tests/mocks/` — `stretchr/testify/mock` implementations: `MockUserRepository`, `MockUserTokenRepository`, `MockCredentialRepository`, `MockUnitOfWork` + `RunUnitOfWorkFn(uow, inner)` helper, `PropagatingUnitOfWork` (for chain-failure rollback testing), `MockAuthorityService`, `MockUserPolicy`, `MockGoogleOAuthClient`, `MockAuthorityBinding`, `MockRegistryBinding`
+- `tests/mocks/`: `stretchr/testify/mock` implementations: `MockUserRepository`, `MockUserTokenRepository`, `MockCredentialRepository`, `MockUserUnitRepository`, `MockNotificationRepository`, `MockCredentialExtractionRepository`, `MockCredentialVerificationRepository`, `MockUnitOfWork` + `RunUnitOfWorkFn(uow, inner)` helper, `PropagatingUnitOfWork` (for chain-failure rollback testing), `MockAuthorityService`, `MockRegistryService`, `MockPythonAIClient`, `MockUserPolicy`, `MockGoogleOAuthClient`, `MockAuthorityBinding`, `MockRegistryBinding`
 - `chain/authority_service_test.go` defines `localAuthorityBinding` / `localRegistryBinding` inline to avoid import cycle (would create `tests/mocks` → `chain` cycle)
 
 **Locale coverage** (`infrastructure/http/responder/locale_keys_test.go`):
@@ -683,32 +692,35 @@ When adding a new endpoint or service method, add at least: one happy-path test,
 | Language | Go | 1.25.1 |
 | Module path | `CredChain_Golang` (underscore, not URL) | |
 | Web framework | gin-gonic/gin | v1.12 |
-| CORS | gin-contrib/cors | latest |
+| CORS | gin-contrib/cors | v1.7.7 |
 | JWT | golang-jwt/jwt | v5 |
 | Validation | go-ozzo/ozzo-validation | v4 |
 | CLI | spf13/cobra | v1.10 |
 | DI | uber/fx | v1.24 |
 | Logger | uber/zap | v1.27 |
 | ORM | gorm.io/gorm | v1.31 |
-| Postgres driver | gorm.io/driver/postgres + pgx/v5 | latest |
-| SQLite (test only) | glebarez/sqlite | latest (pure Go) |
-| Migrations | golang-migrate/migrate/v4 | latest |
-| Mongo | go.mongodb.org/mongo-driver/v2 | latest |
+| Postgres driver | gorm.io/driver/postgres + pgx/v5 | v1.6.0 / v5.10.0 |
+| SQLite (test only) | glebarez/sqlite | v1.11.0 (pure Go) |
+| Migrations | golang-migrate/migrate/v4 | v4.19.1 |
+| Mongo | go.mongodb.org/mongo-driver/v2 | v2.5.0 |
 | Chain | ethereum/go-ethereum | v1.17 |
-| Env loader | joho/godotenv | latest |
-| i18n | nicksnyder/go-i18n/v2 | latest |
-| IDs | oklog/ulid/v2 | latest |
-| AI | google/generative-ai-go | latest |
-| Testing | stretchr/testify | latest |
-| Google ID token | google.golang.org/api/idtoken | latest |
+| Env loader | joho/godotenv | v1.5.1 |
+| i18n | nicksnyder/go-i18n/v2 | v2.6.1 |
+| IDs | oklog/ulid/v2 | v2.1.1 |
+| AI | HTTP client to `CredChain_Python` | standard library |
+| Testing | stretchr/testify | v1.11.1 |
+| Job queue | riverqueue/river | v0.39.0 |
+| Mnemonic | tyler-smith/go-bip39 | v1.1.0 |
+| Utilities | samber/lo, golang.org/x/time | v1.53.0, v0.15.0 |
+| Google ID token | google.golang.org/api/idtoken | google.golang.org/api v0.272.0 |
 
 ## Cross-Repo Integration
 
 - **`../CredChain_Solidity/AGENTS.md`** — contracts consumed via abigen bindings at `infrastructure/chain/contracts/`. When contract ABI changes, regenerate bindings and update `chain.AuthorityBinding` / `chain.RegistryBinding` interfaces in `chain/bindings.go` to mirror new methods.
-- **`../CredChain_React/AGENTS.md`** — sole HTTP consumer. Frontend mirrors `domain.Code*` constants in `@shared/api/codes.ts`. Locale files in `locales/{en,id}.json` are mirrored in `src/shared/i18n/` and verified by `npm run check-locales`.
-- **`../CredChain_Python/AGENTS.md`** — AI downstream over HTTP. Response envelope `{code, message, data, errors}` matches Go's format. Python owns category `50` (AI). Python errors propagate through this backend with their original `50xxxx` code intact so the frontend can resolve the i18n key.
+- **`../CredChain_React/AGENTS.md`**: browser HTTP consumer. Frontend code constants live in `@shared/api/codes.ts`. `npm run check-locales` checks flattened backend locale keys except `mail_` keys against the frontend catalogs. Missing frontend keys fail; frontend-only keys warn. It does not compare translated values or response-code constants.
+- **`../CredChain_Python/AGENTS.md`**: AI downstream over HTTP. Response envelope `{code, message, data, errors}` matches Go's format. Python owns category `50` (AI). The client translates Python failures into Go errors; verification returns backend codes rather than preserving Python `50xxxx` values.
 
-**Role enum (mirrored in all four repos):** `None(0) → Holder(1) → Issuer(2) → Admin(3) → SuperAdmin(4)`. Same enum in Solidity (`CredentialAuthority.Role`), Go (`domain.Role`), and React (`@shared/auth/role.ts`).
+**Role representations:** Solidity and Go chain roles use `None(0)`, `Holder(1)`, `Issuer(2)`, `Admin(3)`, `SuperAdmin(4)`. Go database roles and React use four named application roles as strings, without `None`. Python defines no platform roles.
 
 **Response code format (mirrored in all four repos):** 6-digit `AABBCC`. Categories: `10` (system), `20` (auth), `30` (user), `40` (credential), `50` (AI service).
 
@@ -756,29 +768,33 @@ Before pushing, run the repo's canonical verification command and confirm it pas
 - `CredChain_Golang`: `make test && make lint` (lint = `go vet ./... && gofmt -l .`; the `gofmt` list must be empty)
 - `CredChain_Solidity`: `make compile && make test`
 - `CredChain_Python`: `make check`
-- `CredChain_React`: `npm run lint && npm run build && npm run test && npm run check-locales`
+- `CredChain_React`: `make lint && make build && make test && npm run check-locales`
 
 ### Python AI Service API Key
 
-The AI service requires an `API_KEY` for authentication. After generating it
-in the Python project (`make generate-api-key`), copy the key:
+Configure a nonempty Python `API_KEY` to enforce authentication. The Python
+`make generate-api-key` target prints a key but writes only a disposable container's
+`.env.docker`; it does not update the host file.
 
-1. Read `API_KEY=...` from `CredChain_Python/.env.docker`
-2. Set `PYTHON_AI_API_KEY=<that-value>` in `.env.docker`
+1. Save the printed key as `API_KEY` in the host Python `.env.docker`.
+2. Set the same `PYTHON_AI_API_KEY` in the active Go env file (`.env.docker` for Docker, `.env` for host development).
 
-Mismatched keys cause all AI requests to fail with 401.
+If Python's nonempty key and Go's value mismatch, AI requests fail with 401. An empty Go value only omits the header.
 
 ## See Also
 
+- `README.md`: package introduction, setup, usage, testing
 - `ROLE.md` — comprehensive role system reference
 - `CREDENTIAL.md` — comprehensive credential system reference
+- `DATABASE.md`: PostgreSQL and MongoDB schemas, migrations, indexes
+- `DEPLOYMENT.md`: Docker/VPS deployment runbook
 - `Makefile` — canonical commands
 - `CredChain_postman_collection.json` — endpoint testing collection
 - `.air.toml` — hot reload config
-- `docker-compose.yml` — full stack (backend + nginx + postgres + mongo)
+- `docker-compose.yml`: full stack (anvil + backend + nginx + postgres + mongo)
 - `infrastructure/database/migrations/` — schema migrations
 - `locales/{en,id}.json` — i18n message catalog
-- `../AGENTS.md` (workspace root, uncommitted) — multi-repo reference
+- `../AGENTS.md` (workspace root): multi-repo reference
 - `../CredChain_Solidity/AGENTS.md` — smart contract reference
 - `../CredChain_React/AGENTS.md` — frontend consumer reference
 - `../CredChain_Python/AGENTS.md` — AI service reference
